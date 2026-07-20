@@ -30,6 +30,8 @@ jobs:
         run: bash scripts/ci.sh lint
       - name: Check generated policy artifacts are fresh
         run: bash scripts/ci.sh export
+      - name: Check consumer INTEGRATION.md contracts match the registry
+        run: bash scripts/ci.sh docs
       - name: Regenerate artifacts for upload
         run: |
           python backend/manage.py export_policy_registry --format registry \

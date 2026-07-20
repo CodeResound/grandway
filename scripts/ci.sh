@@ -9,13 +9,17 @@
 # change. See CLAUDE.md §1, §18, §33, §35.
 #
 # Usage:
-#   scripts/ci.sh                 # run all stages (lint, export, policy, test)
+#   scripts/ci.sh                 # run all stages (lint, export, docs, policy, test)
 #   scripts/ci.sh lint            # run only the lint stage
 #   scripts/ci.sh lint export     # run a subset, in the order given
 #   scripts/ci.sh policy          # run only the policy-engine stage
 #
 # Stages:
 #   lint    — ruff check + ruff format --check on backend/ (non-mutating)
+#   docs    — validate_integration_docs --strict; every app exposing endpoints must
+#             publish a consumer-facing docs/INTEGRATION.md whose endpoint inventory
+#             matches the registry (CLAUDE.md §19.1). Registry declarations only, no
+#             database.
 #   export  — export_policy_registry --check for the registry + OpenAPI artifacts;
 #             fails if backend/core/policy_engine/docs/{registry_export,openapi}.json
 #             have drifted from the registry declarations. Pure registry read, no
@@ -30,7 +34,7 @@
 #
 # Only the `policy` stage needs a reachable PostgreSQL: supply DB_* + SECRET_KEY
 # via the environment (CI) or a local .env.development file. The `lint`, `export`,
-# and `test` stages run without a database.
+# `docs`, and `test` stages run without a database.
 #
 # Run from the repository root. Uses `python`/`ruff`/`pytest` from PATH — in CI
 # they are installed into the system environment; locally, activate your .venv
@@ -67,6 +71,14 @@ run_export() {
     python backend/manage.py export_policy_registry --format openapi --check --settings=core.settings.testing
 }
 
+run_docs() {
+    # Every app exposing endpoints must publish a consumer-facing INTEGRATION.md
+    # whose endpoint inventory matches the registry (CLAUDE.md §19.1). Reads
+    # registry declarations only — no database — so it runs in the DB-less job.
+    echo "==> [docs] manage.py validate_integration_docs --strict"
+    python backend/manage.py validate_integration_docs --strict --settings=core.settings.testing
+}
+
 run_policy() {
     echo "==> [policy] manage.py migrate"
     python backend/manage.py migrate --noinput
@@ -78,7 +90,7 @@ run_policy() {
 
 # Default to all stages, in a fail-fast order (cheap lint/export first, tests last).
 if [ "$#" -eq 0 ]; then
-    stages="lint export policy test"
+    stages="lint export docs policy test"
 else
     stages="$*"
 fi
@@ -87,10 +99,11 @@ for stage in $stages; do
     case "$stage" in
         lint) run_lint ;;
         export) run_export ;;
+        docs) run_docs ;;
         test) run_test ;;
         policy) run_policy ;;
         *)
-            echo "Unknown stage: '$stage' (valid: lint, export, test, policy)" >&2
+            echo "Unknown stage: '$stage' (valid: lint, export, docs, test, policy)" >&2
             exit 2
             ;;
     esac

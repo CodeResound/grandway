@@ -1,9 +1,17 @@
-# Integration Guide — Core Policy Engine
+# Registry Maintainer Guide — Core Policy Engine
 
 **Owner app:** `core.policy_engine`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-14
+
+> **Audience: backend maintainers of *this* repository.** How to register, version, and retire
+> endpoints in the policy registry.
+>
+> **If you are integrating a client against this API, this is the wrong file.** Start at
+> `backend/core/docs/INTEGRATION.md`, then read the per-app `docs/INTEGRATION.md` — those are the
+> consumer contract (`CLAUDE.md` §19.3). This file documents internal registry mechanics that a
+> consumer neither needs nor can act on.
 
 ---
 
@@ -12,6 +20,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-14 | AI (Claude Opus 4.8) | Initial integration guide: machine-readable artifacts, add/remove-endpoint checklists, lifecycle/method-level/failure examples, frontend & external-client integration, CI-required evidence format |
+| 1.1.0 | 2026-07-21 | AI (Claude Opus 4.8) | Retitled and scoped to backend maintainers to disambiguate from the new consumer-facing `INTEGRATION.md` (`CLAUDE.md` §19.3). Corrects the §6 401/403 error codes to the values `core/exceptions.py` actually returns (`AUTHENTICATION_REQUIRED`/`PERMISSION_DENIED`, not `AUTH_*`). Adds the `INTEGRATION.md` update step to the add/remove-endpoint checklists |
 
 ---
 
@@ -43,6 +52,7 @@ The authoritative rules are `CLAUDE.md` §35. Operator distillation:
 3. Regenerate the artifacts (§1) and stage them.
 4. Run `python manage.py validate_policy_engine --strict` → must pass (0 findings).
 5. Update the owning app's `docs/API.md` + `docs/DATA_CONTRACT.md` (`CLAUDE.md` §19.3).
+6. Update the owning app's `docs/INTEGRATION.md` — the consumer contract. Add the endpoint to §7 with its `Use it when`, `Requires state`, and `Side effects`, and to §4/§5 if it introduces a new model or enum. Run `python manage.py validate_integration_docs --strict` → must pass. A registered endpoint with no contract entry fails CI (`scripts/ci.sh docs`).
 
 ## 3. How to remove an endpoint (checklist)
 
@@ -53,6 +63,7 @@ Endpoints are **never hard-deleted** — staged retirement only (`CLAUDE.md` §3
 3. To reverse either stage: `restore_endpoint(permission_key, reason)` — clears all lifecycle metadata back to fully active.
 4. Soft-remove any dependency edges via `remove_dependency(...)` (`is_active=False`, never hard delete).
 5. Regenerate artifacts (§1), run `validate_policy_engine --strict`, update docs.
+6. Update `docs/INTEGRATION.md`: mark the endpoint deprecated and name its successor and sunset date so consumers can migrate. **Do not delete the entry** — a consumer needs to see that a permission they use is going away, and `validate_integration_docs` flags a documented key that no longer exists in the registry, so the removal happens only after the endpoint is actually gone.
 
 ## 4. Endpoint lifecycle examples
 
@@ -102,12 +113,12 @@ All errors use the standard envelope (`CLAUDE.md` §7); field-level validation e
 
 **401 — unauthenticated:**
 ```json
-{ "success": false, "error": { "code": "AUTH_NOT_AUTHENTICATED", "message": "Authentication required." }, "meta": {} }
+{ "success": false, "error": { "code": "AUTHENTICATION_REQUIRED", "message": "Authentication required." }, "meta": {} }
 ```
 
 **403 — authenticated but not permitted (current interim `is_staff` default, `CLAUDE.md` §9):**
 ```json
-{ "success": false, "error": { "code": "AUTH_PERMISSION_DENIED", "message": "Staff access required." }, "meta": {} }
+{ "success": false, "error": { "code": "PERMISSION_DENIED", "message": "Staff access required." }, "meta": {} }
 ```
 
 **400 — validation failure:**
