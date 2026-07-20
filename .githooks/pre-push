@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# pre-push hook — CLAUDE.md §34 Commit Guardrails.
+#
+# Gates pushes to `main` behind the same mechanical checks as CI (scripts/ci.sh),
+# so no code reaches the remote's release branch without passing them. Other
+# branches push freely: they are for work in progress and offsite backup.
+#
+# Tracked in .githooks/ (not .git/hooks/, which is untracked and lost on clone).
+# Enable once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Backstop only — a local hook is advisory and bypassable. GitHub branch
+# protection + .github/workflows/ci.yml are the authoritative enforcement.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+PROTECTED_REF="refs/heads/main"
+ZERO_SHA="0000000000000000000000000000000000000000"
+
+# Git feeds us one line per pushed ref:
+#   <local_ref> <local_sha> <remote_ref> <remote_sha>
+# Gate only if this push updates the protected branch. A local_sha of all zeros
+# means a branch deletion — nothing to verify.
+pushing_protected=0
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  [[ -z "${remote_ref:-}" ]] && continue
+  [[ "$remote_ref" != "$PROTECTED_REF" ]] && continue
+  [[ "$local_sha" == "$ZERO_SHA" ]] && continue
+  pushing_protected=1
+done
+
+if [[ "$pushing_protected" -eq 0 ]]; then
+  exit 0
+fi
+
+echo "pre-push: push targets ${PROTECTED_REF} — running the CI gates (CLAUDE.md §34)." >&2
+
+# Work whether or not the developer activated the venv in this shell.
+if [[ -d "$REPO_ROOT/.venv/bin" ]]; then
+  PATH="$REPO_ROOT/.venv/bin:$PATH"
+  export PATH
+fi
+
+if ! command -v python >/dev/null 2>&1; then
+  echo "pre-push: BLOCKED — no \`python\` on PATH and no .venv/ in the repo." >&2
+  echo "  Create it:  python3.12 -m venv .venv && .venv/bin/pip install -r requirements/development.txt" >&2
+  exit 1
+fi
+
+fail() {
+  echo "" >&2
+  echo "pre-push: BLOCKED — the '$1' stage failed. Push aborted." >&2
+  echo "  Fix the failure and push again. Do NOT use --no-verify (CLAUDE.md §34)." >&2
+  exit 1
+}
+
+# Database-less stages: ruff, policy-artifact drift, pytest.
+bash scripts/ci.sh lint export test || fail "lint/export/test"
+
+# The `policy` stage (migrate -> sync -> validate) needs a reachable PostgreSQL.
+# Read the connection target from .env.development so this follows the real config.
+db_host="localhost"
+db_port="5432"
+if [[ -f "$REPO_ROOT/.env.development" ]]; then
+  db_host="$(sed -n 's/^DB_HOST=//p' "$REPO_ROOT/.env.development" | tail -1)"
+  db_port="$(sed -n 's/^DB_PORT=//p' "$REPO_ROOT/.env.development" | tail -1)"
+  db_host="${db_host:-localhost}"
+  db_port="${db_port:-5432}"
+fi
+
+# Probe with bash's built-in /dev/tcp — no `nc` dependency.
+if (exec 3<>"/dev/tcp/${db_host}/${db_port}") 2>/dev/null; then
+  exec 3>&- 2>/dev/null || true
+  bash scripts/ci.sh policy || fail "policy"
+else
+  echo "" >&2
+  echo "pre-push: WARNING — PostgreSQL unreachable at ${db_host}:${db_port}; skipping the 'policy' stage." >&2
+  echo "  Start it with:  docker start grandway-postgres" >&2
+  echo "  Policy-engine drift is still enforced by GitHub Actions after this push lands." >&2
+fi
+
+echo "" >&2
+echo "pre-push: all gates passed — allowing the push to ${PROTECTED_REF}." >&2
+exit 0
