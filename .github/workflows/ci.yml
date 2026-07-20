@@ -1,0 +1,104 @@
+name: CI
+
+# Mirrors the mechanical gates that the .claude/hooks/* scripts enforce during an
+# interactive Claude Code session, so the same checks run on every push and PR
+# regardless of how the commit was produced. The .claude protocol guides the AI;
+# this pipeline enforces the project. See CLAUDE.md §1, §18, §35 and scripts/ci.sh.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Ruff lint + format check, and the generated-artifact freshness check.
+  # No database needed (the export reads only the registry declarations).
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      # base.py reads SECRET_KEY at import time even for a lint-only run.
+      SECRET_KEY: ci-dummy-secret-key-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/development.txt
+      - name: Install dependencies
+        run: pip install -r requirements/development.txt
+      - name: Lint
+        run: bash scripts/ci.sh lint
+      - name: Check generated policy artifacts are fresh
+        run: bash scripts/ci.sh export
+      - name: Regenerate artifacts for upload
+        run: |
+          python backend/manage.py export_policy_registry --format registry \
+            --output backend/core/policy_engine/docs/registry_export.json --settings=core.settings.testing
+          python backend/manage.py export_policy_registry --format openapi \
+            --output backend/core/policy_engine/docs/openapi.json --settings=core.settings.testing
+      - name: Upload policy artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: policy-registry-artifacts
+          path: |
+            backend/core/policy_engine/docs/registry_export.json
+            backend/core/policy_engine/docs/openapi.json
+            backend/core/policy_engine/docs/registry_schema.json
+
+  # Full test suite on in-memory SQLite (core.settings.testing) — no database
+  # service required. Switch to a Postgres service + Postgres test settings if you
+  # add Postgres-only features later.
+  test:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ci-dummy-secret-key-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/development.txt
+      - name: Install dependencies
+        run: pip install -r requirements/development.txt
+      - name: Test
+        run: bash scripts/ci.sh test
+
+  # Policy-engine registry gate: migrate -> sync_policy_registry ->
+  # validate_policy_engine --strict, as three separate manage.py processes
+  # against a persistent PostgreSQL.
+  policy-engine:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: grandway_ci
+          POSTGRES_USER: grandway_ci
+          POSTGRES_PASSWORD: grandway_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U grandway_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SECRET_KEY: ci-dummy-secret-key-not-for-production
+      ENVIRONMENT: development
+      DB_NAME: grandway_ci
+      DB_USER: grandway_ci
+      DB_PASSWORD: grandway_ci
+      DB_HOST: localhost
+      DB_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/development.txt
+      - name: Install dependencies
+        run: pip install -r requirements/development.txt
+      - name: Validate policy engine
+        run: bash scripts/ci.sh policy

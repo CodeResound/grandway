@@ -1,0 +1,11 @@
+line-length = 119
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "N", "W", "B", "UP"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+"**/migrations/*.py" = ["E501", "N806", "N816"]
+"**/settings/*.py" = ["F401", "F403", "F405"]
+"**/api_urls.py" = ["E402"]

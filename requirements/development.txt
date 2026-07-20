@@ -1,0 +1,4 @@
+-r base.txt
+ruff==0.4.10
+pytest==8.2.2
+pytest-django==4.8.0

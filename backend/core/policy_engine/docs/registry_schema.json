@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grandway.local/schemas/policy-registry-endpoint.json",
+  "title": "POLICY_ENDPOINTS entry",
+  "description": "Contract for a single endpoint declaration in an app's registry.py POLICY_ENDPOINTS list. The authoritative validator is core.policy_engine.validators.validate_registry_config(); a test asserts this schema's required keys and enums stay in sync with the Python constants.",
+  "type": "object",
+  "required": ["app_key", "endpoint_key", "permission_key", "operation_type", "display_name"],
+  "properties": {
+    "app_key": {"type": "string", "description": "Owning app key (ASCII)."},
+    "app_display_name": {"type": "string"},
+    "model_key": {"type": "string"},
+    "model_display_name": {"type": "string"},
+    "endpoint_key": {"type": "string", "description": "Stable key within the app scope."},
+    "permission_key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+      "description": "Global unique key: app.model.action, lowercase snake_case segments."
+    },
+    "http_method": {"type": "string", "description": "e.g. GET, POST, PATCH, DELETE; blank for service-only."},
+    "route_pattern": {"type": "string", "description": "Django URL pattern; blank for service-only."},
+    "view_import_path": {"type": "string"},
+    "operation_type": {
+      "type": "string",
+      "enum": ["create", "read", "list", "update", "delete", "custom"]
+    },
+    "display_name": {"type": "string"},
+    "description": {"type": "string"},
+    "risk_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "default": "low"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "default": "1.0.0"
+    },
+    "category_key": {"type": "string"},
+    "category_display_name": {"type": "string"},
+    "is_dependency_root": {"type": "boolean", "default": false},
+    "dependencies": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/dependency"},
+      "default": []
+    },
+    "change_summary": {"type": "string"},
+    "change_reason": {"type": "string"}
+  },
+  "$defs": {
+    "dependency": {
+      "type": "object",
+      "required": ["target_permission_key"],
+      "properties": {
+        "target_permission_key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["forward", "backward", "bidirectional"],
+          "default": "forward"
+        },
+        "dependency_type": {
+          "type": "string",
+          "enum": ["requires", "implies", "conflicts_with", "revokes_with", "suggests"],
+          "default": "requires"
+        },
+        "enforcement_mode": {
+          "type": "string",
+          "enum": ["strict", "warning", "manual_review", "metadata_only"],
+          "default": "strict"
+        },
+        "reason": {"type": "string"}
+      }
+    }
+  }
+}
