@@ -31,10 +31,9 @@ db.sqlite3-journal
 staticfiles/
 mediafiles/
 
-# Environment files
-.env.development
-.env.production
-.env.staging
+# Environment files (never shared to remote — no secrets, no env, not even examples)
+.env
+.env.*
 *.env.local
 
 # IDE
