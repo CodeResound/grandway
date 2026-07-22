@@ -10,48 +10,504 @@ CLAUDE.md and is never, by itself, authorization to build a module — building
 still requires a per-app concept file (concepts/<app_name>.txt) and the
 §25/§26 pre-coding gates.
 
-Fill each section below in your own words; the headings are the skeleton. Every
-app named under "Core domains" should get its own concepts/<app_name>.txt
-(copy concepts/_TEMPLATE.txt) before it is built.
+Every app named under "Core domains" should get its own
+concepts/<app_name>.txt, created from concepts/_TEMPLATE.txt, before that app
+is built.
 
 
 Vision / Problem
 ----------------
-<What is this project, and what problem does it solve? The one-paragraph
- elevator description, plus the pain it removes.>
+
+Grandway is an internal operating system for education consultancies that help
+people pursue study opportunities in foreign countries. It manages the
+applicant lifecycle from the first enquiry, through lead follow-up and applicant
+profiling, to study planning, document preparation, offer tracking, appointments,
+and the final result of the applicant's journey.
+
+The problem Grandway solves is fragmentation. Applicant information is often
+spread across spreadsheets, paper files, chat messages, personal notes, folders,
+and separate document templates. This makes it difficult to know who owns a
+lead, what information is complete, which documents exist, what is still
+pending, what decisions were made, and who changed a record.
+
+Grandway creates one accountable source of truth for the consultancy. It keeps
+the applicant's identity, history, study goals, qualifications, documents,
+offers, activities, ownership, and outcomes connected in one place. It also
+preserves enough history to explain how a record reached its current state.
+
+Version 1 is an internal staff system. It is intentionally simple in its actor
+model: every system user is either an Admin or a Lead Manager.
 
 
 Target users
 ------------
-<Who this is for. The distinct user types and what each needs from the system.>
+
+Grandway V1 has two system actor types.
+
+Admin
+
+An Admin has full authority across the system. An Admin can access and manage
+all users, leads, applicants, journeys, institutions, programs,
+offers, documents, files, templates, signatures, checklists, appointments,
+notifications, reports, and audit records.
+
+Admins can assign and reassign work, correct records, transfer ownership,
+archive and restore information, manage system-wide reference records, and
+intervene at any point in an applicant's lifecycle.
+
+Admin authority must always remain accountable. Important Admin actions must be
+recorded with the actor, affected record, action, time, previous value, new
+value, and reason where appropriate.
+
+Lead Manager
+
+A Lead Manager is the primary operational user. The Lead Manager receives and
+manages leads, performs follow-up, converts qualified leads into applicants,
+maintains applicant information, creates applicant journeys, records education
+and test information, manages documents and files, tracks offers, maintains
+checklists, schedules appointments, responds to notifications, and records the
+final outcome of the applicant journey.
+
+A Lead Manager normally works only with the leads, applicants, and records
+assigned or made visible to them by an Admin.
+
+Applicant
+
+The applicant is the central subject of the system but is not a direct system
+actor in V1. Staff users manage the applicant's information and lifecycle on the
+applicant's behalf.
+
+Authorized signatories may exist as document records, but they are not a third
+actor type unless they separately hold an Admin or Lead Manager account.
 
 
 Core domains (apps)
 -------------------
-<The major domains the project decomposes into — these become Django apps. One
- bullet each: app name + one line on what it owns. Each gets a
- concepts/<app_name>.txt of its own.>
+
+- authentication — Owns login, account access, session identity, password
+  management, account status, and enforcement of the Admin and Lead Manager
+  actor types.
+
+- leads — Owns enquiries before applicant conversion, including source,
+  interests, assignment, stage, priority, follow-up, duplicate handling, loss
+  reasons, and conversion.
+
+- applicants — Owns the applicant's central personal and identity profile,
+  including contact details, addresses, nationality, passport details, family
+  information, emergency contacts, photograph, and applicant status.
+
+- education — Owns academic history, qualifications, institutions attended,
+  study periods, grades, GPA, percentages, backlogs, awarding bodies, education
+  gaps, training, and related academic information.
+
+- test_scores — Owns language and standardized test attempts, overall and
+  section scores, dates, references, validity, expiry, and linked result files.
+
+- applicant_journeys — Owns each applicant's specific overseas study objective,
+  including target country, study level, field, preferred program, institutions,
+  intake, budget, funding expectation, scholarship preference, stage,
+  deferment, closure, and final outcome.
+
+- institutions — Owns the institution and program catalogue, including
+  countries, institutions, campuses, programs, qualification levels, fields,
+  duration, intakes, tuition information, entry expectations, scholarships,
+  dates, notes, and availability.
+
+- offers — Owns institution offers connected to applicant journeys, including
+  offer type, dates, conditions, tuition, scholarship, deposit information,
+  acceptance, rejection, withdrawal, deferment, and final offer status.
+
+- documents — Owns editable document records, applicant or standalone
+  ownership, document type, label, status, template association, and the saved
+  input data used by the document workspace.
+
+- document_history — Owns immutable print snapshots, print events, historical
+  document versions, reprint history, generated-file references where used,
+  and the identity of the user who produced each snapshot.
+
+- document_templates — Owns document template definitions, categories,
+  versions, availability, signatory records, signature images, signatory roles,
+  and active or inactive status.
+
+- uploaded_files — Owns files received from or connected to applicants,
+  education records, journeys, offers, and documents, including category,
+  ownership, version, verification state, replacement, rejection, archival,
+  and restoration history.
+
+- checklists — Owns structured completion lists for applicant profiles,
+  documents, institution-related needs, offer conditions, and internal
+  processing, including required items, optional items, due dates, ownership,
+  and completion state.
+
+- appointments — Owns scheduled activities for leads and applicants, including
+  meetings, counselling sessions, interviews, reviews, deadlines, attendance,
+  cancellation, rescheduling, location, and no-show status.
+
+- dashboards — Owns summarized operational views and reporting across lead
+  funnels, sources, conversions, applicant volumes, journey stages, offers,
+  pending documents, appointments, deadlines, Lead Manager workload, and final
+  outcomes.
+
+- notifications — Owns user-facing alerts for assignment, follow-up, missing
+  information, missing documents, appointment dates, checklist deadlines,
+  offer expiry, passport or test expiry, and important lifecycle changes.
+
+- audit — Owns the immutable activity and change history for all important
+  actions across Grandway, including actor, scope, action, time, reason,
+  authority, source, previous value, and new value.
 
 
 Cross-cutting principles
 ------------------------
-<Product- and system-level principles that shape every app: data ownership,
- privacy/local-first posture, bilingual/localization stance, the traceability
- model (actor / scope / action / time / reason / authority / source), etc.>
+
+Single source of truth
+
+Each important real-world subject should have one authoritative record. The
+applicant profile represents the person. Applicant journeys represent separate
+study plans over time. Documents, files, offers, and activities should connect
+to those records instead of duplicating identity information without a clear
+reason.
+
+Two-actor simplicity
+
+V1 recognizes only Admin and Lead Manager as system actor types. Operational
+responsibilities must be expressed through ownership, assignment, and access
+rules rather than by introducing additional staff roles.
+
+Admin authority with full accountability
+
+Admins may perform any necessary action, but important Admin actions must never
+be invisible. Full access does not remove traceability.
+
+Assigned operational ownership
+
+Every active lead and applicant should have a clearly identifiable responsible
+Lead Manager unless deliberately left unassigned by an Admin.
+
+Preserved history
+
+Grandway should preserve the sequence of important changes instead of only the
+latest state. Status changes, ownership changes, conversions, document prints,
+file replacements, offer updates, archival, restoration, and final outcomes
+must remain understandable later.
+
+Traceability
+
+Important events should capture, where applicable:
+
+- Actor — who performed the action
+- Scope — which lead, applicant, journey, document, or other record was
+  affected
+- Action — what occurred
+- Time — when it occurred
+- Reason — why it occurred, when explanation is required
+- Authority — whether the action was performed as an Admin or Lead Manager
+- Source — where the action originated
+- Change — previous and new values where meaningful
+
+Applicant-centred data ownership
+
+The applicant owns their permanent personal and academic identity within the
+domain model. Journeys, offers, documents, files, appointments, and checklists
+should reference the applicant or the relevant applicant journey rather than
+creating disconnected copies.
+
+Journey separation
+
+An applicant is not the same thing as a study journey. One person may pursue
+multiple countries, programs, institutions, or intakes over time. Each journey
+must retain its own state and outcome.
+
+Document data and document presentation are distinct
+
+Grandway stores document identity, ownership, status, template association, and
+the entered data needed to prepare a document. The document workspace is
+responsible for presenting the final document and calculating display-only
+values where required.
+
+For document types that contain derived values, such as bank statements or bank
+certificates, Grandway stores the entered inputs and preserves print snapshots.
+Derived presentation values are not treated as ordinary editable source data.
+
+Immutable print history
+
+A print snapshot represents what was used at a specific point in time. Later
+changes to the applicant, document data, or template must not silently rewrite
+historical print records.
+
+Privacy by default
+
+Applicant identity, passport, academic, financial, and supporting documents are
+sensitive. Access should follow the actor's authority and assigned scope. Broad
+access, exports, file replacement, and sensitive actions must be reviewable.
+
+Explicit lifecycle states
+
+Lead stage, applicant status, journey stage, document status, offer status,
+checklist state, and appointment state are separate concepts. One status must
+not be used as a shortcut for the whole lifecycle.
+
+Archive before destructive loss
+
+Where business history matters, records should normally be archived or
+deactivated rather than silently removed. Any destructive action available to
+an Admin must be deliberate and auditable.
+
+Local operating context with future localization
+
+V1 is designed for an education consultancy operating in the Nepal context and
+working with foreign-study destinations. The conceptual model should not make
+Nepal-specific assumptions that prevent future localization. English may be
+the initial working language, while document and interface localization can be
+expanded later.
+
+Configuration should support operation, not hide the domain
+
+The project may allow configurable statuses, templates, checklist definitions,
+document categories, institutions, and programs, but configuration must not
+make core domain meaning ambiguous.
 
 
 Glossary
 --------
-<Key domain terms and their precise meaning, so the same word means the same
- thing across apps and across the backend/frontend boundary.>
+
+Admin
+
+A system actor with full access across Grandway. Admin actions remain subject
+to audit and accountability.
+
+Lead Manager
+
+The operational system actor responsible for managing assigned leads and
+applicants through the V1 lifecycle.
+
+Lead
+
+A person who has shown interest in foreign education but has not yet been
+converted into an applicant.
+
+Lead source
+
+The origin through which a lead entered the consultancy, such as a referral,
+walk-in, campaign, event, website, or other channel.
+
+Lead stage
+
+The current position of a lead before conversion, loss, disqualification,
+duplication, or closure.
+
+Applicant
+
+The permanent person record created when a lead is converted or when an Admin
+creates an applicant directly under an approved process.
+
+Applicant profile
+
+The applicant's central personal, identity, contact, family, passport, and
+background information.
+
+Applicant journey
+
+A specific overseas study objective pursued by an applicant. It contains its
+own target country, study level, field, institutions, programs, intake,
+preferences, progress, and final outcome.
+
+Journey owner
+
+The Lead Manager currently responsible for the applicant journey.
+
+Journey stage
+
+The current state of an applicant journey, independent from lead, offer,
+document, or appointment status.
+
+Final outcome
+
+The recorded end result of an applicant journey, such as successful, deferred,
+withdrawn, rejected, lost, not qualified, cancelled, or otherwise closed.
+
+Institution
+
+An education provider that offers programs relevant to applicant journeys.
+
+Campus
+
+A specific location or branch of an institution.
+
+Program
+
+A course of study offered by an institution or campus for a particular
+qualification level and field.
+
+Intake
+
+The planned admission period in which the applicant expects to begin a program.
+
+Offer
+
+A formal admission-related outcome issued by an institution for a particular
+program, campus, and intake.
+
+Offer condition
+
+A requirement that must be fulfilled before an offer becomes complete or
+unconditional.
+
+Document
+
+A saved editable document record containing document identity, ownership,
+type, status, template association, and input data.
+
+Document type
+
+The recognized category or template family of a document.
+
+Standalone document
+
+A document that is not directly owned by an applicant. Its ownership and
+purpose must still be explicit.
+
+Document template
+
+The approved presentation definition used to prepare a particular document
+type.
+
+Signatory
+
+A stored person and signature record that may be used in approved document
+templates. A signatory is not automatically a system actor.
+
+Print snapshot
+
+An immutable historical copy of the document information and relevant
+configuration captured when the document is printed or formally saved to
+history.
+
+Uploaded file
+
+A file received from or associated with an applicant, journey, education
+record, offer, or document.
+
+File version
+
+A preserved revision of an uploaded file. Replacing a file should not silently
+erase the earlier version when history is required.
+
+Checklist
+
+A structured set of required or optional items that must be completed for an
+applicant, journey, offer, document process, or internal operation.
+
+Checklist item
+
+One individually trackable requirement within a checklist.
+
+Appointment
+
+A scheduled activity connected to a lead, applicant, or journey.
+
+Notification
+
+An alert presented to an Admin or Lead Manager because attention or action is
+required.
+
+Ownership
+
+The assignment of responsibility for a lead, applicant, journey, or related
+work to a Lead Manager.
+
+Assignment
+
+The action through which an Admin or authorized process gives responsibility
+for a record to a Lead Manager.
+
+Transfer
+
+A recorded movement of ownership from one Lead Manager to another.
+
+Archive
+
+A reversible state that removes a record from normal active work without
+erasing its history.
+
+Audit event
+
+An immutable record of an important action or change, including the responsible
+actor and contextual details needed for accountability.
 
 
 Constraints / Out of scope
 --------------------------
-<Hard constraints (regulatory, infrastructure, timeline) and explicit non-goals
- for the project as a whole.>
+
+Hard constraints
+
+- V1 has exactly two system actor types: Admin and Lead Manager.
+- Admins can perform any action, but important actions must be logged.
+- Lead Managers operate within the record scope granted to them.
+- Applicants are not direct system users in V1.
+- Every important lead and applicant action must remain attributable to a user.
+- Historical document print snapshots must not be silently altered.
+- Document records store editable input data; display-only derived values are
+  not treated as ordinary persisted source data.
+- One applicant may have multiple applicant journeys.
+- Lead status, journey status, offer status, document status, checklist status,
+  and appointment status must remain distinct.
+- Each core domain must receive its own concept file before implementation.
+- This document describes the project vision and scope; it does not authorize
+  implementation by itself.
+
+Out of scope for V1
+
+- Additional system actor types beyond Admin and Lead Manager
+- Applicant self-service portal
+- Employment and work-experience management as a standalone domain
+- Dedicated counselling-history or communication-history management
+- Program shortlisting as a standalone domain
+- Detailed institution application processing
+- Visa case management
+- Task management as a standalone domain
+- Financial sponsor management as a standalone domain
+- Consultancy invoicing, payment, accounting, or refund management
+- Pre-departure management
+- Email, SMS, chat, or messaging integration as a complete communication module
+- Global search as an independent domain
+- Import and export management as an independent domain
+- Native mobile applications
+- Government or institution decision-making
+- Guaranteed eligibility, admission, or visa assessment
+- Full university student-information functionality
+- Automatic building of any module without its own approved concept document
 
 
 Open questions
 --------------
-<Unresolved project-level questions worth capturing so they are not lost.>
+
+- What exact lead stages will Grandway V1 use?
+- What exact applicant journey stages and final outcomes will V1 use?
+- Can Lead Managers view all records, or only records explicitly assigned to
+  them?
+- Can a Lead Manager reassign or transfer a lead or applicant, or is that always
+  an Admin action?
+- Can Lead Managers archive records, or can they only request Admin action?
+- Which Admin actions require a mandatory reason?
+- Which sensitive fields or files should be hidden from Lead Managers by
+  default?
+- Should the project support multiple consultancy companies in one deployment,
+  or only one consultancy?
+- Which countries, institutions, and program categories are required for the
+  initial release?
+- Will institution and program information be entered manually, maintained from
+  an external source, or both?
+- What is the final canonical set of document types and templates for V1?
+- Should final generated PDF files be retained in addition to document data and
+  print snapshots?
+- Which uploaded file types and maximum sizes are permitted?
+- What verification states are required for uploaded files?
+- Which checklist families are required at launch?
+- Which events should create notifications automatically?
+- Which reports are essential for the first operational release?
+- What data-retention period applies to lost leads, withdrawn applicants,
+  archived documents, and uploaded files?
+- Which actions, if any, should be permanently irreversible?
+- Is English the only V1 interface language, or is Nepali support required at
+  launch?
