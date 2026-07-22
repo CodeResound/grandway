@@ -16,3 +16,19 @@ DATABASES = {
         "NAME": ":memory:",
     }
 }
+
+# DRF throttle state lives in the process cache and is not rolled back between
+# tests; disable the scoped auth rates so unrelated tests don't trip them.
+# django-axes lockout (DB-backed, rolled back per test) stays enabled so the
+# lockout behaviour can be tested directly.
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,  # noqa: F405
+    "DEFAULT_THROTTLE_RATES": {
+        **REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],  # noqa: F405
+        "anon": None,
+        "user": None,
+        "auth_login_ip": None,
+        "auth_login_user": None,
+        "auth_refresh": None,
+    },
+}

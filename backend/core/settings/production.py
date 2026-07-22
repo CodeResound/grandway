@@ -2,8 +2,11 @@ from .base import *  # noqa: F401, F403
 
 DEBUG = False
 
-# Refresh token is an HttpOnly cookie in production; never the dev "body" mode.
+# Refresh token is a Secure HttpOnly cookie in production; never the dev "body" mode.
+# AUTH_REFRESH_COOKIE_ENABLED drives authenticate.views; the *_SECURE/HTTPONLY/SAMESITE
+# flags are inherited from base.py (Secure + HttpOnly + Lax).
 AUTH_COOKIE_STRATEGY = "cookie"
+AUTH_REFRESH_COOKIE_ENABLED = True
 
 SECURE_SSL_REDIRECT = True
 SECURE_HSTS_SECONDS = 31536000

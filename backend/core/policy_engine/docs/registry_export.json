@@ -3,18 +3,138 @@
   "generated_from": "registry",
   "applications": [
     {
+      "app_key": "authenticate",
+      "display_name": "Authenticate"
+    },
+    {
       "app_key": "policy_engine",
       "display_name": "Core Policy Engine"
     }
   ],
   "categories": [
     {
+      "category_key": "authentication",
+      "display_name": "Authentication"
+    },
+    {
       "category_key": "policy_engine_administration",
       "display_name": "Policy Engine Administration"
     }
   ],
-  "endpoint_count": 7,
+  "endpoint_count": 12,
   "endpoints": [
+    {
+      "permission_key": "authenticate.session.login",
+      "app_key": "authenticate",
+      "model_key": "session",
+      "endpoint_key": "session-login",
+      "display_name": "Login",
+      "description": "Authenticate with username + password (+ device_id) and open a revocable session.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/login/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "authentication",
+      "is_dependency_root": true,
+      "dependencies": []
+    },
+    {
+      "permission_key": "authenticate.session.logout",
+      "app_key": "authenticate",
+      "model_key": "session",
+      "endpoint_key": "session-logout",
+      "display_name": "Logout",
+      "description": "Revoke the caller's current session (logout of this device).",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/logout/",
+      "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "authentication",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.session.refresh",
+      "app_key": "authenticate",
+      "model_key": "session",
+      "endpoint_key": "session-refresh",
+      "display_name": "Refresh Session",
+      "description": "Rotate the refresh session, issuing a new access + refresh credential.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/refresh/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "authentication",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.change_password",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-change-password",
+      "display_name": "Change Password",
+      "description": "Change the caller's own password after confirming the current one.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/password/change/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "authentication",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.me",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-me",
+      "display_name": "Current User",
+      "description": "Return the currently authenticated user and forced-password-change state.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/auth/me/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "authentication",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
     {
       "permission_key": "policy_engine.application.list",
       "app_key": "policy_engine",

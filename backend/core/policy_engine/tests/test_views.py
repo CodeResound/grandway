@@ -1,7 +1,7 @@
+from authenticate.services import build_access_token, issue_session
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
-from rest_framework_simplejwt.tokens import AccessToken
 
 from core.policy_engine.constants import OperationType, RiskLevel
 from core.policy_engine.services import (
@@ -13,6 +13,12 @@ from core.policy_engine.services import (
 )
 
 User = get_user_model()
+
+
+def session_token(user) -> str:
+    """Mint a session-bound access token (the project default auth requires a sid)."""
+    session, _ = issue_session(user=user, device_id="test-device")
+    return build_access_token(user, session, must_change_password=False)
 
 
 class PolicyAPIAuthTest(APITestCase):
@@ -39,7 +45,7 @@ class PolicyAPIAuthTest(APITestCase):
 
     def test_non_staff_returns_403(self):
         user = User.objects.create_user(username="regular", password="pass", is_staff=False)
-        token = str(AccessToken.for_user(user))
+        token = session_token(user)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         for url in self.ENDPOINTS:
             response = self.client.get(url)
@@ -53,7 +59,7 @@ class PolicyAPIAuthTest(APITestCase):
 class PolicyApplicationListViewTest(APITestCase):
     def setUp(self):
         self.staff = User.objects.create_user(username="staff", password="pass", is_staff=True)
-        token = str(AccessToken.for_user(self.staff))
+        token = session_token(self.staff)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         register_application(key="auth", display_name="Authentication")
 
@@ -74,7 +80,7 @@ class PolicyApplicationListViewTest(APITestCase):
 class PolicyApplicationDetailViewTest(APITestCase):
     def setUp(self):
         self.staff = User.objects.create_user(username="staff", password="pass", is_staff=True)
-        token = str(AccessToken.for_user(self.staff))
+        token = session_token(self.staff)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         register_application(key="auth", display_name="Authentication")
         register_endpoint(
@@ -104,7 +110,7 @@ class PolicyApplicationDetailViewTest(APITestCase):
 class UIPermissionTreeViewTest(APITestCase):
     def setUp(self):
         self.staff = User.objects.create_user(username="staff", password="pass", is_staff=True)
-        token = str(AccessToken.for_user(self.staff))
+        token = session_token(self.staff)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         register_application(key="auth", display_name="Authentication")
         register_endpoint(
@@ -136,7 +142,7 @@ class UIPermissionTreeViewTest(APITestCase):
 class PolicyEndpointDetailViewTest(APITestCase):
     def setUp(self):
         self.staff = User.objects.create_user(username="staff", password="pass", is_staff=True)
-        token = str(AccessToken.for_user(self.staff))
+        token = session_token(self.staff)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         register_application(key="auth", display_name="Authentication")
         register_endpoint(
@@ -160,7 +166,7 @@ class PolicyEndpointDetailViewTest(APITestCase):
 class EndpointDependencyViewTest(APITestCase):
     def setUp(self):
         self.staff = User.objects.create_user(username="staff", password="pass", is_staff=True)
-        token = str(AccessToken.for_user(self.staff))
+        token = session_token(self.staff)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         register_application(key="auth", display_name="Authentication")
         register_endpoint(

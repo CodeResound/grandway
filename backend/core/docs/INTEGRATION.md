@@ -13,21 +13,21 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-21 | AI (Claude Opus 4.8) | Initial project-level integration entry point |
+| 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | `authenticate` app shipped: real token-issuance (login/refresh) now exists — removed the stale "not callable" warning; added `authenticate` to the inventory and dependency graph |
 
 ---
 
-> ## ⚠ Read first: this API is not callable end-to-end yet
+> ## ⚠ Read first: how to authenticate
 >
-> There is **no token-issuance endpoint**. JWT is the only accepted credential, and no login or
-> token route is wired into `/api/v1/` — the app that will own authentication does not exist yet.
+> Token issuance is live in the **`authenticate`** app. `POST /api/v1/auth/login/` (username +
+> password + `device_id`) returns a Bearer access token; `POST /api/v1/auth/refresh/` rotates it.
+> Full contract: `authenticate/docs/INTEGRATION.md`.
 >
-> **An external client cannot authenticate, and therefore cannot reach any `/api/v1/` endpoint
-> today.** The contracts below are real, stable, and CI-verified, but you cannot exercise them from
-> outside this server yet. The only way to mint a token requires shell access to the backend host
-> (§4) — which the intended reader of this document does not have. If you are planning an
-> integration, this is the blocker to resolve first, and it is not resolvable from the client side.
->
-> Everything else in this document is accurate and safe to build against in advance.
+> Two things still require out-of-band setup, and neither is resolvable from the client side:
+> 1. **Base URL** — no host is published in this doc; obtain it from whoever runs the backend.
+> 2. **The first account** — there is no self-service signup. A backend operator creates the initial
+>    superadmin with `python manage.py bootstrap_superadmin` (shell access required); every other
+>    account is then provisioned in-app by a higher authority.
 
 ---
 
@@ -133,25 +133,25 @@ An unpaginated list endpoint returns the same bare array in `data` with `meta: {
 
 JWT via SimpleJWT, sent as `Authorization: Bearer <access_token>`.
 
-**No token-issuance endpoint exists** (see the warning at the top of this file). The token *lifetimes*
-below are the configured SimpleJWT settings and describe how a token will behave once issued — they
-do **not** imply a refresh flow you can call today, because no endpoint issues or refreshes tokens.
+**Token issuance lives in the `authenticate` app** (`/api/v1/auth/`). `POST /api/v1/auth/login/`
+(username + password + `device_id`) returns an access token; `POST /api/v1/auth/refresh/` rotates it.
+See `authenticate/docs/INTEGRATION.md` for the full contract. Access tokens are **session-bound**:
+the server re-validates the underlying session on every request, so blocking, logout, and password
+change revoke access immediately regardless of token lifetime.
 
-- Access token lifetime: 60 minutes (24 hours in development).
-- Refresh token lifetime: 7 days, rotated on use. *(Configured, but unreachable — no refresh route exists.)*
-- In production the refresh token will be an HttpOnly cookie; in development, returned in the body. *(Planned behaviour of the future auth app, not current behaviour.)*
+- Access token lifetime: 15 minutes (24 hours in development).
+- Refresh credential: opaque, server-stored, rotated on use, with reuse detection (7-day absolute /
+  12-hour idle lifetime). In production it is a `Secure; HttpOnly; SameSite` cookie; in development it
+  is returned in the login/refresh response body.
 
-**Getting a token today — backend-host access required.** This is not something the intended reader of
-this document can do; it is recorded so a backend operator can hand you a token out of band:
+**Getting a token today.** Create the initial superadmin with
+`python backend/manage.py bootstrap_superadmin --username <name>`, then `POST /api/v1/auth/login/`.
 
-```
-python backend/manage.py shell -c "from rest_framework_simplejwt.tokens import RefreshToken; from django.contrib.auth import get_user_model; print(RefreshToken.for_user(get_user_model().objects.get(is_staff=True)).access_token)"
-```
-
-When the authentication app ships it will publish its own `INTEGRATION.md` with real token endpoints,
-and this section will be replaced by a pointer to it.
-
-**Authorization today.** Endpoints are protected by an interim check: authenticated **and** `is_staff`. There is no role- or permission-key-based enforcement in the request path yet — the Core Policy Engine *describes* the permission surface but does not yet gate requests with it (`CLAUDE.md` §9). A consumer should therefore expect `PERMISSION_DENIED` for any non-staff user on any protected endpoint, regardless of the endpoint's declared `permission_key`.
+**Authorization today.** `authenticate`'s own protected endpoints (`logout`, `me`, `password/change`)
+are authenticated self-service (any signed-in user, acting on their own account). `core.policy_engine`
+still uses the interim check: authenticated **and** `is_staff`. There is no role- or permission-key-based
+enforcement in the request path yet — the Core Policy Engine *describes* the permission surface but does
+not yet gate requests with it (`CLAUDE.md` §9).
 
 Every endpoint denies by default. Any public endpoint is explicitly marked as such in its app's `INTEGRATION.md`.
 
@@ -165,6 +165,7 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 
 | App | Base path | Purpose | Contract |
 |-----|-----------|---------|----------|
+| `authenticate` | `/api/v1/auth/` | Platform identity: username/password login, session-bound JWT access tokens, revocable device sessions (max 3 devices), forced first-login password change | `authenticate/docs/INTEGRATION.md` |
 | `core.policy_engine` | `/api/v1/policy/` | Read-only registry of every endpoint in this backend: permission keys, risk levels, dependency edges, version history, change log | `core/policy_engine/docs/INTEGRATION.md` |
 
 **Routes outside `/api/v1/`.** `core` exposes three, and they are deliberately outside the registry-completeness guarantee in §9 (which covers `/api/v1/` only). They have no permission key and are not client API surface:
@@ -179,7 +180,8 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 
 Assembled from each app's `INTEGRATION.md` §2 `Requires`. Use it to determine integration order: an app's dependencies must be usable before it is.
 
-- `core.policy_engine` → `core` (framework), Django `auth.User` (FK), `rest_framework_simplejwt` (framework)
+- `authenticate` → `core` (framework), `django-axes` (framework), `rest_framework_simplejwt` (framework), `argon2-cffi` (framework)
+- `core.policy_engine` → `core` (framework), `authenticate.User` (FK — the platform user model, since `AUTH_USER_MODEL = authenticate.User`), `rest_framework_simplejwt` (framework)
 
 No app-to-app runtime coupling exists yet. When it does, each edge appears in **both** apps' §2 sections — the depended-on app records what would break, the depending app records why it needs it.
 
@@ -204,7 +206,7 @@ Generated from the endpoint registry, committed, and CI-checked for drift — th
 ## 10. Gaps
 
 - Request/response body schemas are not machine-readable (see §8).
-- Permission-key-based authorization is not yet enforced in the request path (see §4); only `is_staff` is.
-- **No token-issuance endpoint exists yet** (§4) — the single biggest blocker to an end-to-end integration today.
+- Permission-key-based authorization is not yet enforced in the request path (see §4); `authenticate`'s own protected endpoints are authenticated self-service, and `core.policy_engine` uses `is_staff`.
 - **No host is published here.** Every path in this documentation set is relative to a base URL you must obtain from the deploying team (locally, `http://localhost:8000`). There is no public sandbox environment.
+- **The first account requires shell access.** Token issuance exists (`authenticate`), but the initial superadmin is created by the `bootstrap_superadmin` management command, and there is no self-service signup — so the very first credential must be provisioned server-side (§4).
 - Rate-limit state is not exposed in response headers — 429 is the only signal (§5).

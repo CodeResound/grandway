@@ -22,13 +22,15 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "corsheaders",
+    "axes",
     # Internal
     "core",
     "core.policy_engine",
+    "authenticate",
 ]
 
-# Uses Django's built-in auth.User. Add your own auth app + AUTH_USER_MODEL here
-# when the platform needs a custom user model.
+# The authenticate app owns the platform's identity layer with a custom user model.
+AUTH_USER_MODEL = "authenticate.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -41,6 +43,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # django-axes: must be the LAST middleware so it observes the final auth outcome.
+    "axes.middleware.AxesMiddleware",
 ]
 
 ROOT_URLCONF = "core.urls"
@@ -86,8 +90,29 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# Uses Django's default PASSWORD_HASHERS (PBKDF2). Add Argon2/bcrypt hashers and
-# their packages here if the platform needs them.
+# Argon2id is the primary password hasher (argon2-cffi backend, ID variant), per the
+# authenticate app's security target. PBKDF2 variants remain as fallback verifiers so
+# any pre-existing PBKDF2 hashes still validate and are upgraded on next login.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+]
+
+# AxesStandaloneBackend must precede ModelBackend so a locked (username, ip) pair is
+# denied before credential verification. ModelBackend does the actual auth.
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+# django-axes: brute-force lockout. Sole failed-attempt counter in the system
+# (covers /admin/login/ too). Locks independently on username OR ip_address.
+AXES_FAILURE_LIMIT = config("AXES_FAILURE_LIMIT", default=5, cast=int)
+AXES_COOLOFF_TIME = timedelta(minutes=config("AXES_COOLOFF_MINUTES", default=15, cast=int))
+AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+AXES_RESET_ON_SUCCESS = True
+AXES_ENABLE_ACCESS_FAILURE_LOG = True
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
@@ -101,7 +126,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "authenticate.authentication.SessionBoundJWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -119,20 +144,49 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "100/hour",
         "user": "1000/hour",
+        # authenticate app scoped throttles (per-IP for anon login/refresh bursts;
+        # per-username handled by a dedicated scope on the login view).
+        "auth_login_ip": "20/minute",
+        "auth_login_user": "10/minute",
+        "auth_refresh": "60/minute",
     },
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    # Short-lived access token; server-side revocation is enforced per-request by
+    # authenticate.authentication.SessionBoundJWTAuthentication regardless of lifetime.
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    # Refresh is an opaque, server-stored AuthSession credential — NOT a SimpleJWT
+    # refresh token. This lifetime is unused; AUTH_SESSION_* below govern refresh.
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": False,
-    "UPDATE_LAST_LOGIN": True,
+    "UPDATE_LAST_LOGIN": False,
+    # Algorithm is pinned server-side (never trust an incoming token's alg header).
     "ALGORITHM": "HS256",
     "SIGNING_KEY": config("SECRET_KEY"),
+    "ISSUER": config("JWT_ISSUER", default="grandway"),
+    "AUDIENCE": config("JWT_AUDIENCE", default="grandway-api"),
     "AUTH_HEADER_TYPES": ("Bearer",),
     "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
 }
+
+# ---------------------------------------------------------------------------
+# authenticate app — session + refresh-cookie configuration.
+# Access token is returned in the response body; the refresh credential is an
+# opaque server-stored token (see authenticate.models.AuthSession).
+# ---------------------------------------------------------------------------
+AUTH_SESSION_IDLE_LIFETIME = timedelta(hours=config("AUTH_SESSION_IDLE_HOURS", default=12, cast=int))
+AUTH_SESSION_ABSOLUTE_LIFETIME = timedelta(days=config("AUTH_SESSION_ABSOLUTE_DAYS", default=7, cast=int))
+AUTH_MAX_ACTIVE_DEVICES = config("AUTH_MAX_ACTIVE_DEVICES", default=3, cast=int)
+
+# Refresh-cookie transport. Development returns the refresh token in the response
+# body (cookie disabled); production overrides AUTH_REFRESH_COOKIE_ENABLED=True with
+# Secure/HttpOnly/SameSite set. See core/settings/production.py.
+AUTH_REFRESH_COOKIE_ENABLED = False
+AUTH_REFRESH_COOKIE_NAME = "grandway_refresh"
+AUTH_REFRESH_COOKIE_SECURE = True
+AUTH_REFRESH_COOKIE_HTTPONLY = True
+AUTH_REFRESH_COOKIE_SAMESITE = "Lax"
+AUTH_REFRESH_COOKIE_PATH = "/api/v1/auth/"
 
 LOGGING = {
     "version": 1,

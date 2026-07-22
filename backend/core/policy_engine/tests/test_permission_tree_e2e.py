@@ -9,15 +9,21 @@ permission assignment UI.
 
 import json
 
+from authenticate.services import build_access_token, issue_session
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
-from rest_framework_simplejwt.tokens import AccessToken
 
 from core.policy_engine.constants import CreatedByType, OperationType, RiskLevel
 from core.policy_engine.lifecycle import run_endpoint_lifecycle
 from core.policy_engine.selectors import get_ui_permission_tree
 
 User = get_user_model()
+
+
+def session_token(user) -> str:
+    """Mint a session-bound access token (the project default auth requires a sid)."""
+    session, _ = issue_session(user=user, device_id="test-device")
+    return build_access_token(user, session, must_change_password=False)
 
 
 def _register_authenticate_app():
@@ -180,7 +186,7 @@ class UIPermissionTreeE2ETest(APITestCase):
     def setUp(self):
         _register_authenticate_app()
         self.staff = User.objects.create_user(username="admin", password="pass", is_staff=True)
-        token = AccessToken.for_user(self.staff)
+        token = session_token(self.staff)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
     def test_tree_endpoint_returns_200(self):
