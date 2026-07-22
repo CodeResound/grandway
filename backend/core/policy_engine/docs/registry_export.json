@@ -3,6 +3,10 @@
   "generated_from": "registry",
   "applications": [
     {
+      "app_key": "audit",
+      "display_name": "Audit"
+    },
+    {
       "app_key": "authenticate",
       "display_name": "Authenticate"
     },
@@ -17,6 +21,10 @@
       "display_name": "Account Management"
     },
     {
+      "category_key": "audit_review",
+      "display_name": "Audit Review"
+    },
+    {
       "category_key": "authentication",
       "display_name": "Authentication"
     },
@@ -29,8 +37,48 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 28,
+  "endpoint_count": 30,
   "endpoints": [
+    {
+      "permission_key": "audit.event.list",
+      "app_key": "audit",
+      "model_key": "event",
+      "endpoint_key": "event-list",
+      "display_name": "List Audit Events",
+      "description": "List and filter the central audit log (Admin/Superadmin).",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/audit/events/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "audit_review",
+      "is_dependency_root": true,
+      "dependencies": []
+    },
+    {
+      "permission_key": "audit.event.read",
+      "app_key": "audit",
+      "model_key": "event",
+      "endpoint_key": "event-read",
+      "display_name": "View Audit Event",
+      "description": "Retrieve a single audit event by id (Admin/Superadmin).",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/audit/events/<event_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "audit_review",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "audit.event.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading one event is meaningful only alongside list access."
+        }
+      ]
+    },
     {
       "permission_key": "authenticate.mfa.disable",
       "app_key": "authenticate",

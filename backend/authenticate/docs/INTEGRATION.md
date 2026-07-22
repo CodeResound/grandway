@@ -32,6 +32,7 @@
 | `rest_framework_simplejwt` | framework | Signs/verifies the access JWT | No access token can be issued or validated; every protected call returns 401 |
 | `argon2-cffi` | framework | Argon2id password hashing (primary hasher) | Passwords fall back to PBKDF2; below the app's security target |
 | `django-otp` | framework | Stores the TOTP secret (`TOTPDevice`) and verifies authenticator codes | MFA enrollment/verification and the login MFA step cannot function |
+| `audit` | service call | `record_auth_event` also emits each event to the central audit log (federated, best-effort) | Auth events stop appearing in the central `/api/v1/audit/` log; this app's own `AuthEvent` log and its `/users/<id>/events/` endpoint are unaffected (the emit is best-effort and never breaks auth) |
 
 **Note for consumers:** this app authenticates and sizes authority (`superadmin`/`admin`/`lead_manager`); it does NOT authorize access to business resources. Its own account-management authority is a fixed one-tier hierarchy enforced inline — there is no application-level permission-key engine in the request path yet.
 

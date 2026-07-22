@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import secrets
 from typing import Any
 
@@ -61,6 +62,8 @@ from authenticate.selectors import (
 )
 from authenticate.validators import validate_password_strength
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Refresh-token helpers
 # ---------------------------------------------------------------------------
@@ -94,8 +97,14 @@ def record_auth_event(
     device_id: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> AuthEvent:
-    """Append one immutable audit row. Never pass secrets in any field."""
-    return AuthEvent.objects.create(
+    """Append one immutable auth event, and also emit it to the central audit.
+
+    ``AuthEvent`` is authoritative for this app's own review endpoint; the central
+    audit emission is federated and best-effort — a failure there is logged, never
+    raised, so it can never break the triggering authentication action.
+    Never pass secrets in any field.
+    """
+    event = AuthEvent.objects.create(
         event_type=event_type,
         actor=actor,
         subject=subject,
@@ -107,6 +116,51 @@ def record_auth_event(
         device_id=device_id[:255],
         metadata=metadata or {},
     )
+    _emit_to_central_audit(
+        event_type=event_type,
+        subject_username=subject_username,
+        success=success,
+        actor=actor,
+        subject=subject,
+        reason=reason,
+        ip_address=ip_address,
+        device_id=device_id,
+    )
+    return event
+
+
+def _emit_to_central_audit(
+    *,
+    event_type: str,
+    subject_username: str,
+    success: bool,
+    actor: User | None,
+    subject: User | None,
+    reason: str,
+    ip_address: str | None,
+    device_id: str,
+) -> None:
+    """Best-effort federated emit to the central audit log (never raises)."""
+    try:
+        from audit.services import record_event
+
+        record_event(
+            app_label="authenticate",
+            action=event_type,
+            actor_type=actor.authority_type if actor else "system",
+            actor_id=str(actor.id) if actor else None,
+            actor_label=(actor.username if actor else subject_username),
+            entity_type="authenticate.user",
+            entity_id=str(subject.id) if subject else None,
+            reason=reason,
+            source="authenticate",
+            ip_address=ip_address,
+            success=success,
+            summary=f"{event_type} for {subject_username}",
+            metadata={"device_id": device_id} if device_id else {},
+        )
+    except Exception:  # noqa: BLE001 — audit emission must never break auth
+        logger.warning("Failed to emit auth event to central audit", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

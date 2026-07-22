@@ -166,6 +166,7 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 | App | Base path | Purpose | Contract |
 |-----|-----------|---------|----------|
 | `authenticate` | `/api/v1/auth/` | Platform identity: username/password login (+ TOTP MFA), session-bound JWT, revocable device sessions (max 3), forced first-login password change, and admin account + session management (one-tier hierarchy: superadmin manages admins, admin manages lead managers) | `authenticate/docs/INTEGRATION.md` |
+| `audit` | `/api/v1/audit/` | Central, immutable, cross-app activity/change history. Read-only over HTTP (Admin/Superadmin); populated by other apps via an internal service call | `audit/docs/INTEGRATION.md` |
 | `core.policy_engine` | `/api/v1/policy/` | Read-only registry of every endpoint in this backend: permission keys, risk levels, dependency edges, version history, change log | `core/policy_engine/docs/INTEGRATION.md` |
 
 **Routes outside `/api/v1/`.** `core` exposes three, and they are deliberately outside the registry-completeness guarantee in §9 (which covers `/api/v1/` only). They have no permission key and are not client API surface:
@@ -180,7 +181,8 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 
 Assembled from each app's `INTEGRATION.md` §2 `Requires`. Use it to determine integration order: an app's dependencies must be usable before it is.
 
-- `authenticate` → `core` (framework), `django-axes` (framework), `rest_framework_simplejwt` (framework), `argon2-cffi` (framework), `django-otp` (framework — TOTP MFA)
+- `authenticate` → `core` (framework), `django-axes` (framework), `rest_framework_simplejwt` (framework), `argon2-cffi` (framework), `django-otp` (framework — TOTP MFA), `audit` (service call — emits auth events to the central audit log, best-effort)
+- `audit` → `core` (framework), `authenticate` (framework — supplies the request user for the `is_staff` read gate)
 - `core.policy_engine` → `core` (framework), `authenticate.User` (FK — the platform user model, since `AUTH_USER_MODEL = authenticate.User`), `rest_framework_simplejwt` (framework)
 
 No app-to-app runtime coupling exists yet. When it does, each edge appears in **both** apps' §2 sections — the depended-on app records what would break, the depending app records why it needs it.

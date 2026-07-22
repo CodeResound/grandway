@@ -251,6 +251,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 - **Depends on `django-axes`** (framework): the sole failed-login counter; the login service routes credential checks through `django.contrib.auth.authenticate()` so axes observes them. Axes' own tables (`AccessAttempt`/`AccessLog`/`AccessFailureLog`) are owned by axes, not modeled here.
 - **Depends on `django-otp`** (framework): `otp_totp.TOTPDevice` stores the TOTP secret and verifies codes for the MFA endpoints and the login MFA step. No custom MFA model is defined; MFA state is derived from `TOTPDevice.confirmed`.
+- **Depends on `audit`** (service call): `record_auth_event` also calls `audit.services.record_event` to federate each auth event into the central audit log. Best-effort — a failure is logged, never raised; `AuthEvent` remains this app's authoritative log. No model coupling (actor/subject are passed to audit as UUID values). Documented in `audit/docs/DATA_CONTRACT.md` and `INTEGRATION.md` §2.
 - **Depends on `core`** (framework): `core.models.BaseModel` (UUID+timestamps) for `UserSecurityState`/`AuthSession`/`AuthEvent`; `core.nepal.text` for name normalization/romanization.
 - **Referenced by:** no other app yet. Future apps reference `authenticate.User` by FK for ownership/attribution and call `authenticate.selectors`/`services` (to be documented in both apps' contracts and this app's `INTEGRATION.md` §2 when that coupling is added).
 
