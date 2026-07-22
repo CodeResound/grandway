@@ -1,0 +1,59 @@
+CONCEPT — <App Name>
+====================
+
+This is the ideation / grounding file for one app. Author it BEFORE the app is
+built (see CLAUDE.md §36). It is intentionally freeform prose under fixed
+headings — not a formal contract. The formal schema/endpoint contracts live in
+the app's own docs/ folder (DATA_CONTRACT.md, API.md, INTEGRATION.md) and come
+LATER, during implementation.
+
+Copy this file to concepts/<app_name>.txt and fill each section. Keep the
+headings; delete this intro block and every "<...>" placeholder.
+
+A concept file grounds work — it does NOT by itself authorize building the app.
+Implementation still passes the §25/§26 pre-coding gates and the new-app
+compatibility review.
+
+
+Purpose
+-------
+<Why this app exists in one or two sentences. What problem it solves, for whom.>
+
+
+Actors / Users
+--------------
+<Who interacts with this app and in what role. One bullet per actor:
+ - <actor>: <what they do here>>
+
+
+Core entities
+-------------
+<The main things this app is about (the nouns), described in plain language —
+ not database fields yet. One bullet each:
+ - <entity>: <what it represents, its key attributes, its lifecycle/states>>
+
+
+Key user flows
+--------------
+<The main journeys, each as a short numbered sequence. Thread the entities
+ through the steps. Note failure branches as sub-points.
+ 1. <flow name>: <step> -> <step> -> <step>>
+
+
+UI screens & wireframe notes
+----------------------------
+<This section is read by a frontend Claude on another machine to produce
+ wireframes — be concrete. One block per screen:
+ - <Screen name>: what it shows, the key data on it, the primary actions, and
+   which flow(s) above it serves.>
+
+
+Constraints / Out of scope
+--------------------------
+<Hard boundaries, non-goals, things deliberately deferred, known limitations,
+ localization or compliance constraints that shape the design.>
+
+
+Open questions
+--------------
+<Anything unresolved that should be answered before or during implementation.>

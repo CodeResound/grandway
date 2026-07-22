@@ -1,0 +1,57 @@
+PROJECT OVERVIEW — Grandway
+===========================
+
+This is the project-wide grounding / vision document (CLAUDE.md §36). It holds
+the whole concept of the project — the "why" and the "what" — and is the file
+the team (and any Claude, backend or frontend) returns to for grounding.
+
+It is a living draft, not a rulebook and not a backlog. It does not override
+CLAUDE.md and is never, by itself, authorization to build a module — building
+still requires a per-app concept file (concepts/<app_name>.txt) and the
+§25/§26 pre-coding gates.
+
+Fill each section below in your own words; the headings are the skeleton. Every
+app named under "Core domains" should get its own concepts/<app_name>.txt
+(copy concepts/_TEMPLATE.txt) before it is built.
+
+
+Vision / Problem
+----------------
+<What is this project, and what problem does it solve? The one-paragraph
+ elevator description, plus the pain it removes.>
+
+
+Target users
+------------
+<Who this is for. The distinct user types and what each needs from the system.>
+
+
+Core domains (apps)
+-------------------
+<The major domains the project decomposes into — these become Django apps. One
+ bullet each: app name + one line on what it owns. Each gets a
+ concepts/<app_name>.txt of its own.>
+
+
+Cross-cutting principles
+------------------------
+<Product- and system-level principles that shape every app: data ownership,
+ privacy/local-first posture, bilingual/localization stance, the traceability
+ model (actor / scope / action / time / reason / authority / source), etc.>
+
+
+Glossary
+--------
+<Key domain terms and their precise meaning, so the same word means the same
+ thing across apps and across the backend/frontend boundary.>
+
+
+Constraints / Out of scope
+--------------------------
+<Hard constraints (regulatory, infrastructure, timeline) and explicit non-goals
+ for the project as a whole.>
+
+
+Open questions
+--------------
+<Unresolved project-level questions worth capturing so they are not lost.>
