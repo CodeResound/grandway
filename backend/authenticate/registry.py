@@ -15,15 +15,42 @@ _BASE: dict[str, Any] = {
     "category_display_name": "Authentication",
 }
 
-_REQUIRES_LOGIN = [
-    {
-        "target_permission_key": "authenticate.session.login",
+
+def _dep(target_key: str, reason: str) -> dict[str, Any]:
+    return {
+        "target_permission_key": target_key,
         "direction": "forward",
         "dependency_type": "requires",
         "enforcement_mode": "strict",
-        "reason": "A session must be established by login before this endpoint is usable.",
+        "reason": reason,
     }
+
+
+_REQUIRES_LOGIN = [
+    _dep("authenticate.session.login", "A session must be established by login before this endpoint is usable.")
 ]
+
+# Account & session management endpoints use their own UI categories.
+_ACCOUNT: dict[str, Any] = {
+    "app_key": "authenticate",
+    "app_display_name": "Authenticate",
+    "version": "1.0.0",
+    "is_internal": False,
+    "category_key": "account_management",
+    "category_display_name": "Account Management",
+    "model_key": "user",
+    "model_display_name": "User",
+}
+_SESSION_MGMT: dict[str, Any] = {
+    "app_key": "authenticate",
+    "app_display_name": "Authenticate",
+    "version": "1.0.0",
+    "is_internal": False,
+    "category_key": "session_management",
+    "category_display_name": "Session Management",
+    "model_key": "session",
+    "model_display_name": "Auth Session",
+}
 
 POLICY_ENDPOINTS: list[dict[str, Any]] = [
     # 1. Login — public entry point; establishes a device-bound session. Root dep.
@@ -186,5 +213,219 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         ],
         "change_summary": "Initial registration of the MFA disable endpoint.",
         "change_reason": "authenticate app Phase 2 (MFA).",
+    },
+    # --- Phase 3: account management ---------------------------------------
+    # 9. List accounts within the actor's managed tier.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-list",
+        "permission_key": "authenticate.user.list",
+        "operation_type": "list",
+        "display_name": "List Accounts",
+        "description": "List accounts within the caller's managed authority tier.",
+        "http_method": "GET",
+        "route_pattern": "/api/v1/auth/users/",
+        "view_import_path": "authenticate.views.AccountListCreateView",
+        "risk_level": "low",
+        "dependencies": _REQUIRES_LOGIN,
+        "change_summary": "Initial registration of the account list endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 10. Create a subordinate account.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-create",
+        "permission_key": "authenticate.user.create",
+        "operation_type": "create",
+        "display_name": "Create Account",
+        "description": "Create a subordinate account (superadmin→admin, admin→lead manager).",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/users/",
+        "view_import_path": "authenticate.views.AccountListCreateView",
+        "risk_level": "high",
+        "dependencies": [_dep("authenticate.user.list", "Managing accounts requires the ability to list them.")],
+        "change_summary": "Initial registration of the account create endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 11. Read a managed account.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-read",
+        "permission_key": "authenticate.user.read",
+        "operation_type": "read",
+        "display_name": "View Account",
+        "description": "Retrieve a single managed account.",
+        "http_method": "GET",
+        "route_pattern": "/api/v1/auth/users/<user_id>/",
+        "view_import_path": "authenticate.views.AccountDetailView",
+        "risk_level": "low",
+        "dependencies": [_dep("authenticate.user.list", "Reading an account requires list access to its tier.")],
+        "change_summary": "Initial registration of the account read endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 12. Update a managed account's profile.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-update",
+        "permission_key": "authenticate.user.update",
+        "operation_type": "update",
+        "display_name": "Edit Account",
+        "description": "Edit permitted profile fields of a managed account.",
+        "http_method": "PATCH",
+        "route_pattern": "/api/v1/auth/users/<user_id>/",
+        "view_import_path": "authenticate.views.AccountDetailView",
+        "risk_level": "medium",
+        "dependencies": [_dep("authenticate.user.read", "Editing requires read access to the account.")],
+        "change_summary": "Initial registration of the account update endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 13. Block a managed account.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-block",
+        "permission_key": "authenticate.user.block",
+        "operation_type": "custom",
+        "display_name": "Block Account",
+        "description": "Deactivate a managed account and revoke its sessions.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/users/<user_id>/block/",
+        "view_import_path": "authenticate.views.AccountBlockView",
+        "risk_level": "high",
+        "dependencies": [_dep("authenticate.user.read", "Blocking requires read access to the account.")],
+        "change_summary": "Initial registration of the account block endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 14. Restore a blocked account.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-restore",
+        "permission_key": "authenticate.user.restore",
+        "operation_type": "custom",
+        "display_name": "Restore Account",
+        "description": "Reactivate a blocked managed account.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/users/<user_id>/restore/",
+        "view_import_path": "authenticate.views.AccountRestoreView",
+        "risk_level": "medium",
+        "dependencies": [_dep("authenticate.user.read", "Restoring requires read access to the account.")],
+        "change_summary": "Initial registration of the account restore endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 15. Administratively reset a managed account's password.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-reset-password",
+        "permission_key": "authenticate.user.reset_password",
+        "operation_type": "custom",
+        "display_name": "Reset Account Password",
+        "description": "Set a temporary password on a managed account and revoke its sessions.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/users/<user_id>/reset-password/",
+        "view_import_path": "authenticate.views.AccountResetPasswordView",
+        "risk_level": "high",
+        "dependencies": [_dep("authenticate.user.read", "Resetting a password requires read access to the account.")],
+        "change_summary": "Initial registration of the account password-reset endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 16. Administratively reset a managed account's MFA.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-reset-mfa",
+        "permission_key": "authenticate.user.reset_mfa",
+        "operation_type": "custom",
+        "display_name": "Reset Account MFA",
+        "description": "Remove a managed account's MFA device and revoke its sessions.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/users/<user_id>/reset-mfa/",
+        "view_import_path": "authenticate.views.AccountResetMfaView",
+        "risk_level": "high",
+        "dependencies": [_dep("authenticate.user.read", "Resetting MFA requires read access to the account.")],
+        "change_summary": "Initial registration of the account MFA-reset endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 17. List a managed account's sessions.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-session-list",
+        "permission_key": "authenticate.user.list_sessions",
+        "operation_type": "list",
+        "display_name": "List Account Sessions",
+        "description": "List a managed account's active sessions.",
+        "http_method": "GET",
+        "route_pattern": "/api/v1/auth/users/<user_id>/sessions/",
+        "view_import_path": "authenticate.views.AccountSessionListView",
+        "risk_level": "low",
+        "dependencies": [_dep("authenticate.user.read", "Viewing sessions requires read access to the account.")],
+        "change_summary": "Initial registration of the account session-list endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 18. Revoke a managed account's sessions.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-session-revoke",
+        "permission_key": "authenticate.user.revoke_sessions",
+        "operation_type": "custom",
+        "display_name": "Revoke Account Sessions",
+        "description": "Revoke one or all active sessions of a managed account.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/users/<user_id>/sessions/revoke/",
+        "view_import_path": "authenticate.views.AccountSessionRevokeView",
+        "risk_level": "high",
+        "dependencies": [
+            _dep("authenticate.user.list_sessions", "Revoking requires the ability to list the account's sessions.")
+        ],
+        "change_summary": "Initial registration of the account session-revoke endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management).",
+    },
+    # 19. Review a managed account's authentication activity.
+    {
+        **_ACCOUNT,
+        "endpoint_key": "user-events",
+        "permission_key": "authenticate.user.list_events",
+        "operation_type": "list",
+        "display_name": "Review Account Auth Activity",
+        "description": "List authentication audit events for a managed account.",
+        "http_method": "GET",
+        "route_pattern": "/api/v1/auth/users/<user_id>/events/",
+        "view_import_path": "authenticate.views.AccountEventsView",
+        "risk_level": "low",
+        "dependencies": [_dep("authenticate.user.read", "Reviewing activity requires read access to the account.")],
+        "change_summary": "Initial registration of the account auth-activity endpoint.",
+        "change_reason": "authenticate app Phase 3 (account management + folded audit review).",
+    },
+    # --- Phase 3: own session management -----------------------------------
+    # 20. List own sessions.
+    {
+        **_SESSION_MGMT,
+        "endpoint_key": "session-list",
+        "permission_key": "authenticate.session.list",
+        "operation_type": "list",
+        "display_name": "List Own Sessions",
+        "description": "List the caller's own active sessions.",
+        "http_method": "GET",
+        "route_pattern": "/api/v1/auth/sessions/",
+        "view_import_path": "authenticate.views.OwnSessionListView",
+        "risk_level": "low",
+        "dependencies": _REQUIRES_LOGIN,
+        "change_summary": "Initial registration of the own-session list endpoint.",
+        "change_reason": "authenticate app Phase 3 (session management).",
+    },
+    # 21. Revoke own sessions.
+    {
+        **_SESSION_MGMT,
+        "endpoint_key": "session-revoke",
+        "permission_key": "authenticate.session.revoke",
+        "operation_type": "custom",
+        "display_name": "Revoke Own Sessions",
+        "description": "Revoke one, all-but-current, or all of the caller's own sessions.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/sessions/revoke/",
+        "view_import_path": "authenticate.views.OwnSessionRevokeView",
+        "risk_level": "medium",
+        "dependencies": [
+            _dep("authenticate.session.list", "Revoking own sessions requires the ability to list them.")
+        ],
+        "change_summary": "Initial registration of the own-session revoke endpoint.",
+        "change_reason": "authenticate app Phase 3 (session management).",
     },
 ]

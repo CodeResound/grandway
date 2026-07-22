@@ -36,8 +36,11 @@ class AuthEventType(models.TextChoices):
     LOGOUT = "logout", "Logout"
     SESSION_REFRESHED = "session_refreshed", "Session Refreshed"
     SESSION_REVOKED = "session_revoked", "Session Revoked"
+    ACCOUNT_CREATED = "account_created", "Account Created"
+    ACCOUNT_UPDATED = "account_updated", "Account Updated"
     ACCOUNT_BLOCKED = "account_blocked", "Account Blocked"
     ACCOUNT_RESTORED = "account_restored", "Account Restored"
+    ADMIN_PASSWORD_RESET = "admin_password_reset", "Administrative Password Reset"
     MFA_ENABLED = "mfa_enabled", "MFA Enabled"
     MFA_DISABLED = "mfa_disabled", "MFA Disabled"
     MFA_VERIFICATION_FAILURE = "mfa_verification_failure", "MFA Verification Failure"
@@ -60,6 +63,11 @@ class ErrorCode:
     MFA_ALREADY_ENROLLED = "AUTH_MFA_ALREADY_ENROLLED"
     MFA_NOT_ENROLLED = "AUTH_MFA_NOT_ENROLLED"
     MFA_MANDATORY = "AUTH_MFA_MANDATORY"
+    USER_NOT_FOUND = "AUTH_USER_NOT_FOUND"
+    FORBIDDEN_HIERARCHY = "AUTH_FORBIDDEN_HIERARCHY"
+    USERNAME_TAKEN = "AUTH_USERNAME_TAKEN"
+    INVALID_AUTHORITY = "AUTH_INVALID_AUTHORITY"
+    SESSION_NOT_FOUND = "AUTH_SESSION_NOT_FOUND"
 
 
 # Access-token claim keys (added on top of SimpleJWT's standard claims).

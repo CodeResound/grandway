@@ -165,7 +165,7 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 
 | App | Base path | Purpose | Contract |
 |-----|-----------|---------|----------|
-| `authenticate` | `/api/v1/auth/` | Platform identity: username/password login, session-bound JWT access tokens, revocable device sessions (max 3 devices), forced first-login password change | `authenticate/docs/INTEGRATION.md` |
+| `authenticate` | `/api/v1/auth/` | Platform identity: username/password login (+ TOTP MFA), session-bound JWT, revocable device sessions (max 3), forced first-login password change, and admin account + session management (one-tier hierarchy: superadmin manages admins, admin manages lead managers) | `authenticate/docs/INTEGRATION.md` |
 | `core.policy_engine` | `/api/v1/policy/` | Read-only registry of every endpoint in this backend: permission keys, risk levels, dependency edges, version history, change log | `core/policy_engine/docs/INTEGRATION.md` |
 
 **Routes outside `/api/v1/`.** `core` exposes three, and they are deliberately outside the registry-completeness guarantee in §9 (which covers `/api/v1/` only). They have no permission key and are not client API surface:

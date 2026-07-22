@@ -37,7 +37,9 @@ class UserManager(BaseUserManager):
         if not username:
             raise ValueError("A username is required.")
         username = self.normalize_username(username)
-        extra_fields.setdefault("display_name", username)
+        # Treat a blank/absent display_name as "use the username" (§39.1 requires it).
+        if not extra_fields.get("display_name"):
+            extra_fields["display_name"] = username
         user = self.model(username=username, authority_type=authority_type, **extra_fields)
         user.set_password(password)
         user.full_clean(exclude=["password"])

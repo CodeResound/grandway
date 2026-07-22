@@ -42,6 +42,30 @@ class MfaMandatoryError(Exception):
     """Raised when a superadmin attempts to disable mandatory MFA."""
 
 
+class NotManageableError(Exception):
+    """Raised when a target account does not exist or is outside the actor's authority.
+
+    Deliberately conflates "not found" and "not manageable" so an actor cannot
+    enumerate accounts they have no authority over.
+    """
+
+
+class HierarchyViolationError(Exception):
+    """Raised when an actor acts on a peer/superior, or on themselves where disallowed."""
+
+
+class InvalidAuthorityError(Exception):
+    """Raised when creating an account with an authority the actor may not create."""
+
+
+class UsernameTakenError(Exception):
+    """Raised when creating an account with an already-used username."""
+
+
+class SessionNotFoundError(Exception):
+    """Raised when a referenced session does not exist or is not in scope."""
+
+
 class DeviceLimitError(Exception):
     """Raised when a login would exceed the per-user active-device cap."""
 

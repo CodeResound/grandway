@@ -1,7 +1,7 @@
 # Data Contract — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-22
 **Purpose:** Owns platform identity: the login account (`User`), its non-identity security state (`UserSecurityState`), revocable device-bound refresh sessions (`AuthSession`), and an append-only authentication audit log (`AuthEvent`). It establishes *who* is calling and *which authority level* applies. It does NOT own authorization decisions (which leads/applicants/documents a user may touch — those stay with operational apps), the failed-login counter (owned by `django-axes`), or MFA device secrets (owned by `django-otp`, MFA phase).
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial contract — Phase 1 foundation (User, UserSecurityState, AuthSession, AuthEvent) |
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — external `TOTPDevice`, `mfa_change` revocation reason, 4 MFA event types, derived MFA state |
+| 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account/session management: 3 new event types, block metadata usage, account create/reset payloads (no new tables) |
 
 ---
 
@@ -177,7 +178,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Purpose:** Immutable, append-only authentication audit trail. One row per security-relevant event, carrying actor, subject, outcome, and source — never any secret.
 **Table:** `authenticate_authevent`
-**`event_type` choices:** `superadmin_bootstrap`, `login_success`, `login_failure`, `forced_password_change`, `password_change`, `logout`, `session_refreshed`, `session_revoked`, `account_blocked`, `account_restored`, `mfa_enabled`, `mfa_disabled`, `mfa_verification_failure`, `mfa_reset`
+**`event_type` choices:** `superadmin_bootstrap`, `login_success`, `login_failure`, `forced_password_change`, `password_change`, `logout`, `session_refreshed`, `session_revoked`, `account_created`, `account_updated`, `account_blocked`, `account_restored`, `admin_password_reset`, `mfa_enabled`, `mfa_disabled`, `mfa_verification_failure`, `mfa_reset`
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
@@ -231,6 +232,20 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 **Soft Delete:** N/A — a disabled/reset device is hard-deleted from django-otp's table; the action is captured by an `AuthEvent` (`mfa_disabled`/`mfa_reset`).
 
 **Cross-App Dependencies:** `django-otp` (`otp_totp.TOTPDevice`) — see Cross-App Dependencies below.
+
+## Request/Response Payload Contracts
+
+### Account create/reset result
+
+**Purpose:** the non-model response from account creation and administrative password reset.
+**Shape:**
+```json
+{ "user": { "…User…": "" }, "temporary_password": "<shown-once>" }
+```
+- `POST /users/` returns `{ user, temporary_password? }`; `POST /users/<id>/reset-password/` returns `{ temporary_password? }`.
+- `temporary_password` is present ONLY when the server generated it (no `password` supplied). It is returned exactly once, never stored in retrievable form, and the account is flagged `must_change_password`.
+**Produced by:** `authenticate.services.create_managed_account` / `admin_reset_password`.
+**Consumed by:** the creating admin/superadmin UI (display once, deliver out-of-band).
 
 ## Cross-App Dependencies
 

@@ -13,15 +13,23 @@
   ],
   "categories": [
     {
+      "category_key": "account_management",
+      "display_name": "Account Management"
+    },
+    {
       "category_key": "authentication",
       "display_name": "Authentication"
     },
     {
       "category_key": "policy_engine_administration",
       "display_name": "Policy Engine Administration"
+    },
+    {
+      "category_key": "session_management",
+      "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 15,
+  "endpoint_count": 28,
   "endpoints": [
     {
       "permission_key": "authenticate.mfa.disable",
@@ -96,6 +104,30 @@
       ]
     },
     {
+      "permission_key": "authenticate.session.list",
+      "app_key": "authenticate",
+      "model_key": "session",
+      "endpoint_key": "session-list",
+      "display_name": "List Own Sessions",
+      "description": "List the caller's own active sessions.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/auth/sessions/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "session_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
       "permission_key": "authenticate.session.login",
       "app_key": "authenticate",
       "model_key": "session",
@@ -160,6 +192,54 @@
       ]
     },
     {
+      "permission_key": "authenticate.session.revoke",
+      "app_key": "authenticate",
+      "model_key": "session",
+      "endpoint_key": "session-revoke",
+      "display_name": "Revoke Own Sessions",
+      "description": "Revoke one, all-but-current, or all of the caller's own sessions.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/sessions/revoke/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "session_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Revoking own sessions requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.block",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-block",
+      "display_name": "Block Account",
+      "description": "Deactivate a managed account and revoke its sessions.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/users/<user_id>/block/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Blocking requires read access to the account."
+        }
+      ]
+    },
+    {
       "permission_key": "authenticate.user.change_password",
       "app_key": "authenticate",
       "model_key": "user",
@@ -184,6 +264,102 @@
       ]
     },
     {
+      "permission_key": "authenticate.user.create",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-create",
+      "display_name": "Create Account",
+      "description": "Create a subordinate account (superadmin→admin, admin→lead manager).",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/users/",
+      "operation_type": "create",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Managing accounts requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.list",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-list",
+      "display_name": "List Accounts",
+      "description": "List accounts within the caller's managed authority tier.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/auth/users/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.list_events",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-events",
+      "display_name": "Review Account Auth Activity",
+      "description": "List authentication audit events for a managed account.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/auth/users/<user_id>/events/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reviewing activity requires read access to the account."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.list_sessions",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-session-list",
+      "display_name": "List Account Sessions",
+      "description": "List a managed account's active sessions.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/auth/users/<user_id>/sessions/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Viewing sessions requires read access to the account."
+        }
+      ]
+    },
+    {
       "permission_key": "authenticate.user.me",
       "app_key": "authenticate",
       "model_key": "user",
@@ -204,6 +380,150 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.read",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-read",
+      "display_name": "View Account",
+      "description": "Retrieve a single managed account.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/auth/users/<user_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading an account requires list access to its tier."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.reset_mfa",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-reset-mfa",
+      "display_name": "Reset Account MFA",
+      "description": "Remove a managed account's MFA device and revoke its sessions.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/users/<user_id>/reset-mfa/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Resetting MFA requires read access to the account."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.reset_password",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-reset-password",
+      "display_name": "Reset Account Password",
+      "description": "Set a temporary password on a managed account and revoke its sessions.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/users/<user_id>/reset-password/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Resetting a password requires read access to the account."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.restore",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-restore",
+      "display_name": "Restore Account",
+      "description": "Reactivate a blocked managed account.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/users/<user_id>/restore/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Restoring requires read access to the account."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.revoke_sessions",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-session-revoke",
+      "display_name": "Revoke Account Sessions",
+      "description": "Revoke one or all active sessions of a managed account.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/users/<user_id>/sessions/revoke/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.list_sessions",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Revoking requires the ability to list the account's sessions."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.user.update",
+      "app_key": "authenticate",
+      "model_key": "user",
+      "endpoint_key": "user-update",
+      "display_name": "Edit Account",
+      "description": "Edit permitted profile fields of a managed account.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/auth/users/<user_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "account_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.user.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Editing requires read access to the account."
         }
       ]
     },

@@ -1,7 +1,7 @@
 # Security — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-22
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial security notes — Phase 1 foundation |
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — TOTP section (§9), placement/secret/mandatory/recovery |
+| 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — inline authority-hierarchy authorization (§10), enumeration-safe targeting, session-invalidating admin actions |
 
 ---
 
@@ -118,9 +119,32 @@ codes directly (no `OTPMiddleware`). Key properties:
 - **Replay protection:** django-otp's `verify_token` enforces the TOTP step counter, so a
   code cannot be reused within its window.
 
-## §10 Deferred (later phases)
+## §10 Authorization — inline authority hierarchy (Phase 3)
 
-Admin-driven account management, cross-user MFA reset (Superadmin→Admin, Admin→Lead
-Manager), session listing/remote revocation, and account block/restore endpoints are
-planned but not exposed. Auth events are persisted in-app; integration with a central
-`audit` app is deferred.
+Cross-user account and session management is authorized by a strict, one-tier-deep
+hierarchy enforced in the service layer (there is NO permission-key engine in the
+request path yet — that remains a separate, separately-approved effort per `CLAUDE.md`
+§9):
+
+- Superadmin manages **admins**; admin manages **lead managers**; a lead manager manages
+  no one. Nobody manages a superadmin via the API (recovery is the deployment commands).
+- The managed target is resolved through `get_managed_target`, which returns the account
+  only if it is in the caller's single managed tier. A target outside that tier — or a
+  non-existent one — yields the **same** `AUTH_USER_NOT_FOUND` (404), so an actor cannot
+  enumerate or probe accounts they have no authority over (self is likewise not in the
+  managed set, so self-management via these endpoints returns 404).
+- `create` additionally checks that the requested `authority_type` equals the tier the
+  caller manages (`AUTH_INVALID_AUTHORITY`, 403).
+- **Session-invalidating side effects:** block, administrative password reset, and MFA
+  reset each revoke ALL of the target's sessions immediately (the session-bound auth in §1
+  makes this effective on the next request). Account creation forces a password change at
+  first login.
+- Every management action writes an `AuthEvent` with the acting `actor` and the `subject`,
+  so cross-user actions are always attributable (the concept's accountability requirement).
+
+## §11 Deferred (later phases)
+
+The permission-key request-path engine (a `permissions` app + `RequiresPermission` DRF
+class) is not built — authorization is the inline hierarchy above. A standalone central
+`audit` app is deferred until its concept file exists; authentication activity is
+reviewable per-account via `GET /users/<id>/events/` over this app's own `AuthEvent` rows.

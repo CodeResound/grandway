@@ -6,9 +6,11 @@ dicts into services — always validated data.
 
 from __future__ import annotations
 
+from core.nepal.text import normalize_unicode
 from rest_framework import serializers
 
-from authenticate.models import User
+from authenticate.constants import AuthorityType
+from authenticate.models import AuthEvent, AuthSession, User
 from authenticate.selectors import has_confirmed_mfa
 from authenticate.services import mfa_enrollment_required
 
@@ -79,3 +81,114 @@ class CurrentUserSerializer(serializers.ModelSerializer):
 
     def get_mfa_enrollment_required(self, obj: User) -> bool:
         return mfa_enrollment_required(obj)
+
+
+# --- Phase 3: account & session management ---------------------------------
+
+
+def _norm(value: str | None) -> str | None:
+    return normalize_unicode(value) if value else value
+
+
+class AccountCreateSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    authority_type = serializers.ChoiceField(choices=AuthorityType.choices)
+    display_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    full_name_np = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    full_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    email = serializers.EmailField(required=False, allow_blank=True, default="")
+    phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
+    password = serializers.CharField(
+        write_only=True, required=False, allow_null=True, default=None, trim_whitespace=False
+    )
+
+    def validate_display_name(self, value: str) -> str:
+        return _norm(value) or ""
+
+    def validate_full_name_np(self, value: str) -> str:
+        return _norm(value) or ""
+
+    def validate_full_name_en(self, value: str) -> str:
+        return _norm(value) or ""
+
+
+class AccountUpdateSerializer(serializers.Serializer):
+    display_name = serializers.CharField(max_length=255, required=False)
+    full_name_np = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    full_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
+
+    def validate_display_name(self, value: str) -> str:
+        return normalize_unicode(value)
+
+    def validate_full_name_np(self, value: str) -> str:
+        return _norm(value) or ""
+
+    def validate_full_name_en(self, value: str) -> str:
+        return _norm(value) or ""
+
+
+class BlockAccountSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+    def validate_reason(self, value: str) -> str:
+        return _norm(value) or ""
+
+
+class AdminResetPasswordSerializer(serializers.Serializer):
+    password = serializers.CharField(
+        write_only=True, required=False, allow_null=True, default=None, trim_whitespace=False
+    )
+
+
+class RevokeTargetSessionsSerializer(serializers.Serializer):
+    session_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+
+
+class RevokeOwnSessionsSerializer(serializers.Serializer):
+    session_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    others_only = serializers.BooleanField(required=False, default=False)
+
+
+class SessionSerializer(serializers.ModelSerializer):
+    """Read shape for an AuthSession (self or admin session listing)."""
+
+    class Meta:
+        model = AuthSession
+        fields = [
+            "id",
+            "device_id",
+            "device_name",
+            "ip_address",
+            "user_agent",
+            "is_active",
+            "revoked_reason",
+            "revoked_at",
+            "last_used_at",
+            "idle_expires_at",
+            "expires_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class AuthEventSerializer(serializers.ModelSerializer):
+    """Read shape for an authentication audit event (never exposes secrets)."""
+
+    actor_username = serializers.CharField(source="actor.username", default=None, read_only=True)
+
+    class Meta:
+        model = AuthEvent
+        fields = [
+            "id",
+            "event_type",
+            "actor_username",
+            "subject_username",
+            "success",
+            "reason",
+            "ip_address",
+            "device_id",
+            "created_at",
+        ]
+        read_only_fields = fields

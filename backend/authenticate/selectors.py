@@ -5,8 +5,23 @@ from __future__ import annotations
 from django.db.models import QuerySet
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from authenticate.constants import AuthorityType
 from authenticate.managers import UserManager
-from authenticate.models import AuthSession, User
+from authenticate.models import AuthEvent, AuthSession, User
+
+# Which authority tier each actor tier may manage (concept hierarchy):
+# superadmin manages admins; admin manages lead managers; lead managers manage none.
+_MANAGED_TIER: dict[str, str | None] = {
+    AuthorityType.SUPERADMIN: AuthorityType.ADMIN,
+    AuthorityType.ADMIN: AuthorityType.LEAD_MANAGER,
+    AuthorityType.LEAD_MANAGER: None,
+}
+
+
+def managed_tier_for(actor: User) -> str | None:
+    """The single authority tier this actor may manage, or None."""
+    return _MANAGED_TIER.get(actor.authority_type)
+
 
 # All accounts use a single TOTP device under this fixed name.
 TOTP_DEVICE_NAME = "default"
@@ -60,3 +75,26 @@ def get_unconfirmed_totp_device(user: User) -> TOTPDevice | None:
 def has_confirmed_mfa(user: User) -> bool:
     """Whether the user has completed MFA enrollment (derived — never stored)."""
     return TOTPDevice.objects.filter(user=user, name=TOTP_DEVICE_NAME, confirmed=True).exists()
+
+
+def get_manageable_users(actor: User) -> QuerySet[User]:
+    """Accounts the actor is authorized to manage (their one managed tier)."""
+    tier = managed_tier_for(actor)
+    if tier is None:
+        return User.objects.none()
+    return User.objects.filter(authority_type=tier).select_related("security_state").order_by("username")
+
+
+def get_manageable_user(actor: User, user_id: str) -> User | None:
+    """A single account within the actor's managed tier, or None."""
+    return get_manageable_users(actor).filter(pk=user_id).first()
+
+
+def get_user_session_by_id(user: User, session_id: str) -> AuthSession | None:
+    """A session belonging to ``user`` by id (active or not), or None."""
+    return AuthSession.objects.filter(user=user, pk=session_id).first()
+
+
+def get_events_for_user(user: User) -> QuerySet[AuthEvent]:
+    """Authentication audit events where ``user`` is the subject, newest first."""
+    return AuthEvent.objects.filter(subject=user).select_related("actor").order_by("-created_at")

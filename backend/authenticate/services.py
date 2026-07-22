@@ -31,6 +31,7 @@ from authenticate.constants import (
 )
 from authenticate.exceptions import (
     DeviceLimitError,
+    InvalidAuthorityError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     MfaAlreadyEnrolledError,
@@ -38,18 +39,25 @@ from authenticate.exceptions import (
     MfaMandatoryError,
     MfaNotEnrolledError,
     MfaRequiredError,
+    NotManageableError,
     PasswordIncorrectError,
     RefreshTokenReuseError,
+    SessionNotFoundError,
+    UsernameTakenError,
 )
 from authenticate.managers import UserManager
 from authenticate.models import AuthEvent, AuthSession, User, UserSecurityState
 from authenticate.selectors import (
     TOTP_DEVICE_NAME,
     get_active_session_by_refresh_hash,
+    get_active_sessions_for_user,
     get_confirmed_totp_device,
+    get_manageable_user,
     get_session_by_refresh_hash,
     get_unconfirmed_totp_device,
+    get_user_session_by_id,
     has_confirmed_mfa,
+    managed_tier_for,
 )
 from authenticate.validators import validate_password_strength
 
@@ -637,6 +645,272 @@ def reset_mfa(user: User, *, actor: User | None = None, reason: str = "") -> int
         reason=reason[:100],
     )
     return removed
+
+
+# ---------------------------------------------------------------------------
+# Account & session management (Phase 3) — inline authority-hierarchy checks
+# ---------------------------------------------------------------------------
+
+_PROVISIONED_BY_ACTOR: dict[str, str] = {
+    AuthorityType.SUPERADMIN: ProvisionedVia.SUPERADMIN_CREATED,
+    AuthorityType.ADMIN: ProvisionedVia.ADMIN_CREATED,
+}
+
+
+def _generate_temp_password() -> str:
+    return secrets.token_urlsafe(18)
+
+
+def get_managed_target(actor: User, user_id: str) -> User:
+    """Return a target within the actor's managed tier, or raise ``NotManageableError``.
+
+    Conflates not-found and not-manageable so an actor cannot probe accounts
+    outside their authority.
+    """
+    target = get_manageable_user(actor, user_id)
+    if target is None:
+        raise NotManageableError
+    return target
+
+
+@transaction.atomic
+def create_managed_account(
+    *,
+    actor: User,
+    username: str,
+    authority_type: str,
+    password: str | None = None,
+    ip_address: str | None = None,
+    user_agent: str = "",
+    **profile: Any,
+) -> tuple[User, str | None]:
+    """Create a subordinate account (superadmin→admin, admin→lead_manager).
+
+    Returns ``(user, temp_password_or_None)`` — the temp password is returned once
+    only when generated. Raises ``InvalidAuthorityError``/``UsernameTakenError``.
+    """
+    if managed_tier_for(actor) != authority_type:
+        raise InvalidAuthorityError
+    normalized = UserManager.normalize_username(username)
+    if User.objects.filter(username=normalized).exists():
+        raise UsernameTakenError
+
+    generated = password is None
+    if generated:
+        password = _generate_temp_password()
+    user = create_account(
+        username=normalized,
+        password=password,
+        authority_type=authority_type,
+        provisioned_via=_PROVISIONED_BY_ACTOR[actor.authority_type],
+        must_change_password=True,
+        **profile,
+    )
+    record_auth_event(
+        event_type=AuthEventType.ACCOUNT_CREATED,
+        actor=actor,
+        subject=user,
+        subject_username=user.username,
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    return user, (password if generated else None)
+
+
+_EDITABLE_ACCOUNT_FIELDS = ("display_name", "full_name_np", "full_name_en", "email", "phone")
+
+
+@transaction.atomic
+def update_managed_account(
+    *,
+    actor: User,
+    target: User,
+    fields: dict[str, Any],
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> User:
+    """Update permitted profile fields of a managed account (never username/authority/status)."""
+    clean = {k: v for k, v in fields.items() if k in _EDITABLE_ACCOUNT_FIELDS}
+    clean = _apply_name_fields(clean)
+    for key, value in clean.items():
+        setattr(target, key, value)
+    target.save(update_fields=[*clean.keys(), "updated_at"])
+    record_auth_event(
+        event_type=AuthEventType.ACCOUNT_UPDATED,
+        actor=actor,
+        subject=target,
+        subject_username=target.username,
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        metadata={"fields": sorted(clean.keys())},
+    )
+    return target
+
+
+@transaction.atomic
+def block_account(
+    *,
+    actor: User,
+    target: User,
+    reason: str = "",
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> None:
+    """Block a managed account: deactivate, record block metadata, revoke sessions."""
+    target.is_active = False
+    target.save(update_fields=["is_active", "updated_at"])
+    state = _get_or_create_security_state(target)
+    state.blocked_at = timezone.now()
+    state.blocked_by = actor
+    state.blocked_reason = normalize_unicode(reason) if reason else ""
+    state.save(update_fields=["blocked_at", "blocked_by", "blocked_reason", "updated_at"])
+    revoke_all_user_sessions(target, SessionRevocationReason.BLOCKED)
+    record_auth_event(
+        event_type=AuthEventType.ACCOUNT_BLOCKED,
+        actor=actor,
+        subject=target,
+        subject_username=target.username,
+        success=True,
+        reason=reason[:100],
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
+@transaction.atomic
+def restore_account(
+    *,
+    actor: User,
+    target: User,
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> None:
+    """Restore a blocked account: reactivate and clear block metadata."""
+    target.is_active = True
+    target.save(update_fields=["is_active", "updated_at"])
+    state = _get_or_create_security_state(target)
+    state.blocked_at = None
+    state.blocked_by = None
+    state.blocked_reason = ""
+    state.save(update_fields=["blocked_at", "blocked_by", "blocked_reason", "updated_at"])
+    record_auth_event(
+        event_type=AuthEventType.ACCOUNT_RESTORED,
+        actor=actor,
+        subject=target,
+        subject_username=target.username,
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
+@transaction.atomic
+def admin_reset_password(
+    *,
+    actor: User,
+    target: User,
+    new_password: str | None = None,
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> str | None:
+    """Administratively reset a managed account's password.
+
+    Sets a temporary password, forces a change at next login, and revokes all of
+    the target's sessions. Returns the temp password once when generated.
+    Strength errors propagate as ``django.core.exceptions.ValidationError``.
+    """
+    generated = new_password is None
+    if generated:
+        new_password = _generate_temp_password()
+    validate_password_strength(new_password, user=target)
+
+    target.set_password(new_password)
+    target.save(update_fields=["password"])
+    state = _get_or_create_security_state(target)
+    state.must_change_password = True
+    state.password_changed_at = timezone.now()
+    state.save(update_fields=["must_change_password", "password_changed_at", "updated_at"])
+    revoke_all_user_sessions(target, SessionRevocationReason.PASSWORD_CHANGE)
+    record_auth_event(
+        event_type=AuthEventType.ADMIN_PASSWORD_RESET,
+        actor=actor,
+        subject=target,
+        subject_username=target.username,
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    return new_password if generated else None
+
+
+def admin_reset_mfa(
+    *,
+    actor: User,
+    target: User,
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> int:
+    """Administratively remove a managed account's MFA (reuses ``reset_mfa``)."""
+    return reset_mfa(target, actor=actor, reason="admin_reset")
+
+
+def revoke_target_sessions(
+    *,
+    actor: User,
+    target: User,
+    session_id: str | None = None,
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> int:
+    """Revoke one (by id) or all active sessions of a managed account."""
+    if session_id:
+        session = get_user_session_by_id(target, session_id)
+        if session is None:
+            raise SessionNotFoundError
+        revoke_session(session, SessionRevocationReason.ADMIN_REVOKED)
+        count = 1
+    else:
+        count = revoke_all_user_sessions(target, SessionRevocationReason.ADMIN_REVOKED)
+    record_auth_event(
+        event_type=AuthEventType.SESSION_REVOKED,
+        actor=actor,
+        subject=target,
+        subject_username=target.username,
+        success=True,
+        reason="admin_revoked",
+        ip_address=ip_address,
+        user_agent=user_agent,
+        metadata={"count": count, "scope": "one" if session_id else "all"},
+    )
+    return count
+
+
+def revoke_own_sessions(
+    *,
+    user: User,
+    session_id: str | None = None,
+    current_session_id: str | None = None,
+    others_only: bool = False,
+) -> int:
+    """Revoke one of the user's own sessions, all others, or all.
+
+    Raises ``SessionNotFoundError`` if a given ``session_id`` is not the user's.
+    """
+    if session_id:
+        session = get_user_session_by_id(user, session_id)
+        if session is None or not session.is_active:
+            raise SessionNotFoundError
+        revoke_session(session, SessionRevocationReason.LOGOUT)
+        return 1
+    count = 0
+    for session in get_active_sessions_for_user(user):
+        if others_only and str(session.id) == str(current_session_id):
+            continue
+        revoke_session(session, SessionRevocationReason.LOGOUT)
+        count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------

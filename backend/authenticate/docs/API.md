@@ -1,7 +1,7 @@
 # API Documentation — Authenticate
 
 **App:** `authenticate`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Base prefix:** `/api/v1/auth/`
 **Auth:** Mixed. `login`/`refresh` are public; `logout`/`me`/`password/change` require a Bearer access token validated by `authenticate.authentication.SessionBoundJWTAuthentication` (see `SECURITY.md` §1). No `is_staff` gate — the three protected endpoints are self-service (any authenticated user acting on their own account).
 **Throttle:** Custom scopes — `login` uses `LoginIPThrottle` + `LoginUsernameThrottle` (`auth_login_ip` 20/min, `auth_login_user` 10/min); `refresh` uses `RefreshThrottle` (`auth_refresh` 60/min). Stateful account lockout is handled by django-axes (see `SECURITY.md` §3), not DRF.
@@ -15,6 +15,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial API docs — Phase 1 foundation (5 endpoints) |
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — 3 mfa endpoints, login `otp_code` + MFA errors, `me` mfa fields |
+| 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account management (users CRUD + block/restore + admin password/MFA reset), session management, auth-activity review |
 
 ---
 
@@ -134,3 +135,64 @@ TOTP-based multi-factor auth via `django-otp` (`TOTPDevice`). No recovery/backup
 - `AUTH_MFA_INVALID` (400) — code wrong or expired.
 - `AUTHENTICATION_REQUIRED` (401).
 **Business rules:** Requires password + a current code. Deletes the TOTP device and **revokes all sessions** (`revoked_reason=mfa_change`); clears the refresh cookie. Writes `mfa_disabled`/`mfa_verification_failure` `AuthEvent`. Superadmin recovery (lost authenticator) is the `reset_superadmin_mfa` management command, not this endpoint.
+
+## 4. Account management
+
+Cross-user account administration. Authorized by an inline authority hierarchy (superadmin→admin, admin→lead manager); see `SECURITY.md` §10. A target outside the caller's managed tier returns `AUTH_USER_NOT_FOUND` (404, enumeration-safe). `list` and `events` are paginated (`?page=`, `?page_size=`, default 20 / max 100).
+
+### 4.1 List / create accounts — `GET|POST /api/v1/auth/users/`
+
+**Policy key(s):** `authenticate.user.list` (low), `authenticate.user.create` (high)
+**Access:** Authenticated; caller manages the tier below them.
+**Request (create):** `{ username, authority_type, display_name?, full_name_np?, full_name_en?, email?, phone?, password? }`
+**Response:** `list` → paginated list[User] (`DATA_CONTRACT.md §1`); `create` → `201` `{ user, temporary_password? }` (`DATA_CONTRACT.md` Request/Response Payload Contracts).
+**Error codes:**
+- `AUTH_INVALID_AUTHORITY` (403) — `authority_type` is not the tier the caller may create.
+- `AUTH_USERNAME_TAKEN` (409) — username already used.
+- `VALIDATION_ERROR` (400) — missing/invalid fields.
+**Business rules:** Created accounts are `must_change_password=true`; a temp password is generated (returned once) when `password` is omitted. Writes `account_created`.
+
+### 4.2 Read / update account — `GET|PATCH /api/v1/auth/users/<id>/`
+
+**Policy key(s):** `authenticate.user.read` (low), `authenticate.user.update` (medium)
+**Request (update):** partial `{ display_name?, full_name_np?, full_name_en?, email?, phone? }` — `username`/`authority_type`/status immutable.
+**Response:** User.
+**Error codes:** `AUTH_USER_NOT_FOUND` (404). **Business rules:** update writes `account_updated`.
+
+### 4.3 Block / restore — `POST /api/v1/auth/users/<id>/block/` · `/restore/`
+
+**Policy key(s):** `authenticate.user.block` (high), `authenticate.user.restore` (medium)
+**Request (block):** `{ reason? }`. **Response:** empty `data`.
+**Error codes:** `AUTH_USER_NOT_FOUND` (404).
+**Business rules:** block deactivates + records block metadata + **revokes all target sessions** (`account_blocked`); restore reactivates + clears block metadata (`account_restored`).
+
+### 4.4 Reset password / MFA — `POST /api/v1/auth/users/<id>/reset-password/` · `/reset-mfa/`
+
+**Policy key(s):** `authenticate.user.reset_password` (high), `authenticate.user.reset_mfa` (high)
+**Request (reset-password):** `{ password? }` (omit to auto-generate). **Response:** `{ temporary_password? }` / empty.
+**Error codes:** `AUTH_USER_NOT_FOUND` (404); `AUTH_PASSWORD_WEAK` (400, reset-password) — messages in `error.details.password`.
+**Business rules:** reset-password sets a temp password + `must_change_password` + **revokes all target sessions** (`admin_password_reset`); reset-mfa removes the TOTP device + **revokes all target sessions** (`mfa_reset`).
+
+### 4.5 Account sessions & activity — `GET /users/<id>/sessions/`, `POST /users/<id>/sessions/revoke/`, `GET /users/<id>/events/`
+
+**Policy key(s):** `authenticate.user.list_sessions` (low), `authenticate.user.revoke_sessions` (high), `authenticate.user.list_events` (low)
+**Request (revoke):** `{ session_id? }` (omit to revoke all). **Response:** `sessions` → list[Session] (`DATA_CONTRACT.md` §3-style shape); `revoke` → `{ revoked:int }`; `events` → paginated list[AuthEvent].
+**Error codes:** `AUTH_USER_NOT_FOUND` (404); `AUTH_SESSION_NOT_FOUND` (404, revoke with a foreign `session_id`).
+**Business rules:** revoke writes `session_revoked`. `events` lists the target's `AuthEvent` rows (auth-activity review; no secrets).
+
+## 5. Session management (own)
+
+### 5.1 List own sessions — `GET /api/v1/auth/sessions/`
+
+**Policy key(s):** `authenticate.session.list` (low)
+**Access:** Authenticated (self). **Response:** list[Session] of the caller's active sessions.
+**Error codes:** `AUTHENTICATION_REQUIRED` (401).
+
+### 5.2 Revoke own sessions — `POST /api/v1/auth/sessions/revoke/`
+
+**Policy key(s):** `authenticate.session.revoke` (medium)
+**Access:** Authenticated (self).
+**Request:** `{ session_id?, others_only? }` — one, all-but-current, or (omit both) all.
+**Response:** `{ revoked:int }`.
+**Error codes:** `AUTH_SESSION_NOT_FOUND` (404) — `session_id` not one of yours.
+**Business rules:** revokes selected sessions (`revoked_reason=logout`); clears the refresh cookie. Revoking the current session ends it (re-login required).

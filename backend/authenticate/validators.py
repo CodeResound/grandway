@@ -9,7 +9,7 @@ from django.core.validators import RegexValidator
 
 # Usernames are ASCII system identifiers (§39.7): lowercase letters, digits, and
 # the separators . _ - only. Never Devanagari, never uppercase (normalized first).
-USERNAME_PATTERN = r"^[a-z0-9](?:[a-z0-9._-]{1,148}[a-z0-9])?$"
+USERNAME_PATTERN = r"^[a-z0-9](?:[a-z0-9._-]{0,148}[a-z0-9])?$"
 
 validate_username_format = RegexValidator(
     regex=USERNAME_PATTERN,
