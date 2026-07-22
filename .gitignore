@@ -57,3 +57,6 @@ coverage.xml
 
 # pyenv
 .python-version
+
+# Claude Code (local governance/config — not shared to remote)
+.claude/
