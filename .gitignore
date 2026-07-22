@@ -60,3 +60,6 @@ coverage.xml
 
 # Claude Code (local governance/config — not shared to remote)
 .claude/
+
+# Root README kept local, not shared to remote (per maintainer preference)
+/README.md
