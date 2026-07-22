@@ -21,8 +21,80 @@
       "display_name": "Policy Engine Administration"
     }
   ],
-  "endpoint_count": 12,
+  "endpoint_count": 15,
   "endpoints": [
+    {
+      "permission_key": "authenticate.mfa.disable",
+      "app_key": "authenticate",
+      "model_key": "mfa",
+      "endpoint_key": "mfa-disable",
+      "display_name": "Disable MFA",
+      "description": "Disable the caller's own MFA after confirming password + a current code.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/mfa/disable/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "authentication",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.mfa.verify",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "MFA must be enabled (enrolled and confirmed) before it can be disabled."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.mfa.enroll",
+      "app_key": "authenticate",
+      "model_key": "mfa",
+      "endpoint_key": "mfa-enroll",
+      "display_name": "Begin MFA Enrollment",
+      "description": "Create a pending TOTP device and return its secret + otpauth URL.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/mfa/enroll/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "authentication",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.mfa.verify",
+      "app_key": "authenticate",
+      "model_key": "mfa",
+      "endpoint_key": "mfa-verify",
+      "display_name": "Confirm MFA Enrollment",
+      "description": "Confirm a pending TOTP enrollment with a current code, activating MFA.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/mfa/verify/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "authentication",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.mfa.enroll",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Enrollment must be started before it can be confirmed."
+        }
+      ]
+    },
     {
       "permission_key": "authenticate.session.login",
       "app_key": "authenticate",

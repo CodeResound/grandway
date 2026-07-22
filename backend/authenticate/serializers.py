@@ -9,6 +9,8 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from authenticate.models import User
+from authenticate.selectors import has_confirmed_mfa
+from authenticate.services import mfa_enrollment_required
 
 
 class LoginSerializer(serializers.Serializer):
@@ -16,6 +18,16 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, trim_whitespace=False)
     device_id = serializers.CharField(max_length=255)
     device_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    otp_code = serializers.CharField(max_length=10, required=False, allow_blank=True, default="")
+
+
+class MfaVerifySerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=10)
+
+
+class MfaDisableSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True, trim_whitespace=False)
+    code = serializers.CharField(max_length=10)
 
 
 class RefreshSerializer(serializers.Serializer):
@@ -35,6 +47,8 @@ class CurrentUserSerializer(serializers.ModelSerializer):
     """Read shape for the authenticated user (`/me`)."""
 
     must_change_password = serializers.SerializerMethodField()
+    mfa_enabled = serializers.SerializerMethodField()
+    mfa_enrollment_required = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -49,6 +63,8 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             "phone",
             "is_active",
             "must_change_password",
+            "mfa_enabled",
+            "mfa_enrollment_required",
             "last_login",
             "created_at",
         ]
@@ -57,3 +73,9 @@ class CurrentUserSerializer(serializers.ModelSerializer):
     def get_must_change_password(self, obj: User) -> bool:
         state = getattr(obj, "security_state", None)
         return bool(state and state.must_change_password)
+
+    def get_mfa_enabled(self, obj: User) -> bool:
+        return has_confirmed_mfa(obj)
+
+    def get_mfa_enrollment_required(self, obj: User) -> bool:
+        return mfa_enrollment_required(obj)

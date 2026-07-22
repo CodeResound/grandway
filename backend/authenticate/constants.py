@@ -24,6 +24,7 @@ class SessionRevocationReason(models.TextChoices):
     DEVICE_LIMIT = "device_limit", "Device limit enforcement"
     BLOCKED = "blocked", "Account blocked"
     ADMIN_REVOKED = "admin_revoked", "Revoked by administrator"
+    MFA_CHANGE = "mfa_change", "MFA changed (enabled/disabled/reset)"
 
 
 class AuthEventType(models.TextChoices):
@@ -37,6 +38,10 @@ class AuthEventType(models.TextChoices):
     SESSION_REVOKED = "session_revoked", "Session Revoked"
     ACCOUNT_BLOCKED = "account_blocked", "Account Blocked"
     ACCOUNT_RESTORED = "account_restored", "Account Restored"
+    MFA_ENABLED = "mfa_enabled", "MFA Enabled"
+    MFA_DISABLED = "mfa_disabled", "MFA Disabled"
+    MFA_VERIFICATION_FAILURE = "mfa_verification_failure", "MFA Verification Failure"
+    MFA_RESET = "mfa_reset", "MFA Reset (recovery)"
 
 
 class ErrorCode:
@@ -50,6 +55,11 @@ class ErrorCode:
     SESSION_REVOKED = "AUTH_SESSION_REVOKED"
     PASSWORD_INCORRECT = "AUTH_PASSWORD_INCORRECT"
     PASSWORD_WEAK = "AUTH_PASSWORD_WEAK"
+    MFA_REQUIRED = "AUTH_MFA_REQUIRED"
+    MFA_INVALID = "AUTH_MFA_INVALID"
+    MFA_ALREADY_ENROLLED = "AUTH_MFA_ALREADY_ENROLLED"
+    MFA_NOT_ENROLLED = "AUTH_MFA_NOT_ENROLLED"
+    MFA_MANDATORY = "AUTH_MFA_MANDATORY"
 
 
 # Access-token claim keys (added on top of SimpleJWT's standard claims).

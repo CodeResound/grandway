@@ -1,7 +1,7 @@
 # Data Contract — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-22
 **Purpose:** Owns platform identity: the login account (`User`), its non-identity security state (`UserSecurityState`), revocable device-bound refresh sessions (`AuthSession`), and an append-only authentication audit log (`AuthEvent`). It establishes *who* is calling and *which authority level* applies. It does NOT own authorization decisions (which leads/applicants/documents a user may touch — those stay with operational apps), the failed-login counter (owned by `django-axes`), or MFA device secrets (owned by `django-otp`, MFA phase).
@@ -13,6 +13,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial contract — Phase 1 foundation (User, UserSecurityState, AuthSession, AuthEvent) |
+| 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — external `TOTPDevice`, `mfa_change` revocation reason, 4 MFA event types, derived MFA state |
 
 ---
 
@@ -127,7 +128,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Purpose:** A server-known, device-bound, revocable refresh session. Its `id` is the `sid` claim carried by every access JWT; the opaque refresh credential is stored only as a hash. Enforces device limits and rotation/reuse detection.
 **Table:** `authenticate_authsession`
-**`revoked_reason` choices:** `logout`, `password_change`, `replaced_same_device`, `rotated`, `rotated_reuse`, `device_limit`, `blocked`, `admin_revoked`
+**`revoked_reason` choices:** `logout`, `password_change`, `replaced_same_device`, `rotated`, `rotated_reuse`, `device_limit`, `blocked`, `admin_revoked`, `mfa_change`
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
@@ -176,7 +177,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Purpose:** Immutable, append-only authentication audit trail. One row per security-relevant event, carrying actor, subject, outcome, and source — never any secret.
 **Table:** `authenticate_authevent`
-**`event_type` choices:** `superadmin_bootstrap`, `login_success`, `login_failure`, `forced_password_change`, `password_change`, `logout`, `session_refreshed`, `session_revoked`, `account_blocked`, `account_restored`
+**`event_type` choices:** `superadmin_bootstrap`, `login_success`, `login_failure`, `forced_password_change`, `password_change`, `logout`, `session_refreshed`, `session_revoked`, `account_blocked`, `account_restored`, `mfa_enabled`, `mfa_disabled`, `mfa_verification_failure`, `mfa_reset`
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
@@ -214,9 +215,27 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 ---
 
+## 5. MFA (django-otp `TOTPDevice` — external model)
+
+**Purpose:** TOTP multi-factor auth. `authenticate` adds NO model of its own for MFA — django-otp's `otp_totp.TOTPDevice` is the single source of truth for the secret.
+**Table:** `otp_totp_totpdevice` (owned by django-otp).
+
+- One device per user under the fixed name `default`. `confirmed=False` while enrolling, `True` once activated.
+- **Derived state (never stored on `authenticate` models):**
+  - `mfa_enabled` = a confirmed `TOTPDevice` exists for the user.
+  - `mfa_enrollment_required` = user is `superadmin` AND `mfa_enabled` is false (MFA is mandatory for superadmins).
+  Both are computed live in selectors/serializers to avoid drift.
+- **Secret at rest:** stored by django-otp (DB-level protection); no app-level field encryption. Returned to the client exactly once at `mfa/enroll` (base32 secret + otpauth URL) and never again — never logged, never in `AuthEvent`.
+- **No recovery/backup codes** (concept-locked): `otp_static` is not installed. MFA loss → reset hierarchy (admin reset in Phase 3; superadmin via the `reset_superadmin_mfa` command).
+
+**Soft Delete:** N/A — a disabled/reset device is hard-deleted from django-otp's table; the action is captured by an `AuthEvent` (`mfa_disabled`/`mfa_reset`).
+
+**Cross-App Dependencies:** `django-otp` (`otp_totp.TOTPDevice`) — see Cross-App Dependencies below.
+
 ## Cross-App Dependencies
 
 - **Depends on `django-axes`** (framework): the sole failed-login counter; the login service routes credential checks through `django.contrib.auth.authenticate()` so axes observes them. Axes' own tables (`AccessAttempt`/`AccessLog`/`AccessFailureLog`) are owned by axes, not modeled here.
+- **Depends on `django-otp`** (framework): `otp_totp.TOTPDevice` stores the TOTP secret and verifies codes for the MFA endpoints and the login MFA step. No custom MFA model is defined; MFA state is derived from `TOTPDevice.confirmed`.
 - **Depends on `core`** (framework): `core.models.BaseModel` (UUID+timestamps) for `UserSecurityState`/`AuthSession`/`AuthEvent`; `core.nepal.text` for name normalization/romanization.
 - **Referenced by:** no other app yet. Future apps reference `authenticate.User` by FK for ownership/attribution and call `authenticate.selectors`/`services` (to be documented in both apps' contracts and this app's `INTEGRATION.md` §2 when that coupling is added).
 

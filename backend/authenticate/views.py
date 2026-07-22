@@ -24,12 +24,19 @@ from authenticate.exceptions import (
     DeviceLimitError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
+    MfaAlreadyEnrolledError,
+    MfaInvalidError,
+    MfaMandatoryError,
+    MfaNotEnrolledError,
+    MfaRequiredError,
     PasswordIncorrectError,
     RefreshTokenReuseError,
 )
 from authenticate.serializers import (
     CurrentUserSerializer,
     LoginSerializer,
+    MfaDisableSerializer,
+    MfaVerifySerializer,
     PasswordChangeSerializer,
     RefreshSerializer,
 )
@@ -93,6 +100,7 @@ class LoginView(APIView):
                 password=data["password"],
                 device_id=data["device_id"],
                 device_name=data.get("device_name", ""),
+                otp_code=data.get("otp_code", ""),
                 ip_address=_client_ip(request),
                 user_agent=_user_agent(request),
             )
@@ -100,6 +108,18 @@ class LoginView(APIView):
             return error_response(
                 ErrorCode.CREDENTIALS_INVALID,
                 "Invalid username or password.",
+                http_status=status.HTTP_401_UNAUTHORIZED,
+            )
+        except MfaRequiredError:
+            return error_response(
+                ErrorCode.MFA_REQUIRED,
+                "An authenticator code is required to complete login.",
+                http_status=status.HTTP_401_UNAUTHORIZED,
+            )
+        except MfaInvalidError:
+            return error_response(
+                ErrorCode.MFA_INVALID,
+                "The authenticator code is invalid or expired.",
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
         except DeviceLimitError:
@@ -113,6 +133,7 @@ class LoginView(APIView):
             data={
                 "access": result["access"],
                 "must_change_password": result["must_change_password"],
+                "mfa_enrollment_required": result["mfa_enrollment_required"],
                 "user": CurrentUserSerializer(result["user"]).data,
             },
             message="Login successful.",
@@ -242,5 +263,114 @@ class PasswordChangeView(APIView):
         response = success_response(
             message="Password changed. Please log in again.",
         )
+        _clear_refresh_cookie(response)
+        return response
+
+
+class MfaEnrollView(APIView):
+    """POST /api/v1/auth/mfa/enroll/ — authenticated. Begin TOTP enrollment.
+
+    Returns the secret + otpauth URL once; the client shows a QR / manual key,
+    then confirms with a code via `mfa/verify/`.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request) -> Response:
+        try:
+            result = services.begin_mfa_enrollment(request.user)
+        except MfaAlreadyEnrolledError:
+            return error_response(
+                ErrorCode.MFA_ALREADY_ENROLLED,
+                "MFA is already enabled for this account.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        return success_response(
+            data={"secret": result["secret"], "otpauth_url": result["otpauth_url"]},
+            message="Scan the code in an authenticator app, then confirm.",
+        )
+
+
+class MfaVerifyView(APIView):
+    """POST /api/v1/auth/mfa/verify/ — authenticated. Confirm/activate MFA."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request) -> Response:
+        serializer = MfaVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            services.confirm_mfa_enrollment(
+                request.user,
+                serializer.validated_data["code"],
+                ip_address=_client_ip(request),
+                user_agent=_user_agent(request),
+            )
+        except MfaAlreadyEnrolledError:
+            return error_response(
+                ErrorCode.MFA_ALREADY_ENROLLED,
+                "MFA is already enabled for this account.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        except MfaNotEnrolledError:
+            return error_response(
+                ErrorCode.MFA_NOT_ENROLLED,
+                "Start enrollment before confirming a code.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        except MfaInvalidError:
+            return error_response(
+                ErrorCode.MFA_INVALID,
+                "The authenticator code is invalid or expired.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        return success_response(message="MFA enabled.")
+
+
+class MfaDisableView(APIView):
+    """POST /api/v1/auth/mfa/disable/ — authenticated self-service.
+
+    Superadmin MFA is mandatory and cannot be self-disabled. Revokes all sessions.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request) -> Response:
+        serializer = MfaDisableSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            services.disable_mfa(
+                request.user,
+                data["current_password"],
+                data["code"],
+                ip_address=_client_ip(request),
+                user_agent=_user_agent(request),
+            )
+        except MfaMandatoryError:
+            return error_response(
+                ErrorCode.MFA_MANDATORY,
+                "MFA is mandatory for this account and cannot be disabled.",
+                http_status=status.HTTP_403_FORBIDDEN,
+            )
+        except MfaNotEnrolledError:
+            return error_response(
+                ErrorCode.MFA_NOT_ENROLLED,
+                "MFA is not enabled for this account.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        except PasswordIncorrectError:
+            return error_response(
+                ErrorCode.PASSWORD_INCORRECT,
+                "Current password is incorrect.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        except MfaInvalidError:
+            return error_response(
+                ErrorCode.MFA_INVALID,
+                "The authenticator code is invalid or expired.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        response = success_response(message="MFA disabled. Please log in again.")
         _clear_refresh_cookie(response)
         return response

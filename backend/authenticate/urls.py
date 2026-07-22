@@ -6,6 +6,9 @@ from authenticate.views import (
     CurrentUserView,
     LoginView,
     LogoutView,
+    MfaDisableView,
+    MfaEnrollView,
+    MfaVerifyView,
     PasswordChangeView,
     RefreshView,
 )
@@ -18,4 +21,7 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("me/", CurrentUserView.as_view(), name="me"),
     path("password/change/", PasswordChangeView.as_view(), name="password-change"),
+    path("mfa/enroll/", MfaEnrollView.as_view(), name="mfa-enroll"),
+    path("mfa/verify/", MfaVerifyView.as_view(), name="mfa-verify"),
+    path("mfa/disable/", MfaDisableView.as_view(), name="mfa-disable"),
 ]

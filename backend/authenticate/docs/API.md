@@ -1,7 +1,7 @@
 # API Documentation — Authenticate
 
 **App:** `authenticate`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Base prefix:** `/api/v1/auth/`
 **Auth:** Mixed. `login`/`refresh` are public; `logout`/`me`/`password/change` require a Bearer access token validated by `authenticate.authentication.SessionBoundJWTAuthentication` (see `SECURITY.md` §1). No `is_staff` gate — the three protected endpoints are self-service (any authenticated user acting on their own account).
 **Throttle:** Custom scopes — `login` uses `LoginIPThrottle` + `LoginUsernameThrottle` (`auth_login_ip` 20/min, `auth_login_user` 10/min); `refresh` uses `RefreshThrottle` (`auth_refresh` 60/min). Stateful account lockout is handled by django-axes (see `SECURITY.md` §3), not DRF.
@@ -14,6 +14,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial API docs — Phase 1 foundation (5 endpoints) |
+| 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — 3 mfa endpoints, login `otp_code` + MFA errors, `me` mfa fields |
 
 ---
 
@@ -41,15 +42,17 @@
 **Access:** Public (documented public endpoint).
 **Request:**
 ```json
-{ "username": "ramesh.admin", "password": "…", "device_id": "web-9f3a-uuid", "device_name": "Chrome/macOS" }
+{ "username": "ramesh.admin", "password": "…", "device_id": "web-9f3a-uuid", "device_name": "Chrome/macOS", "otp_code": "123456" }
 ```
-**Response:** `data` = `{ access, must_change_password, user }` (+ `refresh` in the body in development only; HttpOnly cookie in production). `user` is the **User** read shape — see `DATA_CONTRACT.md §1`.
-**Validation rules:** `username`, `password`, `device_id` required; `device_name` optional.
+**Response:** `data` = `{ access, must_change_password, mfa_enrollment_required, user }` (+ `refresh` in the body in development only; HttpOnly cookie in production). `user` is the **User** read shape — see `DATA_CONTRACT.md §1`.
+**Validation rules:** `username`, `password`, `device_id` required; `device_name`, `otp_code` optional.
 **Error codes:**
 - `AUTH_CREDENTIALS_INVALID` (401) — wrong password, unknown user, blocked, or axes lockout (uniform, no enumeration).
+- `AUTH_MFA_REQUIRED` (401) — password correct, account has MFA enabled, no `otp_code` supplied (only reachable after a correct password).
+- `AUTH_MFA_INVALID` (401) — supplied `otp_code` is wrong or expired.
 - `AUTH_DEVICE_LIMIT_REACHED` (409) — new device while 3 devices already active.
 - `VALIDATION_ERROR` (400) — missing/blank required field.
-**Business rules:** Credentials verified via `django.contrib.auth.authenticate()` (axes observes the attempt). On success, `issue_session()` enforces one-session-per-device (same `device_id` replaces its prior session) and the ≤3 active-device cap, inside `atomic()`. Sets `last_login`; writes a `login_success`/`login_failure` `AuthEvent`.
+**Business rules:** Credentials verified via `django.contrib.auth.authenticate()` (axes observes the attempt). If the account has a confirmed TOTP device, an `otp_code` is required and verified BEFORE a session is issued — the MFA check is unreachable without a correct password, so MFA status never leaks to an unauthenticated attacker. On success, `issue_session()` enforces one-session-per-device (same `device_id` replaces its prior session) and the ≤3 active-device cap, inside `atomic()`. Sets `last_login`; writes a `login_success`/`login_failure`/`mfa_verification_failure` `AuthEvent`.
 
 ### 1.2 Refresh — `POST /api/v1/auth/refresh/`
 
@@ -77,7 +80,7 @@
 
 **Policy key(s):** `authenticate.user.me` (risk: low)
 **Access:** Authenticated (self).
-**Response:** the **User** read shape — see `DATA_CONTRACT.md §1`; adds `must_change_password` (from `UserSecurityState`).
+**Response:** the **User** read shape — see `DATA_CONTRACT.md §1`; adds `must_change_password` (from `UserSecurityState`), `mfa_enabled` and `mfa_enrollment_required` (derived live from django-otp `TOTPDevice.confirmed`).
 **Error codes:** `AUTHENTICATION_REQUIRED` (401).
 
 ### 2.2 Change own password — `POST /api/v1/auth/password/change/`
@@ -91,3 +94,43 @@
 - `AUTH_PASSWORD_WEAK` (400) — `new_password` failed Django's strength validators; messages in `error.details.new_password`.
 - `AUTHENTICATION_REQUIRED` (401).
 **Business rules:** Verifies the current password, validates new-password strength, stamps `password_changed_at`, clears `must_change_password`, then **revokes ALL of the user's sessions** — the client must log in again. Writes `password_change`/`forced_password_change` `AuthEvent`.
+
+## 3. MFA
+
+TOTP-based multi-factor auth via `django-otp` (`TOTPDevice`). No recovery/backup codes (concept-locked). The TOTP secret is stored by django-otp; it is returned only once at enrollment and never logged, audited, or re-returned.
+
+### 3.1 Begin enrollment — `POST /api/v1/auth/mfa/enroll/`
+
+**Policy key(s):** `authenticate.mfa.enroll` (risk: medium)
+**Access:** Authenticated (self).
+**Request:** none.
+**Response:** `data` = `{ secret, otpauth_url }` — base32 secret (manual entry) + `otpauth://totp/…` URL (QR). Returned once.
+**Error codes:** `AUTH_MFA_ALREADY_ENROLLED` (409) — MFA already active; `AUTHENTICATION_REQUIRED` (401).
+**Business rules:** Deletes any stale pending device, creates a fresh unconfirmed `TOTPDevice`. Not active until confirmed via 3.2.
+
+### 3.2 Confirm enrollment — `POST /api/v1/auth/mfa/verify/`
+
+**Policy key(s):** `authenticate.mfa.verify` (risk: medium)
+**Access:** Authenticated (self).
+**Request:** `{ "code": "123456" }`
+**Response:** empty `data`, message "MFA enabled."
+**Error codes:**
+- `AUTH_MFA_ALREADY_ENROLLED` (409) — MFA already active.
+- `AUTH_MFA_NOT_ENROLLED` (400) — no pending enrollment to confirm.
+- `AUTH_MFA_INVALID` (400) — code wrong or expired.
+- `AUTHENTICATION_REQUIRED` (401).
+**Business rules:** Verifies the code against the pending device and marks it confirmed. Writes `mfa_enabled`/`mfa_verification_failure` `AuthEvent`. Subsequent logins then require `otp_code`.
+
+### 3.3 Disable MFA — `POST /api/v1/auth/mfa/disable/`
+
+**Policy key(s):** `authenticate.mfa.disable` (risk: high)
+**Access:** Authenticated (self). Superadmin MFA is mandatory and cannot be self-disabled.
+**Request:** `{ "current_password": "…", "code": "123456" }`
+**Response:** empty `data`, message "MFA disabled. Please log in again."
+**Error codes:**
+- `AUTH_MFA_MANDATORY` (403) — superadmin cannot disable mandatory MFA.
+- `AUTH_MFA_NOT_ENROLLED` (400) — MFA is not enabled.
+- `AUTH_PASSWORD_INCORRECT` (400) — wrong `current_password`.
+- `AUTH_MFA_INVALID` (400) — code wrong or expired.
+- `AUTHENTICATION_REQUIRED` (401).
+**Business rules:** Requires password + a current code. Deletes the TOTP device and **revokes all sessions** (`revoked_reason=mfa_change`); clears the refresh cookie. Writes `mfa_disabled`/`mfa_verification_failure` `AuthEvent`. Superadmin recovery (lost authenticator) is the `reset_superadmin_mfa` management command, not this endpoint.

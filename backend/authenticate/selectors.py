@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from django.db.models import QuerySet
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from authenticate.managers import UserManager
 from authenticate.models import AuthSession, User
+
+# All accounts use a single TOTP device under this fixed name.
+TOTP_DEVICE_NAME = "default"
 
 
 def get_user_by_username(username: str) -> User | None:
@@ -41,3 +45,18 @@ def get_session_by_refresh_hash(refresh_hash: str) -> AuthSession | None:
 def get_session_by_id(session_id: str) -> AuthSession | None:
     """Session by primary key (the JWT ``sid``), or None."""
     return AuthSession.objects.select_related("user", "user__security_state").filter(pk=session_id).first()
+
+
+def get_confirmed_totp_device(user: User) -> TOTPDevice | None:
+    """The user's active, confirmed TOTP device, or None."""
+    return TOTPDevice.objects.filter(user=user, name=TOTP_DEVICE_NAME, confirmed=True).first()
+
+
+def get_unconfirmed_totp_device(user: User) -> TOTPDevice | None:
+    """The user's pending (unconfirmed) TOTP device, or None."""
+    return TOTPDevice.objects.filter(user=user, name=TOTP_DEVICE_NAME, confirmed=False).first()
+
+
+def has_confirmed_mfa(user: User) -> bool:
+    """Whether the user has completed MFA enrollment (derived — never stored)."""
+    return TOTPDevice.objects.filter(user=user, name=TOTP_DEVICE_NAME, confirmed=True).exists()

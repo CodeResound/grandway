@@ -6,6 +6,7 @@ here. Views pass validated data in and receive plain objects/dicts back.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import secrets
 from typing import Any
@@ -16,6 +17,7 @@ from django.contrib.auth import authenticate as django_authenticate
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.utils import timezone
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from authenticate.constants import (
     CLAIM_AUTHORITY_TYPE,
@@ -31,14 +33,23 @@ from authenticate.exceptions import (
     DeviceLimitError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
+    MfaAlreadyEnrolledError,
+    MfaInvalidError,
+    MfaMandatoryError,
+    MfaNotEnrolledError,
+    MfaRequiredError,
     PasswordIncorrectError,
     RefreshTokenReuseError,
 )
 from authenticate.managers import UserManager
 from authenticate.models import AuthEvent, AuthSession, User, UserSecurityState
 from authenticate.selectors import (
+    TOTP_DEVICE_NAME,
     get_active_session_by_refresh_hash,
+    get_confirmed_totp_device,
     get_session_by_refresh_hash,
+    get_unconfirmed_totp_device,
+    has_confirmed_mfa,
 )
 from authenticate.validators import validate_password_strength
 
@@ -244,12 +255,14 @@ def login(
     password: str,
     device_id: str,
     device_name: str = "",
+    otp_code: str = "",
     ip_address: str | None = None,
     user_agent: str = "",
 ) -> dict[str, Any]:
-    """Full login: verify credentials, issue a session, return tokens + user.
+    """Full login: verify credentials (+ MFA), issue a session, return tokens + user.
 
-    Raises ``InvalidCredentialsError`` (uniform) or ``DeviceLimitError``.
+    Raises ``InvalidCredentialsError`` (uniform), ``MfaRequiredError``,
+    ``MfaInvalidError``, or ``DeviceLimitError``.
     """
     user = authenticate_user(request, username, password)
     if user is None:
@@ -264,8 +277,29 @@ def login(
         )
         raise InvalidCredentialsError
 
+    # MFA step — only reachable AFTER a correct password, so it never leaks MFA
+    # status to an attacker who does not already hold valid credentials.
+    totp_device = get_confirmed_totp_device(user)
+    if totp_device is not None:
+        if not otp_code:
+            raise MfaRequiredError
+        if not totp_device.verify_token(otp_code):
+            record_auth_event(
+                event_type=AuthEventType.MFA_VERIFICATION_FAILURE,
+                actor=user,
+                subject=user,
+                subject_username=user.username,
+                success=False,
+                reason="invalid_totp_code",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_id=device_id,
+            )
+            raise MfaInvalidError
+
     security_state = _get_or_create_security_state(user)
     must_change = security_state.must_change_password
+    mfa_enrollment_needed = mfa_enrollment_required(user)
 
     try:
         session, raw_token = issue_session(
@@ -308,6 +342,7 @@ def login(
         "session": session,
         "user": user,
         "must_change_password": must_change,
+        "mfa_enrollment_required": mfa_enrollment_needed,
     }
 
 
@@ -462,6 +497,146 @@ def change_own_password(
         ip_address=ip_address,
         user_agent=user_agent,
     )
+
+
+# ---------------------------------------------------------------------------
+# MFA (TOTP via django-otp)
+# ---------------------------------------------------------------------------
+
+
+def is_mfa_mandatory(user: User) -> bool:
+    """MFA is mandatory for superadmin accounts (concept-locked policy)."""
+    return user.authority_type == AuthorityType.SUPERADMIN
+
+
+def mfa_enrollment_required(user: User) -> bool:
+    """True when MFA is mandatory for this user but not yet enrolled (derived)."""
+    return is_mfa_mandatory(user) and not has_confirmed_mfa(user)
+
+
+def begin_mfa_enrollment(user: User) -> dict[str, str]:
+    """Start TOTP enrollment: create a fresh unconfirmed device and return its
+    secret (base32) + otpauth URL. The secret is returned ONCE, here only.
+
+    Raises ``MfaAlreadyEnrolledError`` if MFA is already active.
+    """
+    if has_confirmed_mfa(user):
+        raise MfaAlreadyEnrolledError
+    # Drop any stale pending device so re-enrollment always starts clean.
+    TOTPDevice.objects.filter(user=user, name=TOTP_DEVICE_NAME, confirmed=False).delete()
+    device = TOTPDevice.objects.create(user=user, name=TOTP_DEVICE_NAME, confirmed=False)
+    return {
+        "secret": base64.b32encode(device.bin_key).decode("ascii"),
+        "otpauth_url": device.config_url,
+    }
+
+
+def confirm_mfa_enrollment(
+    user: User,
+    code: str,
+    *,
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> None:
+    """Confirm a pending TOTP enrollment with a current code, activating MFA.
+
+    Raises ``MfaAlreadyEnrolledError``, ``MfaNotEnrolledError``, or ``MfaInvalidError``.
+    """
+    if has_confirmed_mfa(user):
+        raise MfaAlreadyEnrolledError
+    device = get_unconfirmed_totp_device(user)
+    if device is None:
+        raise MfaNotEnrolledError
+    if not device.verify_token(code):
+        record_auth_event(
+            event_type=AuthEventType.MFA_VERIFICATION_FAILURE,
+            actor=user,
+            subject=user,
+            subject_username=user.username,
+            success=False,
+            reason="invalid_totp_code_enrollment",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise MfaInvalidError
+    device.confirmed = True
+    device.save(update_fields=["confirmed"])
+    record_auth_event(
+        event_type=AuthEventType.MFA_ENABLED,
+        actor=user,
+        subject=user,
+        subject_username=user.username,
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
+def disable_mfa(
+    user: User,
+    current_password: str,
+    code: str,
+    *,
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> None:
+    """Disable the user's own MFA after confirming password + a current code.
+
+    Superadmin MFA is mandatory and cannot be self-disabled (``MfaMandatoryError``).
+    Revokes all sessions on success. Raises ``MfaNotEnrolledError``,
+    ``PasswordIncorrectError``, or ``MfaInvalidError``.
+    """
+    if is_mfa_mandatory(user):
+        raise MfaMandatoryError
+    device = get_confirmed_totp_device(user)
+    if device is None:
+        raise MfaNotEnrolledError
+    if not user.check_password(current_password):
+        raise PasswordIncorrectError
+    if not device.verify_token(code):
+        record_auth_event(
+            event_type=AuthEventType.MFA_VERIFICATION_FAILURE,
+            actor=user,
+            subject=user,
+            subject_username=user.username,
+            success=False,
+            reason="invalid_totp_code_disable",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise MfaInvalidError
+    with transaction.atomic():
+        TOTPDevice.objects.filter(user=user).delete()
+        revoke_all_user_sessions(user, SessionRevocationReason.MFA_CHANGE)
+    record_auth_event(
+        event_type=AuthEventType.MFA_DISABLED,
+        actor=user,
+        subject=user,
+        subject_username=user.username,
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
+def reset_mfa(user: User, *, actor: User | None = None, reason: str = "") -> int:
+    """Remove all of a user's TOTP devices and revoke their sessions (recovery path).
+
+    Used by the deployment-level superadmin MFA recovery command and (later) admin
+    cross-user reset. Returns the number of devices removed.
+    """
+    with transaction.atomic():
+        removed, _ = TOTPDevice.objects.filter(user=user).delete()
+        revoke_all_user_sessions(user, SessionRevocationReason.MFA_CHANGE)
+    record_auth_event(
+        event_type=AuthEventType.MFA_RESET,
+        actor=actor,
+        subject=user,
+        subject_username=user.username,
+        success=True,
+        reason=reason[:100],
+    )
+    return removed
 
 
 # ---------------------------------------------------------------------------

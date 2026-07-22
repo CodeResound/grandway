@@ -69,6 +69,44 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Side effects:** revokes the current session; clears the refresh cookie (prod).
    - *Failure — `AUTHENTICATION_REQUIRED`:* treat as already signed out; go to the Login screen.
 
+## Flow: Enroll and use MFA
+
+- **Actor:** Any signed-in staff user
+- **Goal:** Protect the account with an authenticator app.
+- **Entry point:** Security settings screen
+
+**Steps:**
+
+1. **Security settings screen** — start enrollment →
+   `POST /api/v1/auth/mfa/enroll/` (`authenticate.mfa.enroll`)
+   - **Requires state:** a valid access token; MFA not already active.
+   - **Side effects:** creates a pending TOTP device; returns `secret` + `otpauth_url` once.
+   - *Failure — `AUTH_MFA_ALREADY_ENROLLED`:* MFA already on — skip to a "manage MFA" view.
+2. **Security settings screen** — render `otpauth_url` as a QR, user scans, submits a code →
+   `POST /api/v1/auth/mfa/verify/` (`authenticate.mfa.verify`)
+   - **Requires state:** a pending enrollment from step 1.
+   - **Side effects:** activates MFA; all future logins require `otp_code`.
+   - *Failure — `AUTH_MFA_INVALID`:* wrong/expired code — prompt to re-enter.
+3. **Login screen (next sign-in)** — submit username/password/`device_id` →
+   `POST /api/v1/auth/login/` (`authenticate.session.login`) returns `AUTH_MFA_REQUIRED`; resubmit with `otp_code`.
+   - *Failure — `AUTH_MFA_INVALID`:* wrong/expired code — prompt again.
+
+## Flow: Superadmin mandatory MFA
+
+- **Actor:** Superadmin
+- **Goal:** Satisfy the mandatory-MFA requirement before normal use.
+- **Entry point:** Login screen → Forced MFA enrollment screen
+
+**Steps:**
+
+1. **Login screen** — after the forced password change, sign in →
+   `POST /api/v1/auth/login/` (`authenticate.session.login`) returns `data.mfa_enrollment_required = true`.
+   - **Side effects:** frontend routes to the Forced MFA enrollment screen instead of home.
+2. **Forced MFA enrollment screen** — enroll then confirm →
+   `POST /api/v1/auth/mfa/enroll/` (`authenticate.mfa.enroll`) then `POST /api/v1/auth/mfa/verify/` (`authenticate.mfa.verify`).
+   - **Side effects:** `mfa_enrollment_required` becomes false; the account is now fully usable.
+   - Note: `POST /api/v1/auth/mfa/disable/` (`authenticate.mfa.disable`) is refused for superadmins (`AUTH_MFA_MANDATORY`). Lost-authenticator recovery is the `reset_superadmin_mfa` deployment command (cross-app: operator/CLI, not an API).
+
 ---
 
 ## Endpoint coverage
@@ -80,6 +118,9 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 | `authenticate.session.logout` | `POST /api/v1/auth/logout/` | Stay signed in and sign out | |
 | `authenticate.user.me` | `GET /api/v1/auth/me/` | Sign in and load the current user | |
 | `authenticate.user.change_password` | `POST /api/v1/auth/password/change/` | First login — forced password change | Also used for voluntary change; revokes all sessions |
+| `authenticate.mfa.enroll` | `POST /api/v1/auth/mfa/enroll/` | Enroll MFA; Superadmin mandatory MFA | Returns secret + otpauth URL once |
+| `authenticate.mfa.verify` | `POST /api/v1/auth/mfa/verify/` | Enroll MFA; Superadmin mandatory MFA | Activates MFA |
+| `authenticate.mfa.disable` | `POST /api/v1/auth/mfa/disable/` | Disable MFA | Not permitted for superadmin; revokes all sessions |
 
 ## Cross-app dependencies
 
@@ -92,6 +133,6 @@ not just this file.
 
 ## Open questions
 
-- **MFA** is not in Phase 1 — when TOTP ships, the sign-in flow gains an authenticator-code step and a new enroll/verify flow.
+- **MFA shipped in Phase 2** (TOTP enroll/verify/disable + login `otp_code` + superadmin-mandatory). No recovery/backup codes (concept-locked); cross-user admin MFA reset is Phase 3.
 - **Session management screen** (list active devices, revoke a specific device, revoke all) is referenced by the device-limit dialog but its endpoints are not built yet (later phase).
-- Whether a voluntary password change should keep the current session alive instead of revoking all sessions is unresolved; Phase 1 revokes all.
+- Whether a voluntary password change should keep the current session alive instead of revoking all sessions is unresolved; Phase 1 revokes all. The same open question applies to MFA disable.

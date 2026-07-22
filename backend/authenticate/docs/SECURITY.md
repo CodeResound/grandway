@@ -1,7 +1,7 @@
 # Security — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-22
 
@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial security notes — Phase 1 foundation |
+| 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — TOTP section (§9), placement/secret/mandatory/recovery |
 
 ---
 
@@ -92,9 +93,34 @@ Beyond axes' stateful lockout, DRF scoped throttles cap burst rate before creden
 are checked: `auth_login_ip` (per-IP), `auth_login_user` (per submitted username), and
 `auth_refresh` (per-IP). These return `RATE_LIMIT_EXCEEDED` (429).
 
-## §9 Deferred (later phases)
+## §9 MFA (TOTP)
 
-MFA (`django-otp` TOTP) is not yet implemented — superadmin-mandatory MFA is therefore
-not enforced in Phase 1. Admin-driven account management, session listing/remote
-revocation, and account block/restore endpoints are planned but not exposed. Auth
-events are persisted in-app; integration with a central `audit` app is deferred.
+TOTP MFA is provided by `django-otp` (`TOTPDevice`); the authenticate service verifies
+codes directly (no `OTPMiddleware`). Key properties:
+
+- **Login placement:** the `otp_code` is checked only AFTER a correct password, so MFA
+  status never leaks to an attacker without valid credentials. A correct password with
+  MFA enabled and no/invalid code returns `AUTH_MFA_REQUIRED`/`AUTH_MFA_INVALID` — both
+  reachable only post-password.
+- **Enrollment:** `mfa/enroll` creates an unconfirmed device and returns the secret +
+  otpauth URL exactly once; `mfa/verify` confirms it with a live code. The secret is
+  never returned again, never logged, and never placed in an `AuthEvent`.
+- **Secret at rest:** stored by django-otp's own model (DB-level protection). No app-level
+  field encryption is added; the concept's "or otherwise strongly protected at rest" is
+  met by database protection. Recorded as an accepted decision, not an oversight.
+- **Mandatory for superadmin:** `mfa_enrollment_required` is derived (`superadmin` AND not
+  enrolled) and surfaced on login/`me`; superadmins cannot self-disable MFA
+  (`AUTH_MFA_MANDATORY`). Frontends force enrollment after the first password change.
+- **No recovery codes** (concept-locked). Loss of an authenticator is resolved by the reset
+  hierarchy: a non-superadmin via admin reset (Phase 3), a superadmin via the
+  `reset_superadmin_mfa` deployment command. Disabling or resetting MFA revokes all sessions
+  (`revoked_reason=mfa_change`).
+- **Replay protection:** django-otp's `verify_token` enforces the TOTP step counter, so a
+  code cannot be reused within its window.
+
+## §10 Deferred (later phases)
+
+Admin-driven account management, cross-user MFA reset (Superadmin→Admin, Admin→Lead
+Manager), session listing/remote revocation, and account block/restore endpoints are
+planned but not exposed. Auth events are persisted in-app; integration with a central
+`audit` app is deferred.

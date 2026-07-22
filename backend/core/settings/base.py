@@ -23,6 +23,8 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "corsheaders",
     "axes",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
     # Internal
     "core",
     "core.policy_engine",
@@ -113,6 +115,11 @@ AXES_COOLOFF_TIME = timedelta(minutes=config("AXES_COOLOFF_MINUTES", default=15,
 AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
 AXES_RESET_ON_SUCCESS = True
 AXES_ENABLE_ACCESS_FAILURE_LOG = True
+
+# django-otp: TOTP MFA. The issuer label shown in authenticator apps. No
+# OTPMiddleware is installed — the authenticate login service verifies TOTP codes
+# directly and binds MFA state to the session it issues.
+OTP_TOTP_ISSUER = config("OTP_TOTP_ISSUER", default="Grandway")
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"

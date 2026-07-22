@@ -192,13 +192,13 @@
 | Field | Value |
 |-------|-------|
 | **Name** | django-otp |
-| **Purpose** | TOTP-based multi-factor authentication (`otp_totp.TOTPDevice`) and static recovery/backup codes (`otp_static.StaticDevice`/`StaticToken`) for the `authenticate` app's MFA endpoints |
+| **Purpose** | TOTP-based multi-factor authentication (`otp_totp.TOTPDevice`) for the `authenticate` app's MFA endpoints. Recovery/backup codes are intentionally NOT used (the concept file locks "recovery codes are not planned"; MFA loss is resolved via the reset hierarchy), so `otp_static` is not installed |
 | **Package** | `django-otp==1.7.0` |
 | **Docs** | https://django-otp-official.readthedocs.io/ |
-| **Files used** | `core/settings/base.py` (`INSTALLED_APPS`); `authenticate/services.py` and `authenticate/selectors.py` (`TOTPDevice`/`StaticDevice`/`StaticToken` calls) |
+| **Files used** | `core/settings/base.py` (`INSTALLED_APPS`); `authenticate/services.py` and `authenticate/selectors.py` (`TOTPDevice` calls) |
 | **Alternatives considered** | A custom TOTP/OTP implementation — rejected; the project rulebook explicitly forbids inventing custom OTP generation |
-| **Redundancy check** | No custom `MFADevice`/`MFARecoveryCode` models were created — django-otp's own models are the single source of truth for MFA secrets/codes. `authenticate.UserSecurityState.mfa_enrolled` is deliberately *not* stored; it is derived live from `TOTPDevice.confirmed` to avoid drift |
-| **Security concerns** | TOTP secrets and recovery codes are stored entirely by django-otp's own models; never log codes, secrets, or recovery tokens |
+| **Redundancy check** | No custom `MFADevice` model was created — django-otp's `TOTPDevice` is the single source of truth for the MFA secret. MFA-enrolled state is deliberately *not* stored on `authenticate`'s own models; it is derived live from `TOTPDevice.confirmed` to avoid drift |
+| **Security concerns** | The TOTP secret is stored by django-otp's own model (DB-level protection); never log the secret or codes, and never return the secret after enrollment confirmation. No app-level field encryption is added — the concept's "or otherwise strongly protected at rest" is met by database protection |
 | **Maintenance status** | Active, long-established |
 | **Final decision** | Approved — human-approved for the `authenticate` app build (2026-06-22) |
 
