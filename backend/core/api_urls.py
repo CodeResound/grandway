@@ -9,4 +9,5 @@ urlpatterns: list = [
     path("leads/", include("leads.urls", namespace="leads")),
     path("applicants/", include("applicants.urls", namespace="applicants")),
     path("journeys/", include("applicant_journeys.urls", namespace="journeys")),
+    path("catalogue/", include("institutions.urls", namespace="catalogue")),
 ]

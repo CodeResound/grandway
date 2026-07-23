@@ -1,7 +1,7 @@
 # Integration — Grandway Backend
 
 **Owner app:** `core`
-**Version:** 1.0.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-21
 **Purpose:** The entry point for anyone — human or AI — integrating a client against this backend from outside the repository. Read this file first, then the per-app `INTEGRATION.md` for each app you consume.
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-21 | AI (Claude Opus 4.8) | Initial project-level integration entry point |
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | `authenticate` app shipped: real token-issuance (login/refresh) now exists — removed the stale "not callable" warning; added `authenticate` to the inventory and dependency graph |
+| 1.2.0 | 2026-07-24 | AI (Claude) | Backfilled the rows missing for `audit`, `leads`, `applicants`, and `applicant_journeys`, which had entered the inventory and dependency graph without a change-history entry. Added `institutions` (`/api/v1/catalogue/`) to both, noted it as the first app whose read and write populations differ, completed the global error-code list, and warned that an app may replace a global code with its own |
 
 ---
 
@@ -76,7 +77,9 @@ Every app follows these unless its own `INTEGRATION.md` §3 explicitly states a 
 }
 ```
 
-**Error codes.** `APP_RESOURCE_REASON` in upper snake case (e.g. `LISTINGS_LISTING_NOT_FOUND`). Codes are stable — treat them as part of the contract. Global codes: `AUTHENTICATION_REQUIRED` (401), `PERMISSION_DENIED` (403), `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `INTERNAL_SERVER_ERROR` (500).
+**Error codes.** `APP_RESOURCE_REASON` in upper snake case (e.g. `LISTINGS_LISTING_NOT_FOUND`). Codes are stable — treat them as part of the contract. Global codes: `AUTHENTICATION_REQUIRED` (401), `PERMISSION_DENIED` (403), `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `METHOD_NOT_ALLOWED` (405), `RATE_LIMIT_EXCEEDED` (429), `INTERNAL_SERVER_ERROR` (500).
+
+> **An app may replace a global code with its own — do not write a single global handler and assume it fires.** The clearest case is 403: `institutions` returns `INSTITUTIONS_ACTOR_FORBIDDEN` for every authority refusal and never returns `PERMISSION_DENIED`, so a handler keyed only on the global code will miss every one of them. Check each app's `INTEGRATION.md` §3 for the codes it actually emits, and branch on `error.code` per app rather than globally.
 
 **Pagination.** Page-number based. `?page=` and `?page_size=` (default 20, max 100).
 
@@ -171,6 +174,7 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 | `leads` | `/api/v1/leads/` | Enquiry tracking before applicant conversion: lead identity and contact details, configurable source attribution, preliminary study interest, eight-stage lifecycle, manual follow-up, notes, loss/reopen handling, and Admin-only conversion into an applicant plus initial journey. Owner-scoped — a Lead Manager sees only leads they created | `leads/docs/INTEGRATION.md` |
 | `applicants` | `/api/v1/applicants/` | The permanent identity record of a person the consultancy works with: name, date of birth, contact numbers, addresses, passport, family, emergency contacts, and standing. Created by Admins only, by direct creation or lead conversion. **Shared** — every Admin and Lead Manager sees every applicant | `applicants/docs/INTEGRATION.md` |
 | `applicant_journeys` | `/api/v1/journeys/` | One overseas-study objective pursued by one applicant: destination, level, field, intake, budget, nine-stage lifecycle, deferment, closure, and outcome. One applicant may hold many. Shared, like applicants | `applicant_journeys/docs/INTEGRATION.md` |
+| `institutions` | `/api/v1/catalogue/` | The study-opportunity catalogue: countries, providers, campuses, and programs with tuition, entry expectations, and availability, plus an admin-managed study-field reference table. Read-shared, **write Admin-only** — the inverse split from every other app. Nothing is ever deleted; records are marked unavailable. Note the base path differs from the app name | `institutions/docs/INTEGRATION.md` |
 
 **Routes outside `/api/v1/`.** `core` exposes three, and they are deliberately outside the registry-completeness guarantee in §9 (which covers `/api/v1/` only). They have no permission key and are not client API surface:
 
@@ -190,10 +194,13 @@ Assembled from each app's `INTEGRATION.md` §2 `Requires`. Use it to determine i
 - `leads` → `core` (framework), `authenticate` (framework — supplies the access token and the `authority_type` that decides Admin vs Lead Manager scope; FK — lead ownership and every attribution field reference a user account), `audit` (service call — every lead mutation appends one event, and the lead history endpoint reads that log back), `applicants` (service call + FK — conversion creates the applicant and links to it one-to-one), `applicant_journeys` (service call + FK — conversion creates the initial journey and links to it)
 - `applicants` → `core` (framework), `authenticate` (framework — access token and authority type; FK — `created_by`), `audit` (service call — history)
 - `applicant_journeys` → `core` (framework), `applicants` (FK — every journey belongs to exactly one applicant), `authenticate` (framework; FK — `created_by`, `closed_by`, `deferred_by`), `audit` (service call — history)
+- `institutions` → `core` (framework), `authenticate` (framework — supplies the access token and the `authority_type` that decides read-vs-write; **no FK**, since catalogue records have no owner), `audit` (service call — every create and update appends one event carrying the changed fields' previous and new values)
 
 Each edge appears in **both** apps' §2 sections — the depended-on app records what would break, the depending app records why it needs it.
 
 **Direction matters at the lead↔applicant boundary.** `leads` owns *both* links into the applicant cycle — the FK and the service call — so `applicants` and `applicant_journeys` reference `leads` for nothing and function with no lead in the system at all. That is required, not incidental: an Admin may create an applicant directly, with no enquiry preceding it. The reverse lookup is available through the `OneToOneField`'s reverse accessor (`applicant.originating_lead`), which also makes two leads converting to one applicant impossible at the database level.
+
+**`institutions` is deliberately an island.** It is the only app in the graph with no edge to another business app, in either direction. The catalogue says what *can* be offered; a journey records what one person is pursuing. In Phase 1 the two are not linked at all — `applicant_journeys` still stores its destination as free text, so a client shortlisting a program copies the strings across itself. Connecting them changes a shipped app's response shape and needs its own session; until then, treat "the journey names University X" and "the catalogue contains University X" as unrelated facts.
 
 **Not yet built.** `education` and `test_scores` have approved concept files (`concepts/education.txt`, `concepts/test_scores.txt`) but no code. Their absence is visible at conversion: a lead's `highest_qualification` and `language_test_status` are carried into the journey's free-text notes rather than into structured records.
 
@@ -219,7 +226,7 @@ Generated from the endpoint registry, committed, and CI-checked for drift — th
 
 - Request/response body schemas are not machine-readable (see §8).
 - Permission-key-based authorization is not yet enforced in the request path (see §4); `authenticate`'s own protected endpoints are authenticated self-service, `core.policy_engine` and `audit` use `is_staff`, and `leads`, `applicants`, and `applicant_journeys` each use their own inline authority rules (see each app's `SECURITY.md` §1). Every endpoint has a registered permission key ready for that wiring, but no view consults one yet.
-- **Access models differ per app and cannot be assumed.** `leads` is owner-scoped and reports out-of-scope records as 404; `applicants` and `applicant_journeys` are shared, so their 404s always mean genuinely absent. Creation authority differs too: only an Admin may create an applicant, while any lead actor may create a journey. Read each app's `SECURITY.md` §1 rather than generalising from one.
+- **Access models differ per app and cannot be assumed.** `leads` is owner-scoped and reports out-of-scope records as 404; `applicants`, `applicant_journeys`, and `institutions` are shared, so their 404s always mean genuinely absent. Creation authority differs too: only an Admin may create an applicant, while any lead actor may create a journey — and `institutions` goes further still, being the one app where the read population and the write population differ (everyone reads, only Admins write). Each app's `INTEGRATION.md` §3 states its own access rule; that is the consumer-facing source. The app's `SECURITY.md` §1 carries the same rule plus the reasoning behind it, and is maintainer-facing — useful, but not part of the contract set in §6.
 - **No host is published here.** Every path in this documentation set is relative to a base URL you must obtain from the deploying team (locally, `http://localhost:8000`). There is no public sandbox environment.
 - **The first account requires shell access.** Token issuance exists (`authenticate`), but the initial superadmin is created by the `bootstrap_superadmin` management command, and there is no self-service signup — so the very first credential must be provisioned server-side (§4).
 - Rate-limit state is not exposed in response headers — 429 is the only signal (§5).

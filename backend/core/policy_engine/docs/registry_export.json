@@ -19,6 +19,10 @@
       "display_name": "Authenticate"
     },
     {
+      "app_key": "institutions",
+      "display_name": "Institutions"
+    },
+    {
       "app_key": "leads",
       "display_name": "Leads"
     },
@@ -45,6 +49,10 @@
       "display_name": "Authentication"
     },
     {
+      "category_key": "catalogue_management",
+      "display_name": "Catalogue Management"
+    },
+    {
       "category_key": "journey_management",
       "display_name": "Journey Management"
     },
@@ -65,7 +73,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 63,
+  "endpoint_count": 83,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -974,6 +982,514 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Editing requires read access to the account."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.campus.create",
+      "app_key": "institutions",
+      "model_key": "campus",
+      "endpoint_key": "catalogue-campus-create",
+      "display_name": "Create Campus",
+      "description": "Add a site to a provider. The institution comes from the URL and never changes. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/catalogue/institutions/<institution_id>/campuses/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.campus.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating campuses requires the ability to list them."
+        },
+        {
+          "target_permission_key": "institutions.institution.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A campus must be created under an existing institution."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.campus.list",
+      "app_key": "institutions",
+      "model_key": "campus",
+      "endpoint_key": "catalogue-campus-list",
+      "display_name": "List Campuses",
+      "description": "List one institution's sites. Nested under the institution that owns them.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/institutions/<institution_id>/campuses/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.institution.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Campuses are listed within one institution."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.campus.read",
+      "app_key": "institutions",
+      "model_key": "campus",
+      "endpoint_key": "catalogue-campus-read",
+      "display_name": "View Campus",
+      "description": "Retrieve one site with its institution and availability.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/campuses/<campus_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.campus.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a campus requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.campus.update",
+      "app_key": "institutions",
+      "model_key": "campus",
+      "endpoint_key": "catalogue-campus-update",
+      "display_name": "Edit Campus",
+      "description": "Correct a site's name, city, notes, or availability. The owning institution is immutable; a non-active status requires a note.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/catalogue/campuses/<campus_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.campus.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The campus must be readable before it can be edited."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.country.create",
+      "app_key": "institutions",
+      "model_key": "country",
+      "endpoint_key": "catalogue-country-create",
+      "display_name": "Create Country",
+      "description": "Add a destination country. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/catalogue/countries/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.country.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating countries requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.country.list",
+      "app_key": "institutions",
+      "model_key": "country",
+      "endpoint_key": "catalogue-country-list",
+      "display_name": "List Countries",
+      "description": "List destination countries with their availability.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/countries/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.country.read",
+      "app_key": "institutions",
+      "model_key": "country",
+      "endpoint_key": "catalogue-country-read",
+      "display_name": "View Country",
+      "description": "Retrieve one country with its availability and counselling notes.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/countries/<country_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.country.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a country requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.country.update",
+      "app_key": "institutions",
+      "model_key": "country",
+      "endpoint_key": "catalogue-country-update",
+      "display_name": "Edit Country",
+      "description": "Correct a country's name, notes, or availability. Setting a non-active status requires a note. The code is immutable.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/catalogue/countries/<country_id>/",
+      "operation_type": "update",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.country.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The country must be readable before it can be edited."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.field.create",
+      "app_key": "institutions",
+      "model_key": "field",
+      "endpoint_key": "catalogue-field-create",
+      "display_name": "Create Study Field",
+      "description": "Add a study-area classification. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/catalogue/fields/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.field.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating fields requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.field.list",
+      "app_key": "institutions",
+      "model_key": "field",
+      "endpoint_key": "catalogue-field-list",
+      "display_name": "List Study Fields",
+      "description": "List the study-area classifications used to group and search programs.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/fields/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.field.read",
+      "app_key": "institutions",
+      "model_key": "field",
+      "endpoint_key": "catalogue-field-read",
+      "display_name": "View Study Field",
+      "description": "Retrieve one study-area classification.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/fields/<field_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.field.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a field requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.field.update",
+      "app_key": "institutions",
+      "model_key": "field",
+      "endpoint_key": "catalogue-field-update",
+      "display_name": "Edit Study Field",
+      "description": "Correct a study field's name, ordering, or active flag. The code is immutable.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/catalogue/fields/<field_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.field.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The field must be readable before it can be edited."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.institution.create",
+      "app_key": "institutions",
+      "model_key": "institution",
+      "endpoint_key": "catalogue-institution-create",
+      "display_name": "Create Institution",
+      "description": "Add a provider under an existing country. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/catalogue/institutions/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.country.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "An institution must be attached to an existing country."
+        },
+        {
+          "target_permission_key": "institutions.institution.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating institutions requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.institution.list",
+      "app_key": "institutions",
+      "model_key": "institution",
+      "endpoint_key": "catalogue-institution-list",
+      "display_name": "List Institutions",
+      "description": "List providers, filterable by country, type, availability, and name search.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/institutions/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.institution.read",
+      "app_key": "institutions",
+      "model_key": "institution",
+      "endpoint_key": "catalogue-institution-read",
+      "display_name": "View Institution",
+      "description": "Retrieve one provider with its country and availability.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/institutions/<institution_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.institution.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading an institution requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.institution.update",
+      "app_key": "institutions",
+      "model_key": "institution",
+      "endpoint_key": "catalogue-institution-update",
+      "display_name": "Edit Institution",
+      "description": "Correct a provider's name, type, country, notes, or availability. Setting a non-active status requires a note.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/catalogue/institutions/<institution_id>/",
+      "operation_type": "update",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.institution.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The institution must be readable before it can be edited."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.program.create",
+      "app_key": "institutions",
+      "model_key": "program",
+      "endpoint_key": "catalogue-program-create",
+      "display_name": "Create Program",
+      "description": "Add a study offering under an institution, with optional campus, tuition, entry expectations, and scholarship notes. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/catalogue/programs/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.field.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A program must be classified under an existing study field."
+        },
+        {
+          "target_permission_key": "institutions.institution.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A program must be attached to an existing institution."
+        },
+        {
+          "target_permission_key": "institutions.program.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating programs requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.program.list",
+      "app_key": "institutions",
+      "model_key": "program",
+      "endpoint_key": "catalogue-program-list",
+      "display_name": "Search Programs",
+      "description": "The shortlisting search. Filters by country, institution, campus, level, field, availability, scholarship, tuition ceiling, and free-text query. Returns only usable records unless asked otherwise.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/programs/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.program.read",
+      "app_key": "institutions",
+      "model_key": "program",
+      "endpoint_key": "catalogue-program-read",
+      "display_name": "View Program",
+      "description": "Retrieve one program with its full entry expectations, tuition caveats, and notes.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/catalogue/programs/<program_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.program.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a program requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "institutions.program.update",
+      "app_key": "institutions",
+      "model_key": "program",
+      "endpoint_key": "catalogue-program-update",
+      "display_name": "Edit Program",
+      "description": "Correct a program's classification, duration, intake, tuition, entry expectations, scholarship, or availability. The institution is immutable; a campus must belong to it; a tuition amount requires a currency and period.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/catalogue/programs/<program_id>/",
+      "operation_type": "update",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "catalogue_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "institutions.program.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The program must be readable before it can be edited."
         }
       ]
     },

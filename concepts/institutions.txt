@@ -1,0 +1,224 @@
+# INSTITUTIONS — Grandway
+
+> **Status: Phase 1 built (2026-07-24).** The catalogue spine — Country,
+> Institution, Campus, Program, and the Field reference table — is implemented
+> and documented in `backend/institutions/docs/`. Intake, Scholarship, and
+> per-intake/per-campus tuition remain concept only; see "Open questions"
+> below for what Phase 1 settled and what is still open.
+>
+> The rest of this document is the original concept, kept as authored. Where
+> the build departed from it, the departure is recorded in
+> `backend/institutions/docs/DATA_CONTRACT.md` — "Deliberate Deviations",
+> not by editing the prose here.
+
+## Purpose
+
+The Institutions module owns Grandway's study-opportunity catalogue: the
+countries, institutions, campuses, programs, qualification levels, fields,
+durations, intakes, tuition data, entry expectations, scholarships, dates,
+notes, and availability that staff use when planning an applicant's options.
+
+It exists so the consultancy has one maintained source of truth for what can be
+offered, where it is offered, and under what conditions. Without a shared
+catalogue, the same university, intake, fee, or requirement gets retyped across
+journeys, offers, and documents, and the system quickly drifts into inconsistent
+copy.
+
+## Relationship to the applicant journey
+
+The catalogue is reference data. It is not the applicant's plan.
+
+An applicant journey may point at a country, institution, campus, or program
+from this module when the objective becomes concrete, but the journey remains
+the place where the applicant's intent, progress, budget, and choice history are
+recorded. Institutions defines the available options; journeys record which
+options a person is pursuing.
+
+Offer records also depend on this module. An offer should refer back to the
+catalogue entry it came from so that later changes to tuition, duration, or
+intake do not erase the original reference point used when the offer was made.
+
+## Core entities
+
+Country
+
+The top-level geographic container for catalogue records. Holds the country
+name, active/inactive availability, and any notes relevant to intake planning
+or counselling.
+
+Institution
+
+A university, college, polytechnic, or similar provider. Should hold the parent
+country, official name, common name if needed, status, notes, and whether it is
+currently available for use.
+
+Campus
+
+A physical or logical site belonging to an institution. Some institutions need
+campus-level separation because programs, intakes, or fees vary by location.
+
+Program
+
+A specific study offering, such as a degree, diploma, or certificate. Should
+hold the institution and campus it belongs to, the qualification level, field,
+title, duration, intake pattern, tuition, scholarship options, entry
+expectations, and availability.
+
+Qualification level
+
+A controlled reference for the study level of a program or journey target, such
+as diploma, bachelor's, postgraduate diploma, master's, or research degree.
+
+Field
+
+A study-area classification used to group and search programs, such as IT,
+business, engineering, health, or hospitality.
+
+Intake
+
+A scheduled entry point for a program, usually by month or term, with optional
+year, deadline, and status. Intake availability can change without changing the
+underlying program.
+
+Tuition information
+
+The fee data for a program or intake, including amount, currency, fee period,
+and any notes or caveats. Some tuition will be indicative rather than fixed, so
+the module needs to preserve both the value and the context.
+
+Entry expectation
+
+The admission conditions for a program, including academic requirement,
+English-language expectation, backlog tolerance, document expectation, and any
+other selection notes staff need during counselling.
+
+Scholarship
+
+An internal catalogue record for financial support linked to a program, campus,
+or institution. Should hold the name, type, value, conditions, date notes, and
+availability.
+
+Availability note
+
+A status or note that tells staff whether a record is active, paused, seasonal,
+or otherwise limited. This is important because catalogue data changes often and
+Grandway needs to distinguish "exists" from "currently usable."
+
+## Key user flows
+
+1. Catalogue maintenance: Admin creates or updates a country, institution,
+   campus, or program -> adds tuition, intakes, and entry expectations -> marks
+   the record active or inactive -> staff can now rely on the catalogue during
+   counselling.
+   - If a record is incomplete, it may be saved as a draft or inactive until it
+     is ready for operational use.
+   - If a record changes later, the previous values should remain visible in
+     history.
+
+2. Shortlisting support: A Lead Manager opens an applicant journey -> searches
+   the catalogue by country, level, field, intake, or institution -> reviews
+   matching programs and their tuition or entry expectations -> links the
+   chosen program to the journey.
+   - If no program matches, the journey stays free to pursue a different option
+     without forcing a catalogue record to exist.
+
+3. Offer reference: An offer is created from a catalogue program -> the system
+   copies the relevant reference details into the offer snapshot -> later
+   catalogue edits do not rewrite the original offer history.
+
+4. Availability control: Admin marks a country, institution, campus, program,
+   or scholarship inactive -> staff can still see historical records -> inactive
+   items are hidden or downweighted in active search and selection workflows.
+
+## UI screens & wireframe notes
+
+Catalogue Dashboard
+
+Shows the key catalogue sections at a glance: countries, institutions, campuses,
+programs, intakes, and scholarships. Highlights recently edited records and
+items marked inactive or needing review. Primary action: create a new catalogue
+record.
+
+Country List / Detail
+
+Shows countries with active status, notes, and counts of linked institutions.
+Country detail shows related institutions and any country-level notes that help
+staff counsel applicants.
+
+Institution List / Detail
+
+Shows institutions with filters for country, status, and type. Detail view shows
+campuses, linked programs, notes, and availability history. Primary actions:
+edit institution, add campus, add program.
+
+Program List / Detail
+
+This is the main operational screen. Shows program title, institution, campus,
+country, level, field, duration, intake summary, tuition, scholarship flag, and
+availability. Detail view expands the entry expectations, intake dates,
+scholarship links, and notes.
+
+Program Search / Shortlist
+
+A search-focused screen used from applicant journeys. Filters by country,
+level, field, intake, tuition range, institution, and availability. Supports
+quick comparison of multiple programs for counselling.
+
+Reference Maintenance
+
+Administrative forms for qualification levels, fields, intake patterns, and
+other reusable catalogue references. These should be managed centrally rather
+than hard-coded into screens.
+
+## Constraints / Out of scope
+
+* No application processing. Institutions does not receive, review, or decide
+  applications.
+* No visa management. Visa requirements may be noted if relevant to a program,
+  but visa case handling belongs elsewhere.
+* No automated eligibility scoring. The module can store entry expectations, but
+  it does not decide whether a person qualifies.
+* No web scraping or vendor feed import in V1 unless explicitly added later.
+  Catalogue maintenance is manual and accountable.
+* No duplicate free-text copies of the same institution or program if a proper
+  reference record exists.
+* No deletion of historical catalogue records. If something should no longer be
+  used, mark it inactive and preserve the history.
+
+## Open questions
+
+Settled in Phase 1 (2026-07-24):
+
+* **Qualification levels and fields — fixed list or admin-managed?** Split.
+  Qualification level reuses the existing `core.constants.StudyLevel` enum,
+  because `leads` and `applicant_journeys` already use it and a second
+  vocabulary for one concept would make "programs matching this journey's
+  level" a mapping problem instead of an equality check. Field *is* an
+  admin-managed table — `field_of_study` was only ever free text, so there was
+  no existing vocabulary to preserve.
+* **How should seasonality be represented?** As one `availability_status`
+  field per catalogue record — `active`, `paused`, `seasonal`, `inactive` —
+  plus a mandatory note whenever the status is not `active`. Availability
+  never cascades; the search composes it across country, institution, campus,
+  and program at query time.
+* **Are tuition and intake always program-level facts?** Treated as
+  program-level for now, as inline fields rather than related tables. This is
+  a deferral, not an answer — see below.
+
+Still open, and blocking Phase 2:
+
+* Should programs be uniquely identified by a stable internal code, or is the
+  combination of institution, campus, title, and intake enough? Phase 1 has no
+  program code and no uniqueness constraint at all.
+* Do some institutions need separate tuition by campus, intake, or year? The
+  answer decides whether tuition stays inline or becomes its own table.
+* Do scholarships belong only to programs, or can they also attach to countries
+  and institutions as shared opportunities? Phase 1 records only a boolean and
+  a free-text note on the program.
+* How should intake windows carry dates, deadlines, and expiry? Phase 1 stores
+  an unstructured `intake_pattern` string, so no date-based search is possible.
+  A real Intake table is the one Phase 2 item that will need Bikram Sambat
+  handling (§39.4).
+* When journeys are eventually linked to catalogue records, how are the
+  existing free-text institution and program names migrated — automatically
+  matched, or reviewed by hand?
