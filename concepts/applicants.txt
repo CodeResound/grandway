@@ -1,0 +1,257 @@
+# APPLICANTS — Grandway
+
+## Purpose
+
+The Applicants module owns the permanent, authoritative record of a person the
+consultancy is working with.
+
+An applicant is the person. It is not a study plan, an application, or a case.
+The applicant record holds who someone is — their identity, how to reach them,
+where they live, their passport, their family, and who to contact in an
+emergency. Everything that changes per study objective belongs to an applicant
+journey, not here.
+
+There is exactly one applicant record per real person. Journeys, education
+records, test attempts, documents, and files all reference that one record
+rather than carrying their own copy of a name or a phone number.
+
+## How an applicant comes into existence
+
+There are exactly two ways, and the record remembers which one was used.
+
+Lead conversion
+
+An Admin converts a lead into an applicant. Identity and contact information are
+copied across from the lead, and the lead stays permanently linked so the
+applicant's origin — and the Lead Manager who first recorded the enquiry —
+remains traceable.
+
+Direct Admin creation
+
+An Admin creates an applicant with no preceding lead. Grandway does not require
+a reason for skipping the lead lifecycle; walk-ins who are already committed, or
+people referred directly by a partner, do not need a lead record invented for
+them after the fact.
+
+Both paths record who created the applicant and when. A directly created
+applicant has no originating lead unless one is explicitly linked later through
+an approved correction.
+
+A Lead Manager cannot create an applicant by either path. Lead Managers work
+leads; entry into the applicant lifecycle is an Admin decision.
+
+## Applicant information
+
+The applicant record should hold the permanent identity of the person and
+nothing that varies per study objective.
+
+Identity
+
+* Full name in Devanagari and in Roman script
+* Date of birth
+* Gender
+* Nationality
+
+Contact
+
+* Multiple contact numbers, each labelled
+* One email address
+* Addresses — permanent and current
+
+The same reasoning as leads applies: a person may have several usable numbers
+but one working email address.
+
+Passport
+
+* Passport number
+* Issuing country
+* Place of issue
+* Issue date and expiry date
+
+Passport expiry matters operationally, because an expiring passport can block a
+visa application. The record should make that date easy to find.
+
+Family
+
+* Family members, each with a relationship, name, occupation, and contact number
+* Emergency contacts, each with a relationship and contact details
+
+Family members and emergency contacts are recorded separately because they are
+not the same thing. A person's emergency contact may be a friend, a landlord, or
+a colleague rather than a relative.
+
+## What does not belong on the applicant
+
+Academic history belongs to the education module. Test attempts belong to the
+test scores module. Study objectives, destinations, intakes, budgets, and
+outcomes belong to applicant journeys. Documents and uploaded files belong to
+their own modules.
+
+The applicant record answers "who is this person." It does not answer "what are
+they trying to do," "what have they studied," or "what have they scored."
+
+## Applicant status
+
+The applicant status describes the person's standing with the consultancy. It is
+deliberately separate from any journey stage — a person may have one journey
+that succeeded and another that was abandoned, and neither of those is the
+person's status.
+
+Recommended V1 statuses:
+
+1. Active
+2. Dormant
+3. Archived
+
+Active
+
+The consultancy is currently working with this person.
+
+Dormant
+
+The person is not currently being worked with but may return. Nothing is wrong;
+there is simply no active work.
+
+Archived
+
+The person's file is closed. Archival is reversible and destroys nothing.
+
+Status is set manually. It is never changed automatically as a side effect of a
+journey opening, closing, or reaching an outcome.
+
+## Visibility
+
+Applicants are shared across the consultancy. Any Admin or Lead Manager may view
+and edit any applicant.
+
+This is deliberately different from leads. A lead is owned by the Lead Manager
+who created it and is invisible to their colleagues. An applicant is not: once a
+person enters the applicant lifecycle, they are the consultancy's client rather
+than one staff member's prospect, and several people will legitimately need to
+work on their file.
+
+Lead ownership attribution survives conversion, but it grants no exclusive
+access to the resulting applicant.
+
+## No deletion
+
+Applicants are never deleted. A closed file is archived, and archival is
+reversible.
+
+The record carries identity, history, and the attribution for where the person
+came from. Deleting it would destroy the consultancy's ability to explain its
+own past work.
+
+## Correction and history
+
+Applicant information is corrected in place rather than versioned. Names change,
+people move, passports are renewed.
+
+Important applicant actions should appear in a chronological history, including:
+
+* Applicant created, noting whether from a lead or directly
+* Identity information changed
+* Contact information changed
+* Address changed
+* Passport information changed
+* Family or emergency contact changed
+* Status changed
+
+History entries should not be silently rewritten or removed.
+
+## Permissions
+
+Admin
+
+An Admin may:
+
+* Create an applicant directly
+* Convert a lead into an applicant
+* View and edit any applicant
+* Change applicant status
+* Archive and restore an applicant
+* Review applicant history
+
+Lead Manager
+
+A Lead Manager may:
+
+* View any applicant
+* Edit any applicant's information
+* Change applicant status
+* Review applicant history
+
+A Lead Manager may not:
+
+* Create an applicant, by either path
+* Delete an applicant or any part of its history
+
+Superadmin
+
+The Superadmin is a platform authority for managing Admin accounts. It does not
+participate in consultancy operations and has no access to applicant records.
+
+## UI screens & wireframe notes
+
+Applicant List
+
+Shows every applicant, newest first. Columns: name, status, contact number,
+whether the person came from a lead, and creation date. Filters for status and a
+search box matching Devanagari, Roman, and romanized name forms simultaneously,
+so staff can type in either script. Primary action "New applicant" is visible to
+Admins only. Serves the direct-creation and find-an-applicant flows.
+
+New Applicant Form
+
+Admin only. Sections for identity, contact numbers (repeating rows with a label
+and a primary flag), addresses (permanent and current), passport, family members
+(repeating), and emergency contacts (repeating). Only name is required; the
+whole point is that a file can be started before every detail is known.
+
+Applicant Detail
+
+The person's file. Header shows name, status, and a link to the originating lead
+where one exists. Panels for identity, contact, addresses, passport (with the
+expiry date visually prominent), family, and emergency contacts. A journeys
+panel lists the person's study objectives with a "New journey" action. A history
+panel shows the chronological record. Status is changed from a control in the
+header, not by editing a field.
+
+Edit Applicant Form
+
+The same layout as the create form, pre-filled. Contact numbers, addresses,
+family, and emergency contacts are replaced as a set rather than patched row by
+row, so the form always submits the complete intended state.
+
+## Constraints / Out of scope
+
+* Applicants are not system users and cannot sign in.
+* No applicant self-service portal.
+* No photograph in V1. A photograph needs a documented file contract — permitted
+  types, size limits, storage location, and access rules — and files belong to
+  the uploaded files module. Adding an image field here would pre-empt that
+  module or ship an undocumented upload path.
+* No duplicate detection or merging. Two records for the same person is a real
+  risk, but resolving it needs a merge process that preserves both histories,
+  and that is its own piece of work.
+* No academic history, test scores, documents, or files.
+* No deletion, and no hard archival that hides a record from search.
+* No automatic status changes driven by journey activity.
+
+## Open questions
+
+* Should passport renewals keep history? V1 stores one current passport and
+  overwrites it on renewal, with the change captured in the audit history. If
+  old passport numbers turn out to matter for visa history, this needs to become
+  a collection with a current flag.
+* Should an address use Nepal's structured hierarchy — province, district,
+  municipality, ward — or free text? V1 offers structured optional fields plus a
+  free-text line, but the right level of rigidity is not settled.
+* Is nationality ever anything but Nepali in practice? If it is effectively
+  constant, it may not deserve a field.
+* Should archiving an applicant do anything to their open journeys, or are the
+  two lifecycles fully independent? V1 keeps them independent.
+* Can a Lead Manager really edit any applicant, or should some fields —
+  passport, status — be Admin-only? V1 allows full edit access.
+* What happens when a directly created applicant is later discovered to have had
+  a lead? The "approved correction process" for linking them is not defined.

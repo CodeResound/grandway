@@ -1,0 +1,277 @@
+# APPLICANT JOURNEYS — Grandway
+
+## Purpose
+
+An applicant journey is one overseas-study objective pursued by one applicant.
+
+A person is not the same thing as a plan. Someone may try for a master's in
+Australia, have it fall through, and try again for a diploma in Canada two years
+later. Those are two journeys belonging to one applicant, each with its own
+destination, its own intake, its own progress, and its own ending.
+
+The journey is where all the per-objective information lives: where they want to
+go, what they want to study, when they intend to start, what they can afford,
+how far along they are, and how it ended.
+
+## Relationship to the applicant
+
+One applicant has many journeys. A journey always belongs to exactly one
+applicant and is never transferred to another.
+
+The applicant record holds identity — name, contact, passport, family. The
+journey holds intent and progress. Neither duplicates the other. A journey never
+stores the person's name or phone number; it references the applicant.
+
+A journey's stage never changes the applicant's status, and archiving an
+applicant never closes their journeys. The two lifecycles run independently, by
+design.
+
+## How a journey comes into existence
+
+Lead conversion
+
+When an Admin converts a lead, an initial journey is created alongside the
+applicant, seeded from whatever preliminary study interest the Lead Manager
+recorded during follow-up.
+
+That seeded information is a starting point, not a commitment. It was gathered
+during an enquiry and is expected to be incomplete or to change. The journey is
+the authoritative record from the moment it exists; the lead's study interest is
+frozen history.
+
+Manual creation
+
+An Admin or Lead Manager creates a journey for an existing applicant. This is
+the normal path for a second or third objective, and for applicants who were
+created directly with no lead.
+
+Either way the journey records who created it and which path was used.
+
+## Journey information
+
+* Target country
+* Target institution and program
+* Intended study level
+* Preferred field or program
+* Preferred intake
+* Approximate budget and currency
+* Scholarship interest
+* Current stage
+* Notes
+
+Institution and program are free text for now. Grandway has no institution
+catalogue yet, so there is nothing to point at; when the institutions module
+exists these become proper references and the free text is migrated into them.
+
+## Journey stages
+
+The journey stage should be selected manually from a dropdown, as lead stages
+are. Grandway does not infer progress.
+
+Recommended V1 stages:
+
+1. Planning
+2. Profile Building
+3. Shortlisting
+4. Applying
+5. Offer Stage
+6. Visa Stage
+7. Completed
+8. Closed
+9. Deferred
+
+Planning
+
+The objective has been recorded and is being discussed. Requirements are still
+being established.
+
+Profile Building
+
+Academic records, test scores, and supporting information are being gathered.
+
+Shortlisting
+
+Institutions and programs are being considered and narrowed down.
+
+Applying
+
+Applications have been prepared or submitted.
+
+Offer Stage
+
+At least one institution decision is in play — awaited, received, or being
+weighed.
+
+Visa Stage
+
+The applicant is preparing or awaiting a visa decision. Grandway tracks that
+this stage is happening; it does not manage the visa case itself.
+
+Completed
+
+The journey reached a successful conclusion. Terminal.
+
+Closed
+
+The journey ended without success. Terminal, and always carries a recorded
+outcome explaining why.
+
+Deferred
+
+The journey is paused to a later intake. It is not finished and not abandoned.
+
+Completed and Closed are reached only through the deliberate close action, and
+Deferred only through the defer action. None of the three can be picked from the
+stage dropdown, for the same reason a lead cannot be marked lost from a
+dropdown: each demands information that a stage change alone does not capture.
+
+## Final outcome
+
+Every closed journey records why it ended.
+
+Recommended outcomes:
+
+* Successful
+* Withdrawn
+* Rejected
+* Not qualified
+* Cancelled
+* Other
+
+Closing with Successful sets the stage to Completed. Closing with any other
+outcome sets the stage to Closed. This keeps "how did it end" a single recorded
+fact rather than something inferred from which stage the journey stopped at.
+
+When Other is selected, an explanation should be required.
+
+## Deferment
+
+Deferring a journey means the applicant intends to continue but not on the
+current timeline — a missed intake, a delayed test result, a family reason.
+
+Deferring should record:
+
+* The intake being deferred to
+* An optional reason
+* Who deferred it and when
+
+A deferred journey is resumed by reopening it, which returns it to an active
+stage. Deferment is not an outcome and does not close anything.
+
+## Reopening
+
+A completed, closed, or deferred journey may be reopened to an active stage.
+
+Reopening should record who did it and when, clear the closure or deferment
+state, and preserve the complete previous history. Reopening a completed journey
+does not undo the fact that it was completed — that remains in the history.
+
+## History
+
+Important journey actions should appear in a chronological history, including:
+
+* Journey created, noting whether from a lead conversion or manually
+* Journey information changed
+* Stage changed
+* Journey deferred
+* Journey closed, with its outcome
+* Journey reopened
+
+History entries should not be silently rewritten or removed.
+
+## Permissions
+
+Admin and Lead Manager
+
+Both may:
+
+* Create a journey for any applicant
+* View and edit any journey
+* Change journey stage
+* Defer a journey
+* Close a journey with an outcome
+* Reopen a completed, closed, or deferred journey
+* Review journey history
+
+Journeys are shared, exactly as applicants are. Once a person is a client of the
+consultancy rather than one Lead Manager's prospect, several staff will
+legitimately work on their objectives.
+
+Superadmin
+
+No access. The Superadmin manages Admin accounts and does not participate in
+consultancy operations.
+
+## No deletion
+
+Journeys are never deleted. A journey that should not have existed is closed
+with the Cancelled outcome. The record and its history remain.
+
+## UI screens & wireframe notes
+
+Journey List
+
+Shows every journey across all applicants, newest first. Columns: applicant
+name, target country, study level, intake, stage. Filters for applicant, stage,
+and target country. Useful as an operational worklist — "everything at Offer
+Stage" — rather than as a per-person view.
+
+Applicant Detail → Journeys panel
+
+The per-person view. Lists that applicant's journeys with target country,
+intake, and stage, plus a "New journey" action. This is the primary entry point;
+the standalone Journey List is the secondary one.
+
+New Journey Form
+
+Fields for destination, institution and program (free text), level, field,
+intake, budget, and scholarship interest. Nothing is required beyond the
+applicant, because a journey often begins as little more than "Australia,
+sometime next year."
+
+Journey Detail
+
+Header shows the applicant name (linking to their file), target country, and
+stage. Panels for the objective's details, the closure or deferment state when
+present, and history. Actions: change stage, defer, close, reopen. The stage
+dropdown must offer only the six active stages — Completed, Closed, and Deferred
+are reached through their own buttons.
+
+Close Journey dialog
+
+Requires an outcome. Reveals a required explanation when Other is chosen. Warns
+that closing is reversible but recorded.
+
+Defer Journey dialog
+
+Requires the intake being deferred to, with an optional reason.
+
+## Constraints / Out of scope
+
+* No institution or program catalogue — free text until the institutions module
+  exists.
+* No offer records. Offers are their own module; the journey only tracks that it
+  has reached Offer Stage.
+* No visa case management. The journey records that a visa stage is underway,
+  nothing more.
+* No documents, files, or checklists.
+* No automatic stage progression from any other module's activity.
+* No journey transfer between applicants.
+* No deletion.
+* No per-journey ownership or assignment. Journeys are shared, like applicants.
+
+## Open questions
+
+* Is Visa Stage appropriate in V1 given that visa case management is explicitly
+  out of scope for the project? It may be better modelled as a stage that simply
+  means "post-offer, pre-departure."
+* Should a journey carry its own priority or target date, to drive a worklist
+  ordering better than "newest first"?
+* Can an applicant have two open journeys for the same country and intake, or
+  should that be prevented? V1 allows it.
+* Should closing the last open journey suggest changing the applicant's status to
+  Dormant? V1 does nothing automatically, but staff may want the prompt.
+* When the institutions module arrives, how is existing free-text institution
+  and program data migrated — automatically matched, or reviewed by hand?
+* Deferment records a target intake as free text. Once intakes are catalogued
+  this should become a reference.

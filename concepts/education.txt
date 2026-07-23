@@ -1,0 +1,95 @@
+# EDUCATION — Grandway
+
+> **Status: concept only.** This module is not built. The concept is written now
+> so the boundary between it and the applicant record is settled before either
+> is implemented. Building it requires its own session and the §25/§26 gates.
+
+## Purpose
+
+The Education module owns an applicant's academic history — what they have
+studied, where, when, and how well.
+
+It exists as a separate module because academic history is a growing collection
+with its own shape, while the applicant record is a single permanent identity.
+One person accumulates a school-leaving certificate, a bachelor's degree, maybe
+a diploma, maybe a gap year, maybe a training course. Flattening that onto the
+applicant would either lose records or force an arbitrary limit.
+
+## Relationship to the applicant
+
+One applicant has many education records. Each record belongs to exactly one
+applicant.
+
+Education records are permanent facts about the person, not about any particular
+study plan. A bachelor's degree does not belong to the Australia journey; it
+belongs to the person, and every journey draws on it.
+
+## Core entities
+
+Education record
+
+One completed or ongoing qualification. Should hold:
+
+* Qualification level and title
+* Institution attended and its country
+* Awarding body, where it differs from the institution
+* Start and end dates
+* Whether it is completed or ongoing
+* Grading — GPA, percentage, division, or grade, with the scale it is measured on
+* Number of backlogs or failed papers
+* Medium of instruction
+
+Grading needs care. Nepali institutions report percentages, divisions, and GPAs
+on different scales, and a foreign institution reading "3.2" needs to know
+whether that is out of 4 or out of 5. The scale is part of the score, not
+context to be remembered separately.
+
+Education gap
+
+A deliberate record of a period with no study. Gaps are a routine question in
+admissions and visa assessment, so an unexplained gap is an operational problem
+rather than merely missing data. Should hold the period, the reason, and any
+supporting explanation.
+
+Training
+
+Short courses, certifications, and vocational training that are not full
+qualifications but are worth recording.
+
+## Permissions
+
+Admin and Lead Manager may both create, view, edit, and remove education records
+for any applicant, consistent with applicants and journeys being shared.
+
+Whether an education record can be deleted outright or must be deactivated is an
+open question — unlike leads and applicants, a wrongly entered qualification has
+little historical value.
+
+## Constraints / Out of scope
+
+* No credential verification. Grandway records what the applicant reports and any
+  supporting document reference; it does not confirm authenticity.
+* No automatic eligibility assessment. Deciding whether a qualification meets an
+  institution's entry requirement is not a Grandway decision.
+* No grade conversion between systems. Storing the scale is in scope; converting
+  a Nepali percentage to a foreign GPA is not.
+* No transcripts or certificates as files — those belong to the uploaded files
+  module, referenced from here.
+* No employment or work-experience history; explicitly out of scope for V1 at
+  the project level.
+
+## Open questions
+
+* Should qualification levels be a fixed enum or an Admin-configurable reference
+  table, as lead sources are? Nepali qualification names vary and the initial set
+  will not be complete.
+* Is one grading field with a scale enough, or do GPA, percentage, and division
+  need separate fields because an applicant may hold more than one form?
+* Should education gaps be derived automatically from the dates of surrounding
+  records, or always entered by hand? Deriving them is convenient but wrong when
+  a record is simply missing.
+* Should a record marked ongoing be required to have no end date, and should
+  Grandway prompt when an expected end date passes?
+* Can education records be deleted, or only deactivated?
+* Does the applicant's highest qualification need to be a computed convenience
+  field, and if so how is "highest" determined across dissimilar levels?

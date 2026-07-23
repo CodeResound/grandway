@@ -26,7 +26,9 @@ from leads.constants import ErrorCode
 from leads.exceptions import (
     ActorNotPermittedError,
     ContactNumberRequiredError,
+    ConversionNotReadyError,
     InvalidStageTransitionError,
+    LeadAlreadyConvertedError,
     LeadNotLostError,
     LossDetailRequiredError,
     LossReasonRequiredError,
@@ -553,6 +555,52 @@ class LeadNoteListCreateView(LeadScopedView):
         return success_response(
             data=LeadNoteSerializer(note).data,
             message="Note added.",
+            http_status=status.HTTP_201_CREATED,
+        )
+
+
+class LeadConvertView(LeadScopedView):
+    """POST /api/v1/leads/<id>/convert/ — turn a lead into an applicant. Admin only.
+
+    The one point where the lead cycle meets the applicant cycle. Creates an
+    applicant plus an initial journey, links both to the lead permanently, and
+    moves the lead to its terminal ``converted`` stage.
+    """
+
+    def post(self, request: Request, lead_id: str) -> Response:
+        lead, err = self.resolve(request, lead_id)
+        if err:
+            return err
+        try:
+            require_admin(request.user)
+        except ActorNotPermittedError:
+            return _forbidden()
+
+        try:
+            converted = services.convert_lead(
+                actor=request.user,
+                lead=lead,
+                ip_address=_client_ip(request),
+            )
+        except LeadAlreadyConvertedError:
+            return error_response(
+                ErrorCode.LEAD_ALREADY_CONVERTED,
+                "This lead has already been converted into an applicant.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        except ConversionNotReadyError:
+            return error_response(
+                ErrorCode.CONVERSION_NOT_READY,
+                "A lost or converted lead must be reopened before it can be converted.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        return success_response(
+            data={
+                "lead": LeadDetailSerializer(converted).data,
+                "applicant_id": str(converted.converted_applicant_id),
+                "journey_id": str(converted.converted_journey_id),
+            },
+            message="Lead converted to applicant.",
             http_status=status.HTTP_201_CREATED,
         )
 

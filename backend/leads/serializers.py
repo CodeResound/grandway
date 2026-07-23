@@ -12,11 +12,12 @@ from decimal import Decimal
 from typing import Any
 
 from audit.models import AuditEvent
+from core.constants import ContactNumberLabel, LanguageTestStatus, StudyLevel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
 from rest_framework import serializers
 
-from leads.constants import ACTIVE_STAGES, ContactNumberLabel, LanguageTestStatus, LeadStage, StudyLevel
+from leads.constants import ACTIVE_STAGES, LeadStage
 from leads.models import (
     Lead,
     LeadContactNumber,
@@ -237,6 +238,10 @@ class LeadDetailSerializer(LeadListSerializer):
     converted_by = UserBriefSerializer(read_only=True)
     lost_at_bs = serializers.SerializerMethodField()
     converted_at_bs = serializers.SerializerMethodField()
+    # Exposed as bare ids so a client can link through to the applicant and
+    # journey without this app embedding either module's response shape.
+    converted_applicant_id = serializers.UUIDField(read_only=True, allow_null=True)
+    converted_journey_id = serializers.UUIDField(read_only=True, allow_null=True)
 
     class Meta(LeadListSerializer.Meta):
         fields = [
@@ -252,6 +257,8 @@ class LeadDetailSerializer(LeadListSerializer):
             "converted_at",
             "converted_at_bs",
             "converted_by",
+            "converted_applicant_id",
+            "converted_journey_id",
         ]
         read_only_fields = fields
 

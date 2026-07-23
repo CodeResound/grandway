@@ -258,10 +258,44 @@ All three fields are optional; an empty body records a follow-up at the current 
 
 ---
 
-## 6. Not yet built
+## 6. Conversion
 
-### 6.1 Convert — `POST /api/v1/leads/<lead_id>/convert/` — **Phase 4, not implemented**
+### 6.1 Convert — `POST /api/v1/leads/<lead_id>/convert/`
 
-Conversion is the one place the lead cycle touches the applicant cycle, and it depends on the `applicants` and `applicant_journeys` apps, neither of which exists yet. The endpoint is **not** registered in `registry.py` and **not** routed — calling this path today returns 404 from the URL resolver, not from this app.
+**Policy key(s):** `leads.lead.convert` (risk: **critical**) — **Admin only**
+**Request:** empty body. Everything is taken from the lead.
+**Response:** HTTP 201 with three keys:
+```json
+{ "lead": { "...": "Lead detail shape, stage now converted" }, "applicant_id": "…", "journey_id": "…" }
+```
+**Error codes:**
+- `LEADS_ACTOR_FORBIDDEN` (403) — a Lead Manager or Superadmin attempted conversion.
+- `LEADS_LEAD_ALREADY_CONVERTED` (409) — this lead already produced an applicant.
+- `LEADS_CONVERSION_NOT_READY` (409) — the lead is lost or converted; reopen it first.
 
-When it lands it will be Admin-only, will create an applicant plus an initial journey by calling those apps' services (never their models, per §4), will set `stage = "converted"` along with `converted_at`/`converted_by`, and must be idempotent so a repeat call cannot produce a second applicant (§15). Reserved error codes `LEADS_LEAD_ALREADY_CONVERTED` and `LEADS_CONVERSION_NOT_READY` already exist in `constants.py`.
+**Business rules:**
+
+*Preconditions.* Admin authority, and a lead in one of the six **active** stages. Any active stage qualifies — `ready_for_conversion` signals readiness but is deliberately not a precondition, because the concept describes it as a signal rather than a gate.
+
+*What it creates.* One `applicants.Applicant` and one `applicant_journeys.ApplicantJourney`, both with `creation_source: "lead_conversion"`, by calling those apps' services — never their models (§4). Then sets `converted_applicant`, `converted_journey`, `converted_at`, `converted_by`, and `stage = "converted"` on the lead.
+
+*Idempotency (§15).* Guaranteed at two levels. `services.convert_lead` refuses when `converted_applicant_id` is already set, and `Lead.converted_applicant` is a `OneToOneField`, so a second applicant for one lead is impossible at the database level even if the service guard were bypassed. The test asserts object **counts**, not just the 409, because a status code alone would not prove the second call created nothing.
+
+*Atomicity.* The whole conversion runs in one `atomic()` block. A failure while creating the journey rolls back the applicant too — there is no state in which a lead has an applicant but no journey.
+
+*Identity mapping to the applicant.* `full_name_np`, `full_name_en`, `full_name_romanized`, `email`, all contact numbers, and `address` (as a `permanent` `ApplicantAddress`). Nothing else — a lead holds no date of birth, passport, or family.
+
+*Study-interest mapping to the journey.* `LeadStudyInterest` has ten fields; six map directly (`study_level`, `field_of_study`, `preferred_intake`, `budget_amount`, `budget_currency`, `scholarship_interest`). The remaining four are handled explicitly rather than dropped:
+
+| Lead field | Destination | Why |
+|---|---|---|
+| `interested_countries` | `target_country` **only if exactly one** | A journey targets one country. Two or more is a genuine ambiguity only a human can resolve, so the field is left blank and the full list is written to the journey's `notes`. |
+| `highest_qualification` | journey `notes` | Belongs to the `education` module, which does not exist. |
+| `language_test_status` | journey `notes` | Belongs to `test_scores`, which does not exist. |
+| `interest_notes` | journey `notes` | Direct. |
+
+*Audit.* Writes `lead_converted` and `lead_applicant_created` to this lead's history, plus `applicant_created` and `journey_created` to the new records' own histories.
+
+*What it does not do.* It does not delete or alter the lead beyond the conversion fields — notes, contact numbers, and history all survive. A converted lead can be reopened (§3.8), but reopening never clears `converted_applicant`/`converted_journey`, so a second applicant can never come from the same lead.
+
+**AI debugging notes:** if conversion appears to have produced nothing, check the lead's `converted_applicant_id` first — a 409 on a retry means the first call succeeded, not that it failed.

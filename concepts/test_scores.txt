@@ -1,0 +1,98 @@
+# TEST SCORES — Grandway
+
+> **Status: concept only.** This module is not built. The concept is written now
+> so the boundary between it, the applicant record, and education is settled
+> before any of them is implemented. Building it requires its own session and the
+> §25/§26 gates.
+
+## Purpose
+
+The Test Scores module owns an applicant's language and standardized test
+attempts — IELTS, PTE, TOEFL, SAT, GRE, and whatever else the consultancy
+encounters.
+
+It is separate from education because a test attempt is not a qualification. A
+person may sit IELTS three times in one year; each sitting is its own record
+with its own date, its own scores, and its own expiry.
+
+## Relationship to the applicant
+
+One applicant has many test attempts. Each attempt belongs to exactly one
+applicant.
+
+Like education records, attempts are facts about the person, not about any
+particular journey. Every journey draws on the same set of scores.
+
+## Core entities
+
+Test attempt
+
+One sitting of one test. Should hold:
+
+* Test type
+* Test date
+* Overall or composite score
+* Section scores, which differ per test type
+* Reference or candidate number
+* Expiry date
+* Whether this is the attempt the consultancy considers current
+
+Section scores are the awkward part. IELTS has listening, reading, writing, and
+speaking on a 0–9 band. PTE has four skills on 10–90 plus enabling skills. SAT
+has two sections on 200–800. GRE has three, two of them 130–170 and one on 0–6.
+
+A single fixed set of columns fits none of them and a shapeless blob is
+unsearchable. The likely answer is a per-test-type definition of which sections
+exist and what range each uses, with the attempt storing values against that
+definition — but this is the module's central design decision and should be
+settled deliberately when it is built.
+
+Test type
+
+Probably an Admin-configurable reference table rather than a fixed enum, for the
+same reason lead sources are configurable: the initial list will not be
+complete, and adding a test the consultancy starts seeing should not require a
+deployment.
+
+## Expiry
+
+Language test results expire — IELTS and PTE after two years — and an expired
+score can invalidate an application in progress.
+
+Expiry should be stored as a real date rather than computed at read time, since
+validity periods differ per test and change over time. The project overview
+anticipates notifications for test expiry, so the date needs to be queryable.
+
+Expiry is the main reason this module exists as more than a list of numbers.
+
+## Permissions
+
+Admin and Lead Manager may both create, view, edit, and remove test attempts for
+any applicant, consistent with applicants and journeys being shared.
+
+## Constraints / Out of scope
+
+* No score verification against the testing body. Grandway records what the
+  applicant reports and any supporting document reference.
+* No automatic eligibility assessment. Whether a score meets an institution's
+  requirement is not a Grandway decision.
+* No test booking, scheduling, or preparation tracking.
+* No result files — those belong to the uploaded files module, referenced from
+  the attempt.
+* No score prediction or improvement estimates.
+
+## Open questions
+
+* How are section scores modelled given that every test type has a different
+  shape? This is the module's defining question and should not be answered by
+  reflex.
+* Should test types be a configurable reference table, and if so does each type
+  carry its own section definition and validity period?
+* Is a current-attempt flag needed, or is "most recent non-expired attempt of
+  this type" a good enough rule? A flag is explicit but can go stale; a rule
+  cannot express "we are submitting the older, better score."
+* Should Grandway prevent recording an attempt dated in the future?
+* What happens to an application in progress when its supporting score expires?
+  The notification is anticipated, but nothing else is decided.
+* Do non-language tests such as SAT and GRE expire in the same sense, and should
+  they be modelled together with IELTS and PTE at all?

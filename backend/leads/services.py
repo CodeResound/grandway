@@ -15,6 +15,7 @@ from typing import Any
 
 from audit.constants import ActorType
 from audit.services import record_event
+from core.constants import ContactNumberLabel
 from core.nepal.text import normalize_unicode, romanize_devanagari
 from django.db import transaction
 from django.utils import timezone
@@ -26,13 +27,14 @@ from leads.constants import (
     AUDIT_ENTITY_LOSS_REASON,
     AUDIT_ENTITY_SOURCE,
     DEFAULT_REOPEN_STAGE,
-    ContactNumberLabel,
     LeadAuditAction,
     LeadStage,
 )
 from leads.exceptions import (
     ContactNumberRequiredError,
+    ConversionNotReadyError,
     InvalidStageTransitionError,
+    LeadAlreadyConvertedError,
     LeadNotLostError,
     LossDetailRequiredError,
     LossReasonRequiredError,
@@ -556,3 +558,147 @@ def add_note(*, actor: Any, lead: Lead, body: str, ip_address: str | None = None
         ip_address=ip_address,
     )
     return note
+
+
+# ---------------------------------------------------------------------------
+# Conversion — the one point where the lead cycle meets the applicant cycle
+# ---------------------------------------------------------------------------
+
+#: Study-interest fields copied straight into the initial journey.
+#: ``concepts/leads.txt`` names six; the rest are handled below.
+_INTEREST_TO_JOURNEY = (
+    "study_level",
+    "field_of_study",
+    "preferred_intake",
+    "budget_amount",
+    "budget_currency",
+    "scholarship_interest",
+)
+
+
+def _build_journey_data(lead: Lead) -> dict[str, Any]:
+    """Map a lead's preliminary study interest onto an initial journey.
+
+    ``LeadStudyInterest`` carries ten fields but only six map directly. The
+    other four have no column on the journey and would otherwise be silently
+    dropped at the one moment the information stops being visible to staff, so
+    each is preserved in the journey's notes:
+
+    * ``interested_countries`` is a list while a journey targets **one**
+      country. Exactly one entry is copied to ``target_country``; two or more
+      is a real ambiguity that only a human can resolve, so the field is left
+      blank and the full list is recorded for them.
+    * ``highest_qualification`` belongs to the ``education`` module and
+      ``language_test_status`` to ``test_scores`` — neither exists yet.
+    """
+    interest = getattr(lead, "study_interest", None)
+    if interest is None:
+        return {"notes": ""}
+
+    data: dict[str, Any] = {field: getattr(interest, field) for field in _INTEREST_TO_JOURNEY}
+
+    countries = interest.interested_countries or []
+    if len(countries) == 1:
+        data["target_country"] = countries[0]
+
+    carried: list[str] = []
+    if len(countries) > 1:
+        carried.append(f"Interested countries: {', '.join(countries)}.")
+    if interest.highest_qualification:
+        carried.append(f"Highest qualification: {interest.highest_qualification}.")
+    if interest.language_test_status:
+        carried.append(f"Language test status: {interest.language_test_status}.")
+    if interest.interest_notes:
+        carried.append(interest.interest_notes)
+
+    data["notes"] = "\n".join(carried)
+    return data
+
+
+@transaction.atomic
+def convert_lead(*, actor: Any, lead: Lead, ip_address: str | None = None) -> Lead:
+    """Turn a lead into an applicant plus an initial journey. Admin-only.
+
+    Conversion is a deliberate action, not a dropdown stage change
+    (``concepts/leads.txt`` — "Lead conversion"). It creates the two records by
+    calling the owning apps' services — never their models (§4) — links them to
+    the lead permanently, and moves the lead to its terminal ``converted`` stage.
+
+    Idempotency (§15) is enforced twice over: this guard, and the OneToOne on
+    ``converted_applicant`` which makes a second applicant per lead impossible
+    at the database level even if this check were bypassed.
+    """
+    # Imported here rather than at module scope: leads is usable without either
+    # app loaded, and a top-level import would make that untrue.
+    from applicant_journeys import services as journey_services
+    from applicant_journeys.constants import CreationSource as JourneyCreationSource
+    from applicants import services as applicant_services
+    from applicants.constants import CreationSource as ApplicantCreationSource
+
+    if lead.converted_applicant_id is not None:
+        raise LeadAlreadyConvertedError("This lead has already been converted into an applicant.")
+    if lead.is_terminal:
+        raise ConversionNotReadyError("A lost or converted lead must be reopened before it can be converted.")
+
+    applicant = applicant_services.create_applicant(
+        actor=actor,
+        data={
+            "full_name_np": lead.full_name_np,
+            "full_name_en": lead.full_name_en,
+            "full_name_romanized": lead.full_name_romanized,
+            "email": lead.email,
+        },
+        contact_numbers=[
+            {"number": entry.number, "label": entry.label, "is_primary": entry.is_primary}
+            for entry in lead.contact_numbers.all()
+        ],
+        addresses=([{"address_type": "permanent", "street_address": lead.address}] if lead.address else None),
+        creation_source=ApplicantCreationSource.LEAD_CONVERSION,
+        ip_address=ip_address,
+    )
+
+    journey = journey_services.create_journey(
+        actor=actor,
+        applicant=applicant,
+        data=_build_journey_data(lead),
+        creation_source=JourneyCreationSource.LEAD_CONVERSION,
+        ip_address=ip_address,
+    )
+
+    previous = lead.stage
+    lead.converted_applicant = applicant
+    lead.converted_journey = journey
+    lead.converted_at = timezone.now()
+    lead.converted_by = actor
+    lead.stage = LeadStage.CONVERTED
+    lead.save(
+        update_fields=[
+            "converted_applicant",
+            "converted_journey",
+            "converted_at",
+            "converted_by",
+            "stage",
+            "updated_at",
+        ]
+    )
+
+    _record(
+        action=LeadAuditAction.LEAD_CONVERTED,
+        actor=actor,
+        entity_type=AUDIT_ENTITY_LEAD,
+        entity_id=str(lead.id),
+        summary=f"Lead converted to applicant '{applicant.full_name_np}'.",
+        changes={"stage": {"from": previous, "to": LeadStage.CONVERTED}},
+        metadata={"applicant_id": str(applicant.id), "journey_id": str(journey.id)},
+        ip_address=ip_address,
+    )
+    _record(
+        action=LeadAuditAction.LEAD_APPLICANT_CREATED,
+        actor=actor,
+        entity_type=AUDIT_ENTITY_LEAD,
+        entity_id=str(lead.id),
+        summary="Applicant and initial journey created from this lead.",
+        metadata={"applicant_id": str(applicant.id), "journey_id": str(journey.id)},
+        ip_address=ip_address,
+    )
+    return lead

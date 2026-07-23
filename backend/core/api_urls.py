@@ -7,4 +7,6 @@ urlpatterns: list = [
     path("auth/", include("authenticate.urls", namespace="auth")),
     path("audit/", include("audit.urls", namespace="audit")),
     path("leads/", include("leads.urls", namespace="leads")),
+    path("applicants/", include("applicants.urls", namespace="applicants")),
+    path("journeys/", include("applicant_journeys.urls", namespace="journeys")),
 ]

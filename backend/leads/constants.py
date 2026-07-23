@@ -2,6 +2,11 @@
 
 Every choice field in ``leads.models`` draws its values from this module (§8);
 no raw status strings are scattered across the codebase.
+
+``StudyLevel``, ``LanguageTestStatus``, and ``ContactNumberLabel`` are *not*
+defined here — they are shared with ``applicants`` and ``applicant_journeys``
+and live in ``core.constants`` (§2/§3). Import them from there, not from this
+module.
 """
 
 from django.db import models
@@ -42,40 +47,6 @@ TERMINAL_STAGES: tuple[str, ...] = (LeadStage.CONVERTED, LeadStage.LOST)
 
 #: Stage a reopened lead lands on unless the caller picks another active stage.
 DEFAULT_REOPEN_STAGE: str = LeadStage.FOLLOW_UP
-
-
-class StudyLevel(models.TextChoices):
-    """Intended study level on a preliminary study interest."""
-
-    SCHOOL = "school", "School"
-    CERTIFICATE = "certificate", "Certificate"
-    DIPLOMA = "diploma", "Diploma"
-    BACHELORS = "bachelors", "Bachelor's"
-    POSTGRADUATE_DIPLOMA = "postgraduate_diploma", "Postgraduate Diploma"
-    MASTERS = "masters", "Master's"
-    PHD = "phd", "PhD"
-    OTHER = "other", "Other"
-
-
-class LanguageTestStatus(models.TextChoices):
-    """Where the person stands on a language test at enquiry time."""
-
-    NOT_TAKEN = "not_taken", "Not Taken"
-    PREPARING = "preparing", "Preparing"
-    BOOKED = "booked", "Booked"
-    TAKEN = "taken", "Taken"
-    NOT_REQUIRED = "not_required", "Not Required"
-
-
-class ContactNumberLabel(models.TextChoices):
-    """What kind of number a lead contact entry is."""
-
-    MOBILE = "mobile", "Mobile"
-    HOME = "home", "Home"
-    WORK = "work", "Work"
-    WHATSAPP = "whatsapp", "WhatsApp"
-    VIBER = "viber", "Viber"
-    OTHER = "other", "Other"
 
 
 class LeadAuditAction:

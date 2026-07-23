@@ -353,4 +353,28 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "change_summary": "Initial registration of the lead history endpoint.",
         "change_reason": _PHASE_3,
     },
+    # --- Phase 4: conversion ------------------------------------------------
+    # 18. The one point where the lead cycle meets the applicant cycle.
+    {
+        **_LEAD,
+        "endpoint_key": "lead-convert",
+        "permission_key": "leads.lead.convert",
+        "operation_type": "custom",
+        "display_name": "Convert Lead to Applicant",
+        "description": (
+            "Create an applicant and an initial journey from the lead, link both permanently, "
+            "and move the lead to its terminal converted stage. Admin only; idempotent."
+        ),
+        "http_method": "POST",
+        "route_pattern": "/api/v1/leads/<lead_id>/convert/",
+        "view_import_path": "leads.views.LeadConvertView",
+        "risk_level": "critical",
+        "dependencies": [
+            _dep("leads.lead.read", "The lead must be readable before it can be converted."),
+            _dep("applicants.applicant.create", "Conversion creates the applicant record."),
+            _dep("applicant_journeys.journey.create", "Conversion creates the initial journey."),
+        ],
+        "change_summary": "Initial registration of the lead conversion endpoint.",
+        "change_reason": "leads app Phase 4 (conversion), unblocked by applicants + applicant_journeys.",
+    },
 ]

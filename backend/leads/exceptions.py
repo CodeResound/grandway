@@ -74,3 +74,11 @@ class LeadAlreadyConvertedError(Exception):
     Guards the idempotency rule in ``concepts/leads.txt`` — "Conversion must be
     protected against repeated execution."
     """
+
+
+class ConversionNotReadyError(Exception):
+    """Raised when converting a lead that is in a terminal stage.
+
+    A lost lead must be reopened first — converting a closed enquiry would
+    produce an applicant with no coherent lead history behind it.
+    """

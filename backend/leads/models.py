@@ -5,12 +5,14 @@ See ``leads/docs/DATA_CONTRACT.md`` for the authoritative contract.
 
 from __future__ import annotations
 
+from core.constants import ContactNumberLabel, LanguageTestStatus, StudyLevel
 from core.models import BaseModel
+from core.validators import validate_contact_number
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
-from leads.constants import ContactNumberLabel, LanguageTestStatus, LeadStage, StudyLevel
-from leads.validators import validate_contact_number, validate_reference_code
+from leads.constants import LeadStage
+from leads.validators import validate_reference_code
 
 
 class ReferenceEntry(BaseModel):
@@ -136,9 +138,27 @@ class Lead(BaseModel):
     stage_before_loss = models.CharField(max_length=30, choices=LeadStage.choices, blank=True)
 
     # --- Conversion state --------------------------------------------------
-    # The applicant/journey FK links land here in Phase 4 as an additive
-    # migration, once the applicants and applicant_journeys apps exist.
-    # Recording who converted and when needs neither, so those exist now.
+    # ``converted_applicant`` is a OneToOne deliberately: it puts "never create a
+    # second applicant from one lead" in the database rather than in service
+    # logic, which is the strongest available form of the idempotency §15
+    # requires for conversion. ``leads`` owns both links, so ``applicants`` and
+    # ``applicant_journeys`` carry no dependency on this app and work perfectly
+    # well for an applicant created directly. Read the reverse direction via
+    # ``applicant.originating_lead``.
+    converted_applicant = models.OneToOneField(
+        "applicants.Applicant",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="originating_lead",
+    )
+    converted_journey = models.ForeignKey(
+        "applicant_journeys.ApplicantJourney",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="originating_leads",
+    )
     converted_at = models.DateTimeField(null=True, blank=True)
     converted_by = models.ForeignKey(
         "authenticate.User",

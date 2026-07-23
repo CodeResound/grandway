@@ -29,8 +29,8 @@
 | `authenticate` | framework | Issues the access JWT and supplies the caller's `authority_type`, which decides whether the caller sees all leads, only their own, or none. | Every endpoint returns 401. Without a valid `authority_type` claim the caller is treated as neither Admin nor Lead Manager and gets 403 `LEADS_ACTOR_FORBIDDEN`. |
 | `authenticate` | FK | Lead ownership (`created_by`) and every attribution field (`last_followed_up_by`, `lost_by`, `converted_by`, note `author`) reference a user account. | Leads cannot be created; attribution fields would be unresolvable. |
 | `audit` | service call | Every mutation appends one immutable event to the central audit log; the lead history endpoint reads that log back. This module stores no history of its own. | `GET /api/v1/leads/<lead_id>/history/` returns an empty list — the lead's entire chronological history disappears, though the lead itself still works. |
-| `applicants` | service call | **Not yet available.** Conversion will call it to create the applicant record. | Conversion is not exposed at all — see §9. |
-| `applicant_journeys` | service call | **Not yet available.** Conversion will call it to create the initial journey. | As above. |
+| `applicants` | service call + FK | Conversion calls it to create the applicant record, and `Lead.converted_applicant` is a one-to-one link to the result. | `POST /api/v1/leads/<lead_id>/convert/` fails; no lead can enter the applicant lifecycle. Everything before conversion still works. |
+| `applicant_journeys` | service call + FK | Conversion calls it to create the initial journey, seeded from the lead's preliminary study interest. | As above — conversion is all-or-nothing, so a failure creates neither record. |
 
 ## 3. Conventions
 
@@ -89,12 +89,12 @@
 
 **Lead (list shape)** — `{ id, full_name_np, full_name_en, full_name_romanized, email, address, source:ReferenceEntry, source_detail, stage:[enum], created_by:UserBrief, contact_numbers:[ContactNumber], last_followed_up_at?, last_followed_up_at_bs?:BsDate, created_at, updated_at }`
 
-**Lead (detail shape)** — the list shape plus `{ study_interest?:StudyInterest, last_followed_up_by?:UserBrief, lost_reason?:ReferenceEntry, lost_detail, lost_at?, lost_at_bs?:BsDate, lost_by?:UserBrief, stage_before_loss, converted_at?, converted_at_bs?:BsDate, converted_by?:UserBrief }`
+**Lead (detail shape)** — the list shape plus `{ study_interest?:StudyInterest, last_followed_up_by?:UserBrief, lost_reason?:ReferenceEntry, lost_detail, lost_at?, lost_at_bs?:BsDate, lost_by?:UserBrief, stage_before_loss, converted_at?, converted_at_bs?:BsDate, converted_by?:UserBrief, converted_applicant_id?, converted_journey_id? }`
 
 - The detail shape is returned by retrieve, create, update, **and every lifecycle action**. Only the lead *list* returns the shorter shape.
 - `study_interest` is `null` when the lead has none.
 - The `lost_*` fields are all populated together when `stage` is `lost`, and all cleared together on reopen. `stage_before_loss` is `""` unless the lead is currently lost.
-- `converted_at`/`converted_by` are always `null` in this version — conversion is not yet available (§9).
+- The `converted_*` fields populate together at conversion and are **never** cleared — not even by reopen. `converted_applicant_id` and `converted_journey_id` are bare id strings; fetch the records from the `applicants` and `applicant_journeys` modules.
 
 **LeadNote** — `{ id, body, author:UserBrief, created_at }`
 
@@ -261,7 +261,7 @@
 - `StudyInterest.study_level`: `school` | `certificate` | `diploma` | `bachelors` | `postgraduate_diploma` | `masters` | `phd` | `other` | `""`
 - `StudyInterest.language_test_status`: `not_taken` | `preparing` | `booked` | `taken` | `not_required` | `""`
 - `HistoryEntry.actor_type`: `superadmin` | `admin` | `lead_manager` | `system` | `ai`
-- `HistoryEntry.action`: `lead_created` | `lead_updated` | `lead_source_changed` | `lead_contact_changed` | `lead_interest_changed` | `lead_stage_changed` | `lead_followup_recorded` | `lead_marked_lost` | `lead_reopened` | `lead_note_added`. Two further values, `lead_converted` and `lead_applicant_created`, are defined but never emitted in this version.
+- `HistoryEntry.action`: `lead_created` | `lead_updated` | `lead_source_changed` | `lead_contact_changed` | `lead_interest_changed` | `lead_stage_changed` | `lead_followup_recorded` | `lead_marked_lost` | `lead_reopened` | `lead_note_added` | `lead_converted` | `lead_applicant_created`. The last two are always emitted together, by the conversion endpoint.
 - `LeadSource.code` / `LossReason.code`: **not a fixed enum** — these are runtime-configurable rows created by an Admin. Never hardcode a code; always populate pickers from the list endpoints.
 
 ## 6. Dependency order
@@ -273,6 +273,7 @@
 - `LeadNote` needs `Lead`.
 - Marking a lead lost needs `LossReason` — a reason is always mandatory.
 - `HistoryEntry` needs `Lead` and is never created by a client; the server writes it on every mutation.
+- Converting needs an **Admin** account and a lead in an active stage. It produces an `Applicant` *(other module: `applicants`)* and an `ApplicantJourney` *(other module: `applicant_journeys`)* — neither needs to exist beforehand; conversion creates both.
 
 **Start here:** `GET /api/v1/leads/sources/` to populate the source picker, then `POST /api/v1/leads/` to create the first lead. If the source list is empty, an Admin must create a source first.
 
@@ -447,6 +448,32 @@
 - `LEADS_LEAD_NOT_LOST` (409) — the lead is already active
 - `LEADS_STAGE_INVALID_TRANSITION` (400) — a terminal stage was requested as the target
 
+### Lead convert — `POST /api/v1/leads/<lead_id>/convert/`
+
+**Use it when:** the person is ready to become a client and an Admin is admitting them to the applicant lifecycle. This is the one point where the lead cycle meets the applicant cycle.
+**Methods:**
+- `POST /api/v1/leads/<lead_id>/convert/` — create an applicant and initial journey from the lead (permission: `leads.lead.convert`, risk: critical)
+
+**Send (create/update):** none — the payload is empty. Everything is taken from the lead.
+**Returns:** an object with three keys: `lead` (the Lead detail shape, now at `stage: "converted"`), `applicant_id`, and `journey_id`. HTTP 201.
+**Requires state:** the caller must be an **Admin** — a Lead Manager gets 403. The lead must be in an **active** stage; a lost or already-converted lead must be reopened first. Any active stage is acceptable — `ready_for_conversion` signals readiness but is not a precondition.
+**Side effects:** creates one applicant *(cross-app: `applicants`)* and one journey *(cross-app: `applicant_journeys`)*, each with `creation_source: "lead_conversion"`. Sets the lead's `converted_applicant`, `converted_journey`, `converted_at`, and `converted_by`, and moves it to the terminal `converted` stage. Appends both `lead_converted` and `lead_applicant_created` to this lead's history, plus `applicant_created` and `journey_created` to the new records' own histories.
+**Notes:**
+- **Idempotent.** A repeat call returns 409 and creates nothing. This is guaranteed twice over: a service-level guard, and a database one-to-one constraint that makes a second applicant per lead structurally impossible.
+- **Atomic.** The applicant and the journey are created together or not at all — a mid-way failure leaves no orphan applicant, and the lead stays exactly as it was.
+- **What is copied to the applicant:** name (all three forms), email, contact numbers, and the address as a `permanent` address. Nothing else — a lead carries no date of birth, passport, or family.
+- **What is copied to the journey:** six of the ten preliminary study-interest fields map directly — `study_level`, `field_of_study`, `preferred_intake`, `budget_amount`, `budget_currency`, `scholarship_interest`.
+- **`interested_countries` is a list but a journey targets one country.** Exactly one entry is copied to `target_country`; **two or more leaves it blank** and records the full list in the journey's `notes` for a human to resolve. Expect to prompt the user to complete the journey after converting such a lead.
+- **`highest_qualification` and `language_test_status` have no journey column** — they belong to the `education` and `test_scores` modules, which do not exist. Both are appended to the journey's `notes` rather than dropped, along with `interest_notes`.
+- Converting does **not** delete or alter the lead. Its notes, contact numbers, and full history survive, and it remains readable at `GET /api/v1/leads/<lead_id>/`.
+- A converted lead can be reopened, but that never undoes the conversion — see the reopen block above.
+
+**Errors:**
+- `LEADS_ACTOR_FORBIDDEN` (403) — the caller is a Lead Manager or Superadmin; only an Admin converts
+- `LEADS_LEAD_NOT_FOUND` (404) — no such lead, or it belongs to another Lead Manager
+- `LEADS_LEAD_ALREADY_CONVERTED` (409) — this lead already produced an applicant; fetch it via `converted_applicant` rather than retrying
+- `LEADS_CONVERSION_NOT_READY` (409) — the lead is lost or converted; reopen it first
+
 ### Lead Note — `/api/v1/leads/<lead_id>/notes/`
 
 **Use it when:** the notes panel on the lead detail page.
@@ -496,7 +523,18 @@
    - `LEADS_CONTACT_REQUIRED` or a 400 on `contact_numbers`: at least one number is mandatory.
 3. `POST /api/v1/leads/<lead.id>/stage/` with `{"stage": "contact_attempted"}` after the first call attempt.
 4. `POST /api/v1/leads/<lead.id>/follow-up/` with `{"note": "Spoke to them.", "stage": "contacted"}` once contact succeeds — this records the follow-up, adds the note, and moves the stage in one call.
-5. `POST /api/v1/leads/<lead.id>/stage/` with `{"stage": "ready_for_conversion"}` when the person is ready to become an applicant. This does **not** create an applicant — conversion is not yet available (§9).
+5. `POST /api/v1/leads/<lead.id>/stage/` with `{"stage": "ready_for_conversion"}` when the person is ready to become an applicant. This does **not** create an applicant — it only signals readiness; see the conversion flow below.
+
+**Convert a lead into a client** *(Admin only; crosses into `applicants` and `applicant_journeys`)*
+1. `GET /api/v1/leads/<lead.id>/` → confirm the lead is in an active stage and its study interest is as complete as it will get.
+2. `POST /api/v1/leads/<lead.id>/convert/` with an empty body → capture `applicant_id` and `journey_id`.
+   - `LEADS_ACTOR_FORBIDDEN`: the caller is a Lead Manager. Only an Admin converts; hide the button for others.
+   - `LEADS_CONVERSION_NOT_READY`: the lead is lost. Reopen it first, then retry.
+   - `LEADS_LEAD_ALREADY_CONVERTED`: someone converted it already. Read `converted_applicant_id` off the lead and navigate there instead of retrying.
+3. `GET /api/v1/applicants/<applicant_id>/` *(other module: `applicants`)* → name, email, contact numbers, and address were copied across. Prompt the user to add what a lead never held: date of birth, passport, family, emergency contacts.
+4. `GET /api/v1/journeys/<journey_id>/` *(other module: `applicant_journeys`)* → the objective was seeded from the lead's study interest.
+   - If the lead named more than one country, `target_country` is **blank** and the list sits in `notes`. Prompt the user to pick one.
+5. `GET /api/v1/leads/<lead.id>/` → now `stage: "converted"`, with both link ids populated. The lead, its notes, and its full history are all intact.
 
 **Close an enquiry that will not proceed**
 1. `GET /api/v1/leads/loss-reasons/` → capture the chosen `reason.id`
@@ -525,8 +563,9 @@
 
 ## 9. Gaps
 
-- **Conversion does not exist in this version.** `concepts/leads.txt` describes converting a lead into an applicant, but there is no such endpoint: the `applicants` and `applicant_journeys` modules have not been built. `stage: "converted"` is therefore unreachable through the API, and `converted_at`/`converted_by` are always `null`. Do not build a convert button against this version. `ready_for_conversion` is the furthest a lead can currently advance.
-- **No direct applicant creation.** `concepts/leads.txt` also describes an Admin creating an applicant without a lead. That is not part of this module and has no endpoint anywhere yet.
+- **Conversion loses two study-interest fields into free text.** `highest_qualification` and `language_test_status` have no column on a journey — they belong to the `education` and `test_scores` modules, which are specified but not built. Both are appended to the journey's `notes` rather than dropped, but they are prose from that point on and cannot be queried.
+- **A multi-country lead converts to a journey with no target country.** `interested_countries` holds a list while a journey targets one country, so two or more entries leaves `target_country` blank with the list recorded in `notes`. This is deliberate — only a human can pick — but a client should prompt the user to complete the journey after such a conversion.
+- **Direct applicant creation is not in this module.** `concepts/leads.txt` mentions an Admin creating an applicant with no lead; that endpoint lives in the `applicants` module (`POST /api/v1/applicants/`), not here.
 - **401 body shape is not specified here.** Unauthenticated and expired-token responses are produced by the authentication framework, not by this module. Consult the `authenticate` module's contract for their exact shape.
 - **`LeadSource.code` and `LossReason.code` values are not fixed.** They are runtime-configured rows and vary per installation. The codes used in the examples above (`walk_in`, `no_response`, `other`) are illustrative only — always populate pickers from the list endpoints and never branch on a hardcoded code.
 - **`HistoryEntry.metadata` keys are per-action and not exhaustively specified.** Observed keys include `source`, `stage`, `count`, `followed_up_at`, `loss_reason`, `has_detail`, `note_id`, and `reopened_from_converted`. Treat the object as advisory display data; render `summary` as the primary label.

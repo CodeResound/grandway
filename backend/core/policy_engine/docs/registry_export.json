@@ -3,6 +3,14 @@
   "generated_from": "registry",
   "applications": [
     {
+      "app_key": "applicant_journeys",
+      "display_name": "Applicant Journeys"
+    },
+    {
+      "app_key": "applicants",
+      "display_name": "Applicants"
+    },
+    {
       "app_key": "audit",
       "display_name": "Audit"
     },
@@ -25,12 +33,20 @@
       "display_name": "Account Management"
     },
     {
+      "category_key": "applicant_management",
+      "display_name": "Applicant Management"
+    },
+    {
       "category_key": "audit_review",
       "display_name": "Audit Review"
     },
     {
       "category_key": "authentication",
       "display_name": "Authentication"
+    },
+    {
+      "category_key": "journey_management",
+      "display_name": "Journey Management"
     },
     {
       "category_key": "lead_configuration",
@@ -49,8 +65,382 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 47,
+  "endpoint_count": 63,
   "endpoints": [
+    {
+      "permission_key": "applicant_journeys.journey.change_stage",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-change-stage",
+      "display_name": "Change Journey Stage",
+      "description": "Move a journey between active stages. Cannot set completed, closed, or deferred.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/journeys/<journey_id>/stage/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The journey must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicant_journeys.journey.close",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-close",
+      "display_name": "Close Journey",
+      "description": "End a journey with a mandatory outcome. Successful completes it; anything else closes it.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/journeys/<journey_id>/close/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The journey must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicant_journeys.journey.create",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-create",
+      "display_name": "Create Journey",
+      "description": "Record a new overseas-study objective for an existing applicant.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/journeys/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating journeys requires the ability to list them."
+        },
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A journey must be attached to an existing applicant."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicant_journeys.journey.defer",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-defer",
+      "display_name": "Defer Journey",
+      "description": "Pause a journey to a later intake, recording the target intake and reason.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/journeys/<journey_id>/defer/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The journey must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicant_journeys.journey.list",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-list",
+      "display_name": "List Journeys",
+      "description": "List study objectives across all applicants. Shared, not owner-scoped.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/journeys/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicant_journeys.journey.list_history",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-history",
+      "display_name": "View Journey History",
+      "description": "List a journey's chronological action history from the central audit log.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/journeys/<journey_id>/history/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The journey must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicant_journeys.journey.read",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-read",
+      "display_name": "View Journey",
+      "description": "Retrieve one journey with its objective details and lifecycle state.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/journeys/<journey_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a journey requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicant_journeys.journey.reopen",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-reopen",
+      "display_name": "Reopen Journey",
+      "description": "Return a completed, closed, or deferred journey to an active stage.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/journeys/<journey_id>/reopen/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.close",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reopening only applies to a journey that was closed or deferred."
+        },
+        {
+          "target_permission_key": "applicant_journeys.journey.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The journey must be readable before it can be reopened."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicant_journeys.journey.update",
+      "app_key": "applicant_journeys",
+      "model_key": "journey",
+      "endpoint_key": "journey-update",
+      "display_name": "Edit Journey",
+      "description": "Correct destination, level, field, intake, budget, or notes. Stage is unaffected.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/journeys/<journey_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "journey_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The journey must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.applicant.change_status",
+      "app_key": "applicants",
+      "model_key": "applicant",
+      "endpoint_key": "applicant-change-status",
+      "display_name": "Change Applicant Status",
+      "description": "Set the applicant's standing: active, dormant, or archived. Always manual.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/status/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The applicant must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.applicant.create",
+      "app_key": "applicants",
+      "model_key": "applicant",
+      "endpoint_key": "applicant-create",
+      "display_name": "Create Applicant",
+      "description": "Create an applicant directly, with no preceding lead. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/applicants/",
+      "operation_type": "create",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating applicants requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.applicant.list",
+      "app_key": "applicants",
+      "model_key": "applicant",
+      "endpoint_key": "applicant-list",
+      "display_name": "List Applicants",
+      "description": "List every applicant. Shared across the consultancy — not owner-scoped.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/applicants/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.applicant.list_history",
+      "app_key": "applicants",
+      "model_key": "applicant",
+      "endpoint_key": "applicant-history",
+      "display_name": "View Applicant History",
+      "description": "List an applicant's chronological change history from the central audit log.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/history/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The applicant must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.applicant.read",
+      "app_key": "applicants",
+      "model_key": "applicant",
+      "endpoint_key": "applicant-read",
+      "display_name": "View Applicant",
+      "description": "Retrieve one applicant with contacts, addresses, passport, family, and emergency contacts.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading an applicant requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.applicant.update",
+      "app_key": "applicants",
+      "model_key": "applicant",
+      "endpoint_key": "applicant-update",
+      "display_name": "Edit Applicant",
+      "description": "Correct identity, contact, address, passport, family, or emergency-contact information.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The applicant must be readable before it can be acted on."
+        }
+      ]
+    },
     {
       "permission_key": "audit.event.list",
       "app_key": "audit",
@@ -608,6 +998,44 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The lead must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.convert",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-convert",
+      "display_name": "Convert Lead to Applicant",
+      "description": "Create an applicant and an initial journey from the lead, link both permanently, and move the lead to its terminal converted stage. Admin only; idempotent.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/<lead_id>/convert/",
+      "operation_type": "custom",
+      "risk_level": "critical",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.create",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Conversion creates the initial journey."
+        },
+        {
+          "target_permission_key": "applicants.applicant.create",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Conversion creates the applicant record."
+        },
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be converted."
         }
       ]
     },

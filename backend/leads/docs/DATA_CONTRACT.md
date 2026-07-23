@@ -22,7 +22,7 @@
 
 - **A separate "lead history" entity was not created**, even though the concept asks for a chronological history of lead actions. The central `audit` app already provides an immutable, append-only event log with actor/action/time/changes, and §4 forbids duplicating another app's storage. `Lead` history is `audit.AuditEvent` filtered to `app_label="leads"`, `entity_type="lead"`, `entity_id=<lead id>`. This satisfies "history entries should not be silently rewritten or removed" more strongly than an app-local table would, since `AuditEvent` blocks deletion at the model layer.
 - **Loss and conversion state are denormalized onto `Lead`** rather than stored as separate event rows. This mirrors the `core.policy_engine` lifecycle pattern (§35 item 15): current-state fields make "which leads are lost and why" a plain field read, while the audit log remains the authoritative event history. Reopening clears the loss fields exactly as `restore_endpoint()` clears its lifecycle fields.
-- **Conversion is deferred to Phase 4.** `LeadStage.CONVERTED` exists in the enum and `converted_at`/`converted_by` exist on `Lead`, but there is no conversion endpoint and no applicant/journey foreign keys — the `applicants` and `applicant_journeys` apps do not exist yet. `converted` is therefore unreachable through the API today. Phase 4 adds the FK links as a purely additive migration; no destructive change will be needed.
+- **Conversion shipped in Phase 4** (migration `0003`), once `applicants` and `applicant_journeys` existed. As planned, the FK links were a purely additive migration — `LeadStage.CONVERTED` had been in the enum since `0001`, so no destructive change was ever needed.
 
 ---
 
@@ -130,8 +130,10 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 | lost_at | DateTime | No | Yes | No | When the lead was closed |
 | lost_by | FK → authenticate.User | No | Yes | No | Who closed it (`SET_NULL`) |
 | stage_before_loss | CharField(30) | No | No | Yes | Stage the lead held immediately before closure |
-| converted_at | DateTime | No | Yes | No | When conversion occurred (Phase 4; always null today) |
-| converted_by | FK → authenticate.User | No | Yes | No | The Admin who converted (Phase 4; always null today) |
+| converted_applicant | OneToOne → applicants.Applicant | No | Yes | Yes | The applicant this lead became (`PROTECT`). Set only by conversion |
+| converted_journey | FK → applicant_journeys.ApplicantJourney | No | Yes | Yes | The initial journey created at conversion (`PROTECT`) |
+| converted_at | DateTime | No | Yes | Yes | When conversion occurred |
+| converted_by | FK → authenticate.User | No | Yes | Yes | The Admin who converted (`SET_NULL`) |
 | created_at | DateTime | — | No | Yes | Set on insert |
 | updated_at | DateTime | — | No | Yes | Set on every save |
 
@@ -144,7 +146,10 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 - `stage` is **not** writable through the update endpoint. It moves only via the stage-change, mark-lost, reopen, and (Phase 4) convert actions.
 - `stage` may be set to `lost` only through mark-lost, and to `converted` only through conversion. Selecting either from the stage dropdown raises `LEADS_STAGE_INVALID_TRANSITION`.
 - While `stage` is `lost` or `converted`, no stage movement or follow-up is permitted until the lead is reopened — otherwise `LEADS_STAGE_NOT_EDITABLE`.
-- Reopening clears all six loss fields but never touches `converted_at`/`converted_by`, so a reopened converted lead stays linked to its applicant.
+- Reopening clears all six loss fields but never touches any `converted_*` field, so a reopened converted lead stays permanently linked to its applicant.
+- `converted_applicant` is a **`OneToOneField`**, which puts "never create a second applicant from one lead" in the database rather than in service logic — the strongest available form of the idempotency §15 requires. Two leads cannot point at one applicant, and one lead cannot point at two.
+- Conversion requires **Admin** authority and an **active** stage. A lost or already-converted lead must be reopened first (`LEADS_CONVERSION_NOT_READY`).
+- `leads` owns both conversion links, so `applicants` and `applicant_journeys` carry no dependency on this app. The reverse direction is available as `applicant.originating_lead`.
 
 **Indexes:**
 - `lead_owner_recent_idx` — `(created_by, -created_at)`. Supports the default list view, a Lead Manager's own leads newest first.
@@ -186,7 +191,8 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 **Cross-App Dependencies:**
 - `authenticate.User` — five FKs (`created_by`, `last_followed_up_by`, `lost_by`, `converted_by`, and `LeadNote.author`). Model-level reference only, per §4.
 - `audit` — runtime service/selector dependency, not a model reference. Every mutation calls `audit.services.record_event`; the history endpoint reads `audit.selectors.get_events`. Recorded in `INTEGRATION.md` §2.
-- `applicants` / `applicant_journeys` — **future**, Phase 4 only. Not referenced today.
+- `applicants` — `converted_applicant` is a `OneToOneField` here, and `leads.services.convert_lead` calls `applicants.services.create_applicant`. Both directions of the coupling originate in this app; `applicants` references nothing here.
+- `applicant_journeys` — `converted_journey` FK plus a call to `applicant_journeys.services.create_journey` at conversion. Same one-directional arrangement.
 
 **Security Notes:** `Lead` rows are owner-scoped. A Lead Manager may read and write only rows where `created_by` is themselves; an Admin sees all; a Superadmin is denied entirely. Scoping is applied in `selectors.get_leads_for_actor` at the queryset level, never as a post-fetch filter. See `SECURITY.md` §1.
 
@@ -330,8 +336,8 @@ Actions this app writes, using `audit.services.record_event`:
 | `lead_marked_lost` | The lead was closed | `reason` = loss reason code, `changes.stage` |
 | `lead_reopened` | A lost/converted lead returned to active work | `changes.stage`, `metadata.reopened_from_converted` |
 | `lead_note_added` | A note was appended | `metadata.note_id` |
-| `lead_converted` | **Phase 4** — not yet written | — |
-| `lead_applicant_created` | **Phase 4** — not yet written | — |
+| `lead_converted` | The lead became an applicant | `changes.stage`, `metadata.applicant_id`, `metadata.journey_id` |
+| `lead_applicant_created` | Written alongside the above | `metadata.applicant_id`, `metadata.journey_id` |
 
 Reference-table changes are recorded with `entity_type` of `lead_source` or `loss_reason` and actions `lead_source_created` / `lead_source_updated` / `loss_reason_created` / `loss_reason_updated`. These are audit-only and do not appear in any lead's history pane.
 

@@ -3,6 +3,7 @@
 from django.urls import path
 
 from leads.views import (
+    LeadConvertView,
     LeadDetailView,
     LeadFollowUpView,
     LeadHistoryView,
@@ -34,6 +35,7 @@ urlpatterns = [
     path("<uuid:lead_id>/follow-up/", LeadFollowUpView.as_view(), name="lead-follow-up"),
     path("<uuid:lead_id>/lost/", LeadMarkLostView.as_view(), name="lead-lost"),
     path("<uuid:lead_id>/reopen/", LeadReopenView.as_view(), name="lead-reopen"),
+    path("<uuid:lead_id>/convert/", LeadConvertView.as_view(), name="lead-convert"),
     path("<uuid:lead_id>/notes/", LeadNoteListCreateView.as_view(), name="lead-note-list"),
     path("<uuid:lead_id>/history/", LeadHistoryView.as_view(), name="lead-history"),
 ]

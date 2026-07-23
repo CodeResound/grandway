@@ -87,6 +87,45 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 
 ---
 
+## Flow: Convert a lead into a client
+
+- **Actor:** Admin only
+- **Goal:** Admit the person to the applicant lifecycle, creating their permanent record and first study objective.
+- **Entry point:** Lead Detail → "Convert"
+
+**Steps**
+
+1. **Lead Detail** — the Admin reviews the lead, typically once it reaches `Ready for Conversion` →
+   `GET /api/v1/leads/<lead_id>/` (`leads.lead.read`)
+   - **Requires state:** the lead must be in the caller's scope.
+   - **Side effects:** none.
+   - *Note:* the "Convert" action is visible to Admins only — hide it for Lead Managers rather than showing a disabled button. `Ready for Conversion` is a signal, not a gate: conversion works from **any** active stage.
+
+2. **Lead Detail** — the Admin confirms →
+   `POST /api/v1/leads/<lead_id>/convert/` (`leads.lead.convert`)
+   - **Requires state:** Admin authority, and the lead in an active stage.
+   - **Side effects:** creates an applicant *(cross-app: `applicants`)* **and** an initial journey *(cross-app: `applicant_journeys`)*, links both to the lead permanently, and moves the lead to its terminal `converted` stage. Two entries appear in the lead's history. Refresh the lead and the Lead List.
+   - *Failure — `LEADS_ACTOR_FORBIDDEN`:* the caller is a Lead Manager or Superadmin.
+   - *Failure — `LEADS_CONVERSION_NOT_READY`:* the lead is lost. Offer Reopen, then retry.
+   - *Failure — `LEADS_LEAD_ALREADY_CONVERTED`:* someone converted it already. Read `converted_applicant_id` off the lead and navigate there — **do not retry**, and do not present this as the user's mistake.
+
+3. **Applicant Detail** — redirect using the returned `applicant_id` →
+   `GET /api/v1/applicants/<applicant_id>/` (`applicants.applicant.read`) **(cross-app: `applicants`)**
+   - **Requires state:** conversion must have succeeded.
+   - **Side effects:** none.
+   - *Note:* only name, email, contact numbers, and address were copied. Date of birth, passport, family, and emergency contacts are blank — prompt the user to complete them.
+
+4. **Journey Detail** — review the seeded objective →
+   `GET /api/v1/journeys/<journey_id>/` (`applicant_journeys.journey.read`) **(cross-app: `applicant_journeys`)**
+   - **Requires state:** conversion must have succeeded.
+   - **Side effects:** none.
+   - *Note:* if the lead named **more than one** interested country, `target_country` is blank and the full list sits in the journey's `notes`. Surface that as an incomplete-journey prompt. `highest_qualification` and `language_test_status` are also in `notes`, because the `education` and `test_scores` modules do not exist yet.
+
+5. **Lead Detail** — the lead stays readable at `stage: converted`, with `converted_applicant_id` and `converted_journey_id` for navigation.
+   - *Note:* conversion deletes nothing. Notes, contact numbers, and the full history all survive.
+
+---
+
 ## Flow: Close an enquiry that will not proceed
 
 - **Actor:** Lead Manager (an Admin may close any lead)
@@ -211,11 +250,12 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 | `leads.note.list` | `GET /api/v1/leads/<lead_id>/notes/` | Review a lead's full story | |
 | `leads.note.create` | `POST /api/v1/leads/<lead_id>/notes/` | Work a lead through follow-up | Also reachable via the follow-up dialog's `note` field |
 | `leads.lead.list_history` | `GET /api/v1/leads/<lead_id>/history/` | Review a lead's full story | Backed by `audit` |
+| `leads.lead.convert` | `POST /api/v1/leads/<lead_id>/convert/` | Convert a lead into a client | Admin only; idempotent; creates records in two other apps |
 
 ## Cross-app dependencies
 
-- **This app references (outbound):** `leads.lead.list_history` is served from the `audit` module's event log (`audit.services.record_event` / `audit.selectors.get_events`); every mutating endpoint above writes to it. All flows additionally require a session from `authenticate.session.login`.
-- **Referenced by other apps (inbound):** none yet. When `applicants` and `applicant_journeys` ship, the lead→applicant conversion journey belongs in `concepts/project_flows.md` as an end-to-end multi-app journey, delegating its lead-side steps to the flows above.
+- **This app references (outbound):** `applicants.applicant.read` and `applicant_journeys.journey.read` in the conversion flow, which creates records in both apps; `leads.lead.list_history` is served from the `audit` module's event log, which every mutating endpoint above writes to. All flows additionally require a session from `authenticate.session.login`.
+- **Referenced by other apps (inbound):** `concepts/applicants_flows.md` — the "Complete a file that arrived from conversion" flow begins where this app's conversion flow ends. `concepts/project_flows.md` — the end-to-end enquiry-to-objective journey delegates its lead-side steps to the flows above.
 
 When an endpoint here is added, changed, or deprecated, grep `concepts/*_flows.md` for its
 `permission_key` and update every referencing flow in the same commit (the CLAUDE.md §36 ripple rule) —
@@ -224,7 +264,8 @@ not just this file.
 ## Open questions
 
 - **`concepts/leads.txt` has no `UI screens & wireframe notes` section.** Every screen name in this file (Lead List, Lead Detail, New Lead Form, Mark Lost dialog, Record Follow-up dialog, Reopen dialog, Lead Configuration) is proposed by the backend author. They need to be reconciled into the concept file so the frontend and backend share one vocabulary.
-- **Conversion has no flow yet.** `concepts/leads.txt` describes converting a lead into an applicant, but `applicants` and `applicant_journeys` do not exist, so no endpoint backs it. A lead can reach `ready_for_conversion` and stop. Do not wireframe a convert button until that flow is added here.
-- **Direct applicant creation is out of scope for this app.** `concepts/leads.txt` mentions an Admin creating an applicant without a lead; that belongs to the `applicants` app's flow file, not this one.
+- **Two study-interest fields survive conversion only as prose.** `highest_qualification` and `language_test_status` land in the journey's `notes` because the `education` and `test_scores` modules do not exist. When they ship, conversion should map those fields properly and this flow needs revisiting.
+- **A multi-country lead produces an incomplete journey** — `target_country` blank, the list in `notes`. The UI needs an explicit prompt for this; the backend deliberately will not guess.
+- **Direct applicant creation is out of scope for this app.** `concepts/leads.txt` mentions an Admin creating an applicant without a lead; that lives in `concepts/applicants_flows.md`.
 - **No funnel or dashboard flow is defined.** The lead list supports `stage`, `source`, `search`, and `fiscal_year` filters, which is enough to build a funnel view, but reporting belongs to the `dashboards` app and no flow claims it yet.
 - **Whether an Admin should see a Lead Manager filter on the lead list is undecided.** An Admin sees all leads, but there is no `created_by`/owner query parameter, so an Admin cannot currently narrow the list to one Lead Manager's work. If that is wanted, it needs a new filter on `leads.lead.list`.

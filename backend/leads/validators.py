@@ -1,4 +1,9 @@
-"""Field validators for the leads app."""
+"""Field validators for the leads app.
+
+Contact-number validation is shared with ``applicants`` and lives in
+``core.validators`` (§2/§3); only the reference-code rule is specific to this
+app's two configurable tables.
+"""
 
 from __future__ import annotations
 
@@ -14,15 +19,4 @@ validate_reference_code = RegexValidator(
         "Code must be ASCII: lowercase letters, digits, and _ - only, " "starting and ending with a letter or digit."
     ),
     code="invalid_code",
-)
-
-# Contact numbers are stored as entered, minus surrounding whitespace. Nepal
-# mobile numbers, landlines with area codes, and +country-code forms must all
-# fit, so the rule is deliberately permissive: digits, spaces, and + - ( ).
-CONTACT_NUMBER_PATTERN = r"^\+?[0-9][0-9 ()\-]{4,31}$"
-
-validate_contact_number = RegexValidator(
-    regex=CONTACT_NUMBER_PATTERN,
-    message="Contact number may contain digits, spaces, and + - ( ) only.",
-    code="invalid_contact_number",
 )
