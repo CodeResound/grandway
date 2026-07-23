@@ -11,6 +11,10 @@
       "display_name": "Authenticate"
     },
     {
+      "app_key": "leads",
+      "display_name": "Leads"
+    },
+    {
       "app_key": "policy_engine",
       "display_name": "Core Policy Engine"
     }
@@ -29,6 +33,14 @@
       "display_name": "Authentication"
     },
     {
+      "category_key": "lead_configuration",
+      "display_name": "Lead Configuration"
+    },
+    {
+      "category_key": "lead_management",
+      "display_name": "Lead Management"
+    },
+    {
       "category_key": "policy_engine_administration",
       "display_name": "Policy Engine Administration"
     },
@@ -37,7 +49,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 30,
+  "endpoint_count": 47,
   "endpoints": [
     {
       "permission_key": "audit.event.list",
@@ -572,6 +584,435 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Editing requires read access to the account."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.change_stage",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-change-stage",
+      "display_name": "Change Lead Stage",
+      "description": "Move a lead between active stages. Cannot set lost or converted.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/<lead_id>/stage/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.create",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-create",
+      "display_name": "Create Lead",
+      "description": "Record a new enquiry. The creator owns the lead permanently.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating leads requires the ability to list them."
+        },
+        {
+          "target_permission_key": "leads.source.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A lead must be attributed to a source chosen from the source list."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.list",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-list",
+      "display_name": "List Leads",
+      "description": "List leads in the caller's scope: own leads for a Lead Manager, all for an Admin.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/leads/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.list_history",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-history",
+      "display_name": "View Lead History",
+      "description": "List a lead's chronological action history from the central audit log.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/leads/<lead_id>/history/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.mark_lost",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-mark-lost",
+      "display_name": "Mark Lead Lost",
+      "description": "Close a lead as lost with a mandatory reason. Nothing is deleted.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/<lead_id>/lost/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be closed."
+        },
+        {
+          "target_permission_key": "leads.loss_reason.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Closing a lead requires a reason chosen from the loss-reason list."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.read",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-read",
+      "display_name": "View Lead",
+      "description": "Retrieve a single in-scope lead with its contact numbers and study interest.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/leads/<lead_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a lead requires list access to its scope."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.record_followup",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-record-followup",
+      "display_name": "Record Lead Follow-up",
+      "description": "Record that manual follow-up occurred, optionally with a note and a stage change.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/<lead_id>/follow-up/",
+      "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.reopen",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-reopen",
+      "display_name": "Reopen Lead",
+      "description": "Return a lost or converted lead to an active stage, preserving all history.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/<lead_id>/reopen/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.mark_lost",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reopening only applies to a lead that was closed or converted."
+        },
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be reopened."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.lead.update",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-update",
+      "display_name": "Edit Lead",
+      "description": "Correct identity, contact, source, or study-interest information. Stage is unaffected.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/leads/<lead_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.loss_reason.create",
+      "app_key": "leads",
+      "model_key": "loss_reason",
+      "endpoint_key": "loss-reason-create",
+      "display_name": "Create Loss Reason",
+      "description": "Add a configurable loss reason. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/loss-reasons/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_configuration",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.loss_reason.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Managing loss reasons requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.loss_reason.list",
+      "app_key": "leads",
+      "model_key": "loss_reason",
+      "endpoint_key": "loss-reason-list",
+      "display_name": "List Loss Reasons",
+      "description": "List the configurable reasons a lead may be closed with.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/leads/loss-reasons/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "lead_configuration",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.loss_reason.update",
+      "app_key": "leads",
+      "model_key": "loss_reason",
+      "endpoint_key": "loss-reason-update",
+      "display_name": "Edit Loss Reason",
+      "description": "Edit or deactivate a loss reason. Admin only; entries are never deleted.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/leads/loss-reasons/<reason_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_configuration",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.loss_reason.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Editing a loss reason requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.note.create",
+      "app_key": "leads",
+      "model_key": "lead_note",
+      "endpoint_key": "lead-note-create",
+      "display_name": "Add Lead Note",
+      "description": "Append a note to a lead. Notes are append-only — there is no edit or delete.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/<lead_id>/notes/",
+      "operation_type": "create",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.note.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Adding a note requires the ability to read the lead's notes."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.note.list",
+      "app_key": "leads",
+      "model_key": "lead_note",
+      "endpoint_key": "lead-note-list",
+      "display_name": "List Lead Notes",
+      "description": "List the notes recorded against a lead, newest first.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/leads/<lead_id>/notes/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.source.create",
+      "app_key": "leads",
+      "model_key": "lead_source",
+      "endpoint_key": "source-create",
+      "display_name": "Create Lead Source",
+      "description": "Add a configurable lead source. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/sources/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_configuration",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.source.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Managing sources requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.source.list",
+      "app_key": "leads",
+      "model_key": "lead_source",
+      "endpoint_key": "source-list",
+      "display_name": "List Lead Sources",
+      "description": "List the configurable lead sources a lead may be attributed to.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/leads/sources/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "lead_configuration",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.source.update",
+      "app_key": "leads",
+      "model_key": "lead_source",
+      "endpoint_key": "source-update",
+      "display_name": "Edit Lead Source",
+      "description": "Edit or deactivate a lead source. Admin only; entries are never deleted.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/leads/sources/<source_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_configuration",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.source.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Editing a source requires the ability to list them."
         }
       ]
     },

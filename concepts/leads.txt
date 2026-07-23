@@ -1,0 +1,427 @@
+# LEAD MANAGEMENT — Grandway
+
+## Purpose
+
+The Lead Management module tracks people who have shown interest in the
+consultancy but have not yet entered the applicant lifecycle.
+
+Its purpose is operational tracking: recording who the lead is, how they found
+the consultancy, what they are interested in, their current lead stage, when
+they were last followed up, and whether they were converted or lost.
+
+The module is intentionally simple. It is not a sales CRM, communication
+platform, task-management system, or eligibility-assessment system.
+
+## Lead ownership
+
+Every lead is an independent unit owned by the Lead Manager who created it.
+
+Grandway does not use branches, shared lead pools, lead reassignment, transfers,
+or cross-Lead-Manager ownership.
+
+A Lead Manager manages the leads they create. They do not pass leads to another
+Lead Manager.
+
+An Admin can view and manage all leads but does not need to assign them.
+
+Lead ownership remains attached to the original Lead Manager even after the
+lead is converted into an applicant. This preserves attribution for where the
+applicant originated.
+
+The Lead Manager owns the lead record only during the lead lifecycle. Once an
+applicant is created, the applicant and applicant journey belong to their
+respective modules and follow their own lifecycle rules.
+
+## Lead information
+
+A lead should contain the minimum information needed to identify, contact, and
+track the interested person.
+
+Recommended information:
+
+* Full name
+* Multiple contact numbers
+* One email address
+* Address
+* Lead source
+* Current lead stage
+* Last follow-up date and time
+* General notes
+* Preliminary study interests
+* Lead Manager who created the lead
+* Creation date and time
+* Last updated date and time
+
+Contact numbers may contain multiple entries because a person may provide more
+than one usable number. The email address remains a single field.
+
+Detailed applicant information such as passport details, family information,
+academic records, test results, uploaded files, and permanent identity data
+does not belong in the lead record.
+
+## Lead source
+
+Lead sources should be configurable by an Admin rather than permanently fixed
+in application code.
+
+An initial set may include:
+
+* Walk-in
+* Phone enquiry
+* Website
+* Facebook
+* Instagram
+* TikTok
+* WhatsApp
+* Referral
+* Education fair
+* Advertisement
+* Other
+
+When `Other` is selected, the user should be able to provide a short
+description.
+
+Campaign management and event-performance tracking are outside the scope of
+this module.
+
+## Preliminary study interest
+
+A lead may contain basic information about what the person is considering.
+
+This may include:
+
+* Interested country or countries
+* Intended study level
+* Preferred field or program
+* Preferred intake
+* Approximate budget
+* Scholarship interest
+* Current or highest qualification
+* Language-test status
+* Additional interest notes
+
+This information is preliminary and may be incomplete or change during
+follow-up.
+
+It must not be treated as a finalized applicant journey. The authoritative
+applicant journey begins only when the lead is converted and the corresponding
+journey record is created.
+
+## Lead stages
+
+The lead stage should be selected manually from a dropdown.
+
+Recommended V1 stages:
+
+1. New
+2. Contact Attempted
+3. Contacted
+4. Counselling
+5. Follow-up
+6. Ready for Conversion
+7. Converted
+8. Lost
+
+New
+
+The lead has been recorded but no meaningful contact action has been completed.
+
+Contact Attempted
+
+The Lead Manager attempted to contact the person but has not yet established
+successful communication.
+
+Contacted
+
+Successful communication has occurred.
+
+Counselling
+
+The Lead Manager is discussing the person's interests, plans, and general
+requirements.
+
+Follow-up
+
+The person remains under consideration and may be contacted again manually.
+
+Ready for Conversion
+
+The person is ready to enter the applicant lifecycle. This does not itself
+create an applicant.
+
+Converted
+
+An Admin has converted the lead into an applicant.
+
+Lost
+
+The lead will not proceed at present.
+
+There is no separate disqualified, duplicate, closed, archived, or deleted
+operational stage in V1. `Lost` is the single non-conversion terminal stage.
+
+## Manual follow-up tracking
+
+Grandway does not schedule follow-ups or integrate with phone, email, messaging,
+calendar, or notification services for lead follow-up.
+
+The Lead Manager performs follow-up manually outside the system.
+
+The lead record only needs to show when the person was last followed up.
+
+When recording a follow-up, Grandway should update:
+
+* Last followed-up date and time
+* User who recorded the follow-up
+* Optional follow-up note
+* Lead stage, when the user chooses to change it
+
+A separate follow-up entity, future follow-up schedule, reminder, missed
+follow-up state, or assigned follow-up owner is not required.
+
+## Notes and history
+
+Lead Managers may add notes that help explain the lead's current position.
+
+Notes should preserve:
+
+* Note content
+* Author
+* Creation date and time
+
+Important lead actions should appear in a chronological history, including:
+
+* Lead created
+* Contact information changed
+* Lead source changed
+* Study interest changed
+* Stage changed
+* Follow-up recorded
+* Lead marked as lost
+* Lost lead reopened
+* Lead converted
+* Converted lead reopened
+* Applicant created from the lead
+
+History entries should not be silently rewritten or removed.
+
+## Marking a lead as lost
+
+Closing a lead means changing its stage to `Lost`.
+
+A reason is mandatory whenever a lead is marked as lost.
+
+Recommended configurable loss reasons include:
+
+* No response
+* Not interested
+* Plans postponed
+* Financial limitation
+* Family decision
+* Chose another consultancy
+* Intended intake missed
+* Destination or program not available
+* Decided to process independently
+* Other
+
+When `Other` is selected, an explanation should be required.
+
+The system should record:
+
+* Loss reason
+* Optional detailed note
+* User who marked the lead as lost
+* Date and time
+* Previous stage
+
+Marking a lead as lost does not delete the record or its history.
+
+## Reopening a lead
+
+A lost or converted lead may be reopened.
+
+Reopening should:
+
+* Record who reopened it
+* Record when it was reopened
+* Change it to an active lead stage
+* Preserve its complete previous history
+* Preserve any existing applicant connection
+
+The recommended reopened stage is `Follow-up`, although the user may select
+another appropriate active stage.
+
+Reopening a converted lead does not undo the earlier conversion. It does not
+delete the applicant or applicant journey created during conversion.
+
+A converted lead that is reopened remains linked to the existing applicant.
+Grandway must not create another applicant from the same lead accidentally.
+
+## Lead conversion
+
+Only an Admin can convert a lead into an applicant.
+
+Conversion is a deliberate action and not merely a dropdown stage change.
+
+During conversion, Grandway should:
+
+1. Create an Applicant record.
+2. Copy the lead's name into the applicant.
+3. Copy the lead's contact numbers.
+4. Copy the lead's email address.
+5. Copy the lead's address.
+6. Create a basic Applicant Journey.
+7. Copy appropriate preliminary study-interest information into the journey.
+8. Link the lead permanently to the new applicant.
+9. Link the lead to the initial applicant journey where appropriate.
+10. Change the lead stage to `Converted`.
+11. Record the Admin who performed the conversion.
+12. Record the conversion date and time.
+
+Applicant identity information should be copied into the Applicant record, not
+stored as duplicate identity information inside the Applicant Journey.
+
+The initial journey may receive information such as:
+
+* Interested country
+* Intended study level
+* Preferred field or program
+* Preferred intake
+* Budget expectation
+* Scholarship preference
+
+Missing journey information may remain incomplete and be completed later in
+the Applicant Journey module.
+
+Conversion must be protected against repeated execution. Performing the action
+twice must not create duplicate applicants or duplicate initial journeys.
+
+## Direct applicant creation
+
+An Admin may create an applicant directly without first creating a lead.
+
+Grandway does not require a reason for skipping the lead lifecycle.
+
+The directly created applicant should still record:
+
+* User who created the applicant
+* Creation date and time
+* Creation source indicating direct Admin creation
+
+A directly created applicant has no originating lead unless one is explicitly
+linked later through an approved correction process.
+
+## Permissions
+
+Lead Manager
+
+A Lead Manager may:
+
+* Create a lead
+* View leads they created
+* Edit leads they created
+* Update contact information
+* Update preliminary study interests
+* Change the lead stage
+* Record manual follow-up
+* Add notes
+* Mark a lead as lost
+* Reopen a lost lead
+
+A Lead Manager may not:
+
+* View another Lead Manager's leads by default
+* Transfer or reassign leads
+* Convert a lead into an applicant
+* Delete lead history
+* Permanently delete a lead
+* Manage global lead-source configuration
+
+Admin
+
+An Admin may:
+
+* View all leads
+* Create and edit any lead
+* Correct lead information
+* Mark any lead as lost
+* Reopen lost or converted leads
+* Convert a lead into an applicant
+* Configure available lead sources
+* Configure available loss reasons
+* Review lead history
+
+Important Admin actions remain auditable.
+
+## No archive or deletion workflow
+
+Lead Management does not require archive, restore, or ordinary deletion
+functionality in V1.
+
+Leads remain available according to their stage:
+
+* Active stages represent leads still being tracked.
+* `Converted` represents leads that entered the applicant lifecycle.
+* `Lost` represents leads that did not proceed.
+
+This preserves the consultancy's lead history without introducing a separate
+archival lifecycle.
+
+## Lifecycle separation
+
+The lead lifecycle and applicant lifecycle are separate.
+
+A lead tracks an initial enquiry.
+
+An applicant represents the permanent person record after conversion or direct
+Admin creation.
+
+An applicant journey represents a specific foreign-study objective pursued by
+that applicant.
+
+Changing an applicant or applicant journey status must not silently change the
+original lead stage.
+
+Reopening a lead must not reopen, reset, or otherwise alter the applicant
+lifecycle automatically.
+
+## Out of scope
+
+The Lead Management module does not include:
+
+* Branches
+* Shared lead pools
+* Lead assignment
+* Lead reassignment
+* Lead transfers
+* Lead scoring
+* Priority scoring
+* Campaign management
+* Marketing analytics
+* Duplicate detection or merging
+* Detailed qualification assessment
+* Automated eligibility decisions
+* Follow-up scheduling
+* Follow-up reminders
+* Phone integration
+* Email integration
+* SMS or chat integration
+* Calendar integration
+* Appointment management
+* Task management
+* Lead archival
+* Lead deletion workflows
+* Applicant academic records
+* Applicant documents or files
+* Offer management
+* Institution application processing
+* Visa processing
+
+## Core V1 principle
+
+Lead Management should remain a simple and accountable enquiry tracker.
+
+A Lead Manager records and follows their own leads. The system preserves the
+lead's origin, contact information, interest, stage, last follow-up, notes, and
+history. An Admin converts suitable leads into applicants, after which the
+applicant and journey continue through their own independent lifecycles.

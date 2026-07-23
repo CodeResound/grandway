@@ -18,6 +18,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Enables the pg_trgm-backed GIN indexes used for Devanagari/romanized
+    # name search (§39.6). Ships with Django; not a third-party dependency.
+    "django.contrib.postgres",
     # Third-party
     "rest_framework",
     "rest_framework_simplejwt",
@@ -30,6 +33,7 @@ INSTALLED_APPS = [
     "core.policy_engine",
     "authenticate",
     "audit",
+    "leads",
 ]
 
 # The authenticate app owns the platform's identity layer with a custom user model.

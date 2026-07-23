@@ -168,6 +168,7 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 | `authenticate` | `/api/v1/auth/` | Platform identity: username/password login (+ TOTP MFA), session-bound JWT, revocable device sessions (max 3), forced first-login password change, and admin account + session management (one-tier hierarchy: superadmin manages admins, admin manages lead managers) | `authenticate/docs/INTEGRATION.md` |
 | `audit` | `/api/v1/audit/` | Central, immutable, cross-app activity/change history. Read-only over HTTP (Admin/Superadmin); populated by other apps via an internal service call | `audit/docs/INTEGRATION.md` |
 | `core.policy_engine` | `/api/v1/policy/` | Read-only registry of every endpoint in this backend: permission keys, risk levels, dependency edges, version history, change log | `core/policy_engine/docs/INTEGRATION.md` |
+| `leads` | `/api/v1/leads/` | Enquiry tracking before applicant conversion: lead identity and contact details, configurable source attribution, preliminary study interest, eight-stage lifecycle, manual follow-up, notes, and loss/reopen handling. Owner-scoped — a Lead Manager sees only leads they created. Conversion to an applicant is not yet available | `leads/docs/INTEGRATION.md` |
 
 **Routes outside `/api/v1/`.** `core` exposes three, and they are deliberately outside the registry-completeness guarantee in §9 (which covers `/api/v1/` only). They have no permission key and are not client API surface:
 
@@ -184,8 +185,11 @@ Assembled from each app's `INTEGRATION.md` §2 `Requires`. Use it to determine i
 - `authenticate` → `core` (framework), `django-axes` (framework), `rest_framework_simplejwt` (framework), `argon2-cffi` (framework), `django-otp` (framework — TOTP MFA), `audit` (service call — emits auth events to the central audit log, best-effort)
 - `audit` → `core` (framework), `authenticate` (framework — supplies the request user for the `is_staff` read gate)
 - `core.policy_engine` → `core` (framework), `authenticate.User` (FK — the platform user model, since `AUTH_USER_MODEL = authenticate.User`), `rest_framework_simplejwt` (framework)
+- `leads` → `core` (framework), `authenticate` (framework — supplies the access token and the `authority_type` that decides Admin vs Lead Manager scope; FK — lead ownership and every attribution field reference a user account), `audit` (service call — every lead mutation appends one event, and the lead history endpoint reads that log back)
 
-No app-to-app runtime coupling exists yet. When it does, each edge appears in **both** apps' §2 sections — the depended-on app records what would break, the depending app records why it needs it.
+Each edge appears in **both** apps' §2 sections — the depended-on app records what would break, the depending app records why it needs it.
+
+**Not yet built.** `leads` declares two forward dependencies on modules that do not exist: `applicants` and `applicant_journeys`, both needed for lead→applicant conversion. Until they ship, the conversion endpoint is absent and a lead cannot advance past `ready_for_conversion`.
 
 ## 8. Machine-readable artifacts
 
@@ -208,7 +212,7 @@ Generated from the endpoint registry, committed, and CI-checked for drift — th
 ## 10. Gaps
 
 - Request/response body schemas are not machine-readable (see §8).
-- Permission-key-based authorization is not yet enforced in the request path (see §4); `authenticate`'s own protected endpoints are authenticated self-service, and `core.policy_engine` uses `is_staff`.
+- Permission-key-based authorization is not yet enforced in the request path (see §4); `authenticate`'s own protected endpoints are authenticated self-service, `core.policy_engine` and `audit` use `is_staff`, and `leads` uses its own inline authority + owner-scoping rules (`leads/docs/SECURITY.md` §1). Every endpoint has a registered permission key ready for that wiring, but no view consults one yet.
 - **No host is published here.** Every path in this documentation set is relative to a base URL you must obtain from the deploying team (locally, `http://localhost:8000`). There is no public sandbox environment.
 - **The first account requires shell access.** Token issuance exists (`authenticate`), but the initial superadmin is created by the `bootstrap_superadmin` management command, and there is no self-service signup — so the very first credential must be provisioned server-side (§4).
 - Rate-limit state is not exposed in response headers — 429 is the only signal (§5).
