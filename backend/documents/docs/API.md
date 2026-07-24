@@ -1,7 +1,7 @@
 # API — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/documents/`
@@ -17,6 +17,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 9 endpoints across one resource |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Corrected the history endpoint's note now that `document_history` exists |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | §1.9 history entries gained `actor_id` and are now serialized by audit's shared `AuditEventHistorySerializer` (`documents.document.list_history` → 1.1.0). Additive, and the body is still never present; no other endpoint changed |
 
 ---
 
@@ -222,9 +223,9 @@ These hold on every endpoint below and are not repeated per endpoint.
 - **URI:** `GET /api/v1/documents/<document_id>/history/`
 - **Permission key:** `documents.document.list_history` (risk: medium)
 
-**Response:** paginated list of HistoryEvent, newest first.
+**Response:** paginated list of HistoryEvent, newest first — serialized by `audit.serializers.AuditEventHistorySerializer`, the shape shared by every module's history endpoint. Includes `actor_id` as of version 1.1.0.
 
-**Query access pattern.** `selectors.get_history_for_document` delegates to `audit.selectors.get_events` filtered on `app_label="documents"`, `entity_type="document"`, `entity_id=<id>` — the audit table's own index serves it.
+**Query access pattern.** `selectors.get_history_for_document` delegates to `audit.selectors.get_events_for_entity` with `entity_type="document"`, `entity_id=<id>`, `app_label="documents"` — served by the audit table's composite `(entity_type, entity_id)` index.
 
 **Business rules:** **a body change appears as the `<changed>` marker, never as content.** This endpoint answers "who changed this document and when", never "what did it say before". Reconstructing a previous body is what `document_history` print snapshots are for — so **editing a document that was never printed loses its previous contents irrecoverably.** A snapshot is captured by an explicit print action, not automatically on save.
 

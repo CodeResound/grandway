@@ -8,16 +8,21 @@ that matters (Superadmin denied) happens in the view via ``access.py``.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from audit.models import AuditEvent
-from audit.selectors import get_events
+from audit.selectors import get_events_for_entity
 from core.nepal.calendar import nepal_today
 from core.querying import narrow_to_window
 from django.db.models import Case, Count, IntegerField, Q, QuerySet, When
 
 from applicants.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_APPLICANT, ApplicantStatus
 from applicants.models import Applicant, PassportDetail
+
+if TYPE_CHECKING:
+    # Annotation only. Importing another app's model at runtime for anything but
+    # a ForeignKey is the coupling §4 forbids; the audit selector returns the
+    # queryset, this app never touches the model.
+    from audit.models import AuditEvent
 
 
 def get_applicants() -> QuerySet[Applicant]:
@@ -266,10 +271,8 @@ def get_history_for_applicant(applicant: Applicant) -> QuerySet[AuditEvent]:
 
     Reads the central audit log rather than any table this app owns (§4).
     """
-    return get_events(
-        {
-            "app": AUDIT_APP_LABEL,
-            "entity_type": AUDIT_ENTITY_APPLICANT,
-            "entity_id": str(applicant.id),
-        }
+    return get_events_for_entity(
+        entity_type=AUDIT_ENTITY_APPLICANT,
+        entity_id=str(applicant.id),
+        app_label=AUDIT_APP_LABEL,
     )

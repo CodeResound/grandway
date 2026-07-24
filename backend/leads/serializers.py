@@ -11,7 +11,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from audit.models import AuditEvent
 from core.constants import ContactNumberLabel, LanguageTestStatus, StudyLevel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
@@ -367,31 +366,7 @@ class LeadNoteCreateSerializer(serializers.Serializer):
         return normalize_unicode(value)
 
 
-class LeadHistorySerializer(serializers.ModelSerializer):
-    """One entry of a lead's chronological history, projected from the audit log.
-
-    Deliberately narrower than ``audit.AuditEventSerializer``: a lead's history
-    pane has no use for the app label or entity type, which are constant here.
-    """
-
-    created_at_bs = serializers.SerializerMethodField()
-
-    class Meta:
-        model = AuditEvent
-        fields = [
-            "id",
-            "action",
-            "actor_type",
-            "actor_id",
-            "actor_label",
-            "summary",
-            "reason",
-            "changes",
-            "metadata",
-            "created_at",
-            "created_at_bs",
-        ]
-        read_only_fields = fields
-
-    def get_created_at_bs(self, obj: AuditEvent) -> dict[str, Any] | None:
-        return _bs(obj.created_at)
+# A lead's history entries are serialized by ``audit.serializers``'s canonical
+# ``AuditEventHistorySerializer`` — the shape is the audit app's to define, and
+# six per-app copies of it had already drifted apart (§4). The view imports it
+# directly.

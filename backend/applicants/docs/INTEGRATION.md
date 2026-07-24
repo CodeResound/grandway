@@ -1,7 +1,7 @@
 # Integration — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.1.0
+**Version:** 1.1.1
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 6 endpoints |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the two calls that back an avatar, and the two caveats that still block a simple one |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | List endpoint widened (`applicants.applicant.list` → 1.1.0): `search` now spans email, contact number, and passport number and returns **relevance-ordered** results; new `country`, `country_code`, and `journey_stage` filters; both read shapes gained a `destinations` array. **Added `applicant_journeys` to §2 `Requires`** — the first thing this module needs from another business app, and the reason §3's "ordering is fixed newest-first" is no longer unconditionally true |
+| 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one |
 
 ---
 
@@ -30,7 +31,7 @@
 |------------|------|-----|------------------------|
 | `authenticate` | framework | Issues the access JWT and supplies `authority_type`, which decides whether the caller may read, edit, or create. | Every endpoint returns 401. Without a recognised `authority_type` the caller gets 403 `APPLICANTS_ACTOR_FORBIDDEN`. |
 | `authenticate` | FK | `created_by` references a user account. | Applicants cannot be created; attribution is unresolvable. |
-| `audit` | service call | Every mutation appends one immutable event; the history endpoint reads that log back. This module stores no history of its own. | `GET /api/v1/applicants/<id>/history/` returns an empty list — the change history disappears, though the applicant itself still works. |
+| `audit` | service call + read shape | Every mutation appends one immutable event; the history endpoint reads that log back through audit's selector and renders audit's shared entry shape. This module stores no history of its own. | Hard dependency in both directions of use — without it this module does not start. If only the write path failed, `GET /api/v1/applicants/<id>/history/` would return an empty list — the change history disappears, though the applicant itself still works. |
 | `applicant_journeys` | reverse FK read | An applicant has **no destination of its own** — the destination belongs to the study plan. The `destinations` array on both read shapes, and the `country`, `country_code`, and `journey_stage` list filters, are all read back through the journeys that point here. | The three filters always return an empty page and `destinations` is always `[]`. Nothing else degrades: creating, reading, editing, and archiving an applicant work with no journey in the system, and a person with no journey is a normal, fully functional record today. |
 | `institutions` | indirect FK read | `destinations[].country_id` / `country_code` / `country_name_en` are the catalogue country the journey targets. This module never queries the catalogue itself; it reads what the journey already points at. | The three country fields are `null`/`""` and `?country=`/`?country_code=` match nothing. `target_country` — the free text the destination was typed as — still resolves, and is the only destination a pre-catalogue journey ever had. |
 
@@ -115,6 +116,7 @@
 
 **HistoryEntry** — `{ id, action:[enum], actor_type:[enum], actor_id?, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:BsDate }`
 
+- Owned by the `audit` module, where the same shape is called **AuditEventHistoryEntry** (`audit/docs/INTEGRATION.md` §4). This module renders it; it does not define it. Every module's `/history/` endpoint returns this identical shape, so one renderer serves all of them.
 - `changes` maps a field name to `{ from, to }`, and is `{}` for actions with no field-level diff.
 - Passport numbers, address text, and family names are deliberately **never** present in `changes` or `metadata`.
 

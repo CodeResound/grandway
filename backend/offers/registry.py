@@ -169,8 +169,14 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "offers.views.OfferHistoryView",
         "risk_level": "low",
         "dependencies": _REQUIRES_OFFER_READ,
-        "change_summary": "Initial registration of the offer history endpoint.",
-        "change_reason": _PHASE,
+        "version": "1.1.0",
+        "change_summary": "History entries now carry actor_id, and are serialized by audit's shared shape.",
+        "change_reason": (
+            "The six per-app history serializers were consolidated into audit's canonical "
+            "AuditEventHistorySerializer; three of them, this one included, had omitted actor_id, so "
+            "the same audit row looked different depending on which record you reached it from. "
+            "Adding the field is backward compatible (§22, §29)."
+        ),
     },
     # 8. Conditions attached to one offer.
     {

@@ -1,7 +1,7 @@
 # Integration — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.3
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -15,6 +15,7 @@
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. `document_history` moved from "missing" to a documented consumer; print/recover gaps closed |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint change. `document_templates` moved from "missing" to a documented consumer. Restated the signatory and template-registry gaps precisely — both libraries now exist and **this module still validates neither** — and corrected the slug count to 53 |
 | 1.0.3 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Moved `uploaded_files` from the missing-apps table to the now-exists list and named the calls a client makes instead |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | History entries gained `actor_id` (`documents.document.list_history` → 1.1.0). The shape is now owned by the `audit` module and shared by all six modules that expose a history endpoint; three of them, this one included, had been omitting `actor_id`. Additive, so no consumer breaks — and the body is still never present. §2 `Requires` corrected: the `audit` coupling is a read dependency as well as a write one |
 
 ---
 
@@ -32,7 +33,7 @@
 | `authenticate` | framework | Issues the access JWT and supplies `authority_type`, which is the whole access check here. | Every endpoint returns 401; any non-Admin gets 403 `DOCUMENTS_ACTOR_FORBIDDEN` everywhere. |
 | `authenticate` | FK | `created_by` (`PROTECT`) and `archived_by` (`SET_NULL`) reference user accounts. | Documents could not record who created or archived them. |
 | `applicants` | FK + service call | An applicant-owned document points at one, resolved through `applicants.selectors.get_applicant_by_id` on create. | Only standalone documents could be created; `POST` returns 400 `DOCUMENTS_APPLICANT_NOT_FOUND` for any applicant id that does not resolve. |
-| `audit` | service call | Every mutation appends one immutable event. This module stores no history of its own. | Documents still save but leave no trace of who changed what, and `GET /documents/<id>/history/` returns an empty list. |
+| `audit` | service call + read shape | Every mutation appends one immutable event. This module stores no history of its own: the history endpoint reads audit's selector and renders audit's shared entry shape. | Hard dependency in both directions of use — without it this module does not start. If only the write path failed, documents would still save but leave no trace of who changed what, and `GET /documents/<id>/history/` would return an empty list rather than an error. |
 
 **This module writes to nothing outside itself.** Creating, editing, or archiving a document does not touch the applicant's status or any other record.
 
@@ -166,8 +167,10 @@
 - One row per applicant who has **live** documents. **Standalone documents are excluded** (no applicant to group under) and **archived documents are excluded from the count** — this table answers "whose files have live work on them". To list standalone documents use `GET /documents/?standalone=true`.
 - `applicant_name` prefers the applicant's English name and falls back to the Devanagari one.
 
-**HistoryEvent** — `{ id, action, actor_type:[enum], actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:json }`
+**HistoryEvent** — `{ id, action, actor_type:[enum], actor_id:uuid|null, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:json }`
 
+- Owned by the `audit` module, where the same shape is called **AuditEventHistoryEntry** (`audit/docs/INTEGRATION.md` §4). This app renders it; it does not define it. Every module's `/history/` endpoint returns this identical shape.
+- `actor_id` is the UUID of the acting user, or `null` for system/AI actors. Prefer it over `actor_label` when linking to an account — the label is a preserved snapshot of the username at the time and is not re-resolved if the account is renamed.
 - `changes` maps field name to `{ "from": "...", "to": "..." }`, both stringified. `{}` on creation events.
 - **A body change appears as `changes.content = { "from": "<changed>", "to": "<changed>" }`** — the literal marker, never the body. The document body is never written to the audit log (§17); it may hold account numbers and transaction histories, and the audit log is a separate, widely-readable store. **You cannot recover a previous body from the history.**
 

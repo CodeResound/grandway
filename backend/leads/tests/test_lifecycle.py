@@ -210,6 +210,32 @@ class TestNotesAndHistory(LifecycleTestCase):
         # Newest first.
         self.assertEqual(actions[0], LeadAuditAction.LEAD_REOPENED)
 
+    def test_history_shape_is_unchanged_by_the_shared_serializer(self) -> None:
+        """This endpoint's shape did not change when `audit` took ownership of it.
+
+        Three of the six history endpoints gained `actor_id` in that move; this
+        one already had every field, so its consumers see nothing new. Asserted
+        as an exact set so a future widening of the shared shape cannot leak
+        into this contract unnoticed.
+        """
+        entry = self.client.get(self.url("lead-history")).data["data"][0]
+        self.assertEqual(
+            set(entry),
+            {
+                "id",
+                "action",
+                "actor_type",
+                "actor_id",
+                "actor_label",
+                "summary",
+                "reason",
+                "changes",
+                "metadata",
+                "created_at",
+                "created_at_bs",
+            },
+        )
+
     def test_stage_change_history_carries_from_and_to(self) -> None:
         self.client.post(self.url("lead-stage"), {"stage": LeadStage.CONTACTED}, format="json")
         history = self.client.get(self.url("lead-history")).data["data"]

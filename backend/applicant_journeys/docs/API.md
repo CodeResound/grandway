@@ -144,7 +144,7 @@
 **Response:** paginated array of history entries, newest first — same shape as the `leads` and `applicants` history endpoints.
 **Error codes:** app-wide 404 only.
 **Business rules:** this app owns no history table; the response is the central `audit` log filtered to this journey. The full action vocabulary is in `DATA_CONTRACT.md` §2. Free text (notes, closure and deferment reasons) is deliberately not copied into events.
-**Query access pattern:** `selectors.get_history_for_journey` delegates to `audit.selectors.get_events`.
+**Query access pattern:** `selectors.get_history_for_journey` delegates to `audit.selectors.get_events_for_entity` — served by the audit table's composite `(entity_type, entity_id)` index. Entries are serialized by `audit.serializers.AuditEventHistorySerializer`, the shape shared by every module's history endpoint.
 
 ---
 

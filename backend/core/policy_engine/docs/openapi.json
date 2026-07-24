@@ -308,7 +308,7 @@
       "get": {
         "operationId": "audit.event.list",
         "summary": "List Audit Events",
-        "description": "List and filter the central audit log (Admin/Superadmin).\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "List, search, and filter the central audit log (Admin/Superadmin).\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "audit"
         ],
@@ -320,6 +320,48 @@
         "x-permission-key": "audit.event.list",
         "x-risk-level": "medium",
         "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/audit/events/facets/": {
+      "get": {
+        "operationId": "audit.event.facets",
+        "summary": "List Audit Filter Values",
+        "description": "Return the distinct app, action, entity type, and actor type values present in the audit log, for populating the log screen's filter controls (Admin/Superadmin).\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "audit"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "audit.event.facets",
+        "x-risk-level": "low",
+        "x-operation-type": "custom",
         "responses": {
           "200": {
             "description": "Success",

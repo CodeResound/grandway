@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime
 from typing import Any
 
 from core.pagination import StandardPagination
@@ -19,9 +20,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from audit.constants import ErrorCode
-from audit.selectors import get_event_by_id, get_events
-from audit.serializers import AuditEventSerializer
+from audit.constants import DATE_FILTER_FORMAT, ORDER_CHOICES, SEARCH_MIN_LENGTH, ErrorCode
+from audit.selectors import get_event_by_id, get_event_facets, get_events
+from audit.serializers import AuditEventSerializer, AuditFacetsSerializer
 
 _FISCAL_YEAR_RE = re.compile(r"^\d{4}/\d{2}$")
 
@@ -35,10 +36,12 @@ def _require_staff(request: Request) -> None:
 
 
 def _clean_filters(params: Any) -> dict[str, Any]:
-    """Validate and normalise list filters (exact-match, AND-combined).
+    """Validate and normalise list filters (AND-combined).
 
-    Malformed values raise a DRF ValidationError → `VALIDATION_ERROR` (400)
-    rather than a 500. `?app=` maps to `app_label`.
+    Most filters are exact-match; `search` is a substring match on `summary`,
+    `date_from`/`date_to` bound a range of NPT calendar days, and `order`
+    chooses the sort direction. Malformed values raise a DRF ValidationError →
+    `VALIDATION_ERROR` (400) rather than a 500. `?app=` maps to `app_label`.
     """
     cleaned: dict[str, Any] = {}
     errors: dict[str, list[str]] = {}
@@ -80,6 +83,35 @@ def _clean_filters(params: Any) -> dict[str, Any]:
             except Exception:  # noqa: BLE001 — any calendar error is a bad filter value
                 errors["fiscal_year"] = ["Not a valid fiscal year."]
 
+    search = params.get("search")
+    if search:
+        term = search.strip()
+        if len(term) < SEARCH_MIN_LENGTH:
+            errors["search"] = [f"Must be at least {SEARCH_MIN_LENGTH} characters."]
+        else:
+            cleaned["search"] = term
+
+    for key in ("date_from", "date_to"):
+        value = params.get(key)
+        if value:
+            try:
+                cleaned[key] = datetime.strptime(value, DATE_FILTER_FORMAT).date()
+            except (ValueError, TypeError):
+                errors[key] = ["Must be a date in YYYY-MM-DD form."]
+
+    if "date_from" in cleaned and "date_to" in cleaned and cleaned["date_from"] > cleaned["date_to"]:
+        # Reported rather than silently swapped: an inverted range is a caller
+        # bug, and returning zero rows for it reads as "nothing happened".
+        errors["date_to"] = ["Must not be earlier than date_from."]
+
+    order = params.get("order")
+    if order:
+        low = order.lower()
+        if low not in ORDER_CHOICES:
+            errors["order"] = [f"Must be one of: {', '.join(ORDER_CHOICES)}."]
+        else:
+            cleaned["order"] = low
+
     if errors:
         raise ValidationError(errors)
     return cleaned
@@ -100,6 +132,17 @@ class AuditEventListView(APIView):
         if page is not None:
             return paginator.get_paginated_response(serializer.data)
         return success_response(data=serializer.data, message="Audit events retrieved.")
+
+
+class AuditEventFacetsView(APIView):
+    """GET /api/v1/audit/events/facets/ — distinct filter values for the log UI."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        _require_staff(request)
+        serializer = AuditFacetsSerializer(get_event_facets())
+        return success_response(data=serializer.data, message="Audit filter values retrieved.")
 
 
 class AuditEventDetailView(APIView):

@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from audit.models import AuditEvent
 from core.constants import ContactNumberLabel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
@@ -342,31 +341,10 @@ class StatusChangeSerializer(serializers.Serializer):
 # History
 # ---------------------------------------------------------------------------
 
-
-class ApplicantHistorySerializer(serializers.ModelSerializer):
-    """One entry of an applicant's history, projected from the audit log."""
-
-    created_at_bs = serializers.SerializerMethodField()
-
-    class Meta:
-        model = AuditEvent
-        fields = [
-            "id",
-            "action",
-            "actor_type",
-            "actor_id",
-            "actor_label",
-            "summary",
-            "reason",
-            "changes",
-            "metadata",
-            "created_at",
-            "created_at_bs",
-        ]
-        read_only_fields = fields
-
-    def get_created_at_bs(self, obj: AuditEvent) -> dict[str, Any] | None:
-        return _bs(obj.created_at)
+# An applicant's history entries are serialized by ``audit.serializers``'s
+# canonical ``AuditEventHistorySerializer`` — the shape is the audit app's to
+# define, and six per-app copies of it had already drifted apart (§4). The view
+# imports it directly.
 
 
 #: Re-exported for the list endpoint's documented filter values.

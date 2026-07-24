@@ -7,15 +7,20 @@ the population that may read is one authority type, and it reads everything.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from audit.models import AuditEvent
-from audit.selectors import get_events
+from audit.selectors import get_events_for_entity
 from core.querying import narrow_to_window
 from django.db.models import Count, Max, QuerySet
 
 from documents.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_DOCUMENT, DocumentStatus
 from documents.models import Document
+
+if TYPE_CHECKING:
+    # Annotation only. Importing another app's model at runtime for anything but
+    # a ForeignKey is the coupling §4 forbids; the audit selector returns the
+    # queryset, this app never touches the model.
+    from audit.models import AuditEvent
 
 
 def get_documents() -> QuerySet[Document]:
@@ -187,10 +192,8 @@ def get_history_for_document(document: Document) -> QuerySet[AuditEvent]:
     The events record *that* the body changed, never what it said — see
     ``services._diff_for_audit``.
     """
-    return get_events(
-        {
-            "app": AUDIT_APP_LABEL,
-            "entity_type": AUDIT_ENTITY_DOCUMENT,
-            "entity_id": str(document.id),
-        }
+    return get_events_for_entity(
+        entity_type=AUDIT_ENTITY_DOCUMENT,
+        entity_id=str(document.id),
+        app_label=AUDIT_APP_LABEL,
     )

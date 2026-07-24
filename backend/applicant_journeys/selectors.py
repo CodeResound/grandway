@@ -6,12 +6,17 @@ Journeys are shared across the consultancy, so there is no owner scoping here.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from audit.models import AuditEvent
-from audit.selectors import get_events
+from audit.selectors import get_events_for_entity
 from core.querying import narrow_to_window
 from django.db.models import Count, QuerySet
+
+if TYPE_CHECKING:
+    # Annotation only. Importing another app's model at runtime for anything but
+    # a ForeignKey is the coupling §4 forbids; the audit selector returns the
+    # queryset, this app never touches the model.
+    from audit.models import AuditEvent
 
 from applicant_journeys.constants import (
     AUDIT_APP_LABEL,
@@ -231,10 +236,8 @@ def count_applicants_with_a_journey(
 
 def get_history_for_journey(journey: ApplicantJourney) -> QuerySet[AuditEvent]:
     """A journey's chronological history, newest first, from the central audit log."""
-    return get_events(
-        {
-            "app": AUDIT_APP_LABEL,
-            "entity_type": AUDIT_ENTITY_JOURNEY,
-            "entity_id": str(journey.id),
-        }
+    return get_events_for_entity(
+        entity_type=AUDIT_ENTITY_JOURNEY,
+        entity_id=str(journey.id),
+        app_label=AUDIT_APP_LABEL,
     )

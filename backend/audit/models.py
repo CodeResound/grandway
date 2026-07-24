@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from audit.constants import ActorType
@@ -47,7 +48,14 @@ class AuditEvent(models.Model):
         verbose_name = "Audit Event"
         verbose_name_plural = "Audit Events"
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["entity_type", "entity_id"])]
+        indexes = [
+            models.Index(fields=["entity_type", "entity_id"]),
+            # Supports the ``?search=`` filter, which is a leading-wildcard
+            # ``summary__icontains``. A B-tree cannot serve ``LIKE '%…%'``;
+            # the trigram index is what keeps the audit log's free-text search
+            # viable as the table grows (§39.6, §20).
+            GinIndex(fields=["summary"], name="audit_summary_trgm_idx", opclasses=["gin_trgm_ops"]),
+        ]
 
     def __str__(self) -> str:
         outcome = "ok" if self.success else "fail"

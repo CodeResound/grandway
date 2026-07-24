@@ -27,4 +27,23 @@ LIST_FILTER_PARAMS = (
     "entity_id",
     "success",
     "fiscal_year",
+    "search",
+    "date_from",
+    "date_to",
+    "order",
 )
+
+#: Shortest accepted ``?search=`` term. One character matches nearly every row,
+#: which costs a scan and tells the reader nothing.
+SEARCH_MIN_LENGTH = 2
+
+#: Accepted ``?order=`` values. ``desc`` (newest first) is the log's default;
+#: ``asc`` serves the record-timeline flow, which reads oldest to newest and
+#: cannot be produced by reversing a page client-side.
+ORDER_DESC = "desc"
+ORDER_ASC = "asc"
+ORDER_CHOICES = (ORDER_DESC, ORDER_ASC)
+
+#: Date format accepted by ``?date_from=`` / ``?date_to=``. Both bounds name a
+#: calendar day in Nepal Standard Time (§39.5), not a UTC day.
+DATE_FILTER_FORMAT = "%Y-%m-%d"

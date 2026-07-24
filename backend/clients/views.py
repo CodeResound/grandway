@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from audit.serializers import AuditEventHistorySerializer
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from rest_framework import status
@@ -35,7 +36,6 @@ from clients.selectors import filter_clients, get_client_by_id, get_clients, get
 from clients.serializers import (
     ClientCreateSerializer,
     ClientDetailSerializer,
-    ClientHistorySerializer,
     ClientListSerializer,
     ClientSearchSerializer,
     ClientUpdateSerializer,
@@ -255,6 +255,6 @@ class ClientHistoryView(ClientScopedView):
         return _paginated(
             request,
             get_history_for_client(client),
-            ClientHistorySerializer,
+            AuditEventHistorySerializer,
             "History retrieved.",
         )

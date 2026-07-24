@@ -1,7 +1,7 @@
 # Integration — Leads
 
 **Owner app:** `leads`
-**Version:** 1.1.0
+**Version:** 1.1.1
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 17 endpoints; conversion not yet available |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Lead list widened (`leads.lead.list` → 1.1.0): `search` now matches email and any contact number, and its results are **relevance-ordered**, so §3's "ordering is fixed newest-first" is no longer unconditionally true. Owner scoping is unchanged. Recorded in §9 that there is still no way to filter leads by country of interest |
+| 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one |
 
 ---
 
@@ -29,7 +30,7 @@
 |------------|------|-----|------------------------|
 | `authenticate` | framework | Issues the access JWT and supplies the caller's `authority_type`, which decides whether the caller sees all leads, only their own, or none. | Every endpoint returns 401. Without a valid `authority_type` claim the caller is treated as neither Admin nor Lead Manager and gets 403 `LEADS_ACTOR_FORBIDDEN`. |
 | `authenticate` | FK | Lead ownership (`created_by`) and every attribution field (`last_followed_up_by`, `lost_by`, `converted_by`, note `author`) reference a user account. | Leads cannot be created; attribution fields would be unresolvable. |
-| `audit` | service call | Every mutation appends one immutable event to the central audit log; the lead history endpoint reads that log back. This module stores no history of its own. | `GET /api/v1/leads/<lead_id>/history/` returns an empty list — the lead's entire chronological history disappears, though the lead itself still works. |
+| `audit` | service call + read shape | Every mutation appends one immutable event to the central audit log; the lead history endpoint reads that log back through audit's selector and renders audit's shared entry shape. This module stores no history of its own. | Hard dependency in both directions of use — without it this module does not start. If only the write path failed, `GET /api/v1/leads/<lead_id>/history/` would return an empty list — the lead's entire chronological history disappears, though the lead itself still works. |
 | `applicants` | service call + FK | Conversion calls it to create the applicant record, and `Lead.converted_applicant` is a one-to-one link to the result. | `POST /api/v1/leads/<lead_id>/convert/` fails; no lead can enter the applicant lifecycle. Everything before conversion still works. |
 | `applicant_journeys` | service call + FK | Conversion calls it to create the initial journey, seeded from the lead's preliminary study interest. | As above — conversion is all-or-nothing, so a failure creates neither record. |
 
@@ -105,6 +106,7 @@
 
 **HistoryEntry** — `{ id, action:[enum], actor_type:[enum], actor_id?, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:BsDate }`
 
+- Owned by the `audit` module, where the same shape is called **AuditEventHistoryEntry** (`audit/docs/INTEGRATION.md` §4). This module renders it; it does not define it. Every module's `/history/` endpoint returns this identical shape, so one renderer serves all of them.
 - `changes` maps a field name to `{ from, to }` — e.g. `{"stage": {"from": "new", "to": "contacted"}}`. It is `{}` when the action carried no field-level diff.
 - `metadata` holds small action-specific scalars and varies by `action`.
 - Note bodies, addresses, and loss explanations are deliberately **not** copied into `changes` or `metadata`.

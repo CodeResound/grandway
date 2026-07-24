@@ -6,14 +6,19 @@ here — every Admin and Lead Manager sees every client.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from audit.models import AuditEvent
-from audit.selectors import get_events
+from audit.selectors import get_events_for_entity
 from django.db.models import Q, QuerySet
 
 from clients.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_CLIENT
 from clients.models import Client
+
+if TYPE_CHECKING:
+    # Annotation only. Importing another app's model at runtime for anything but
+    # a ForeignKey is the coupling §4 forbids; the audit selector returns the
+    # queryset, this app never touches the model.
+    from audit.models import AuditEvent
 
 
 def get_clients() -> QuerySet[Client]:
@@ -96,10 +101,8 @@ def filter_clients(queryset: QuerySet[Client], filters: dict[str, Any] | None = 
 
 def get_history_for_client(client: Client) -> QuerySet[AuditEvent]:
     """A client's chronological history, newest first, from the central audit log."""
-    return get_events(
-        {
-            "app": AUDIT_APP_LABEL,
-            "entity_type": AUDIT_ENTITY_CLIENT,
-            "entity_id": str(client.id),
-        }
+    return get_events_for_entity(
+        entity_type=AUDIT_ENTITY_CLIENT,
+        entity_id=str(client.id),
+        app_label=AUDIT_APP_LABEL,
     )

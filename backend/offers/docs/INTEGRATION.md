@@ -1,7 +1,7 @@
 # Integration — Offers
 
 **Owner app:** `offers`
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 11 endpoints across two resources |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the two calls that back the Offer Detail supporting-files section |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | History entries gained `actor_id` (`offers.offer.list_history` → 1.1.0). The shape is now owned by the `audit` module and shared by all six modules that expose a history endpoint; three of them, this one included, had been omitting `actor_id`. Additive, so no consumer breaks. §2 `Requires` corrected: the `audit` coupling is a read dependency as well as a write one |
 
 ---
 
@@ -30,7 +31,7 @@
 | `authenticate` | framework | Issues the access JWT and supplies `authority_type`, which decides whether the caller may act at all. | Every endpoint returns 401; a `superadmin` gets 403 `OFFERS_ACTOR_FORBIDDEN` everywhere, reads included. |
 | `applicant_journeys` | FK + service call | Every offer belongs to exactly one journey, supplied on create and never changeable. The journey is also where the applicant's identity is reached from. | Offers cannot be created at all — there is nothing to attach them to. `POST` returns 400 `OFFERS_JOURNEY_NOT_FOUND` for any journey id that does not resolve. |
 | `institutions` | FK (optional) | Supplies the catalogue records an offer is built from, and the names copied into its snapshot. | Catalogue-sourced offers become impossible; manual offers still work in full, so the module degrades rather than fails. The `institution` and `program` list filters return nothing. |
-| `audit` | service call | Every mutation, including every condition change, appends one immutable event carrying the changed fields' previous and new values. This module stores no history of its own. | Offers still record correctly but leave no trace of who decided what — and `GET /offers/<id>/history/` returns an empty list rather than failing. |
+| `audit` | service call + read shape | Every mutation, including every condition change, appends one immutable event carrying the changed fields' previous and new values. This module stores no history of its own: the history endpoint reads audit's selector and renders audit's shared entry shape. | Hard dependency in both directions of use — without it this module does not start. If only the write path failed, offers would still record correctly but leave no trace of who decided what, and `GET /offers/<id>/history/` would return an empty list rather than an error. |
 
 **This module writes to nothing outside itself.** Recording, issuing, or deciding an offer does **not** change the journey's `stage`, the applicant's `status`, or any catalogue record. A client that expects a journey to advance to `offer_stage` when an offer is recorded must make that call itself, against `applicant_journeys.journey.change_stage`.
 
@@ -133,8 +134,10 @@ Field-level validation failures come from the serializer layer and put the offen
 - Returned nested inside the offer detail shape, and as the row shape of the conditions list endpoint. The two are identical.
 - Ordered by `display_order`, then `created_at`. Not client-controllable.
 
-**HistoryEvent** — `{ id, action, actor_type:[enum], actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:json }`
+**HistoryEvent** — `{ id, action, actor_type:[enum], actor_id:uuid|null, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:json }`
 
+- Owned by the `audit` module, where the same shape is called **AuditEventHistoryEntry** (`audit/docs/INTEGRATION.md` §4). This app renders it; it does not define it. Every module's `/history/` endpoint returns this identical shape.
+- `actor_id` is the UUID of the acting user, or `null` for system/AI actors. Prefer it over `actor_label` when linking to an account — the label is a preserved snapshot of the username at the time and is not re-resolved if the account is renamed.
 - `changes` is a map of field name to `{ "from": "...", "to": "..." }`, both stringified. `{}` on events that record no field change (creation, condition events).
 - `metadata` is free-form per action — do not rely on a key being present without checking.
 - **Condition events appear in the offer's history**, not in a separate log: `offer_condition_created`, `offer_condition_updated`, and `offer_condition_status_changed` all carry the *offer's* id, with the condition's id inside `metadata.condition_id`.

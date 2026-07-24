@@ -1,7 +1,7 @@
 # Integration — Applicant Journeys
 
 **Owner app:** `applicant_journeys`
-**Version:** 1.0.0
+**Version:** 1.1.1
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 9 endpoints |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint added, changed, or retired. Added the optional `target_country_ref` catalogue reference to the model shape, the create/update fields, and the list filters, plus the `CountryBrief` shape and the `JOURNEYS_COUNTRY_NOT_FOUND` error. **Documented the cross-app side effect it triggers** — setting it creates the applicant's checklist in the `checklists` module, asynchronously and invisibly from this app's responses |
+| 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one. Also corrected the header version, which still read 1.0.0 after the 1.1.0 row was added |
 
 ---
 
@@ -30,7 +31,7 @@
 | `authenticate` | framework | Issues the access JWT and supplies `authority_type`, which decides whether the caller may act at all. | Every endpoint returns 401; an unrecognised authority gets 403 `JOURNEYS_ACTOR_FORBIDDEN`. |
 | `applicants` | FK | Every journey belongs to exactly one applicant. `POST /api/v1/journeys/` requires an existing applicant id. | No journey can be created — there is nothing to attach one to. An applicant referenced by any journey also cannot be removed. |
 | `authenticate` | FK | `created_by`, `closed_by`, and `deferred_by` reference user accounts. | Journeys cannot be created; attribution is unresolvable. |
-| `audit` | service call | Every mutation appends one immutable event; the history endpoint reads it back. This module stores no history of its own. | `GET /api/v1/journeys/<id>/history/` returns an empty list; the journey itself still works. |
+| `audit` | service call + read shape | Every mutation appends one immutable event; the history endpoint reads it back through audit's selector and renders audit's shared entry shape. This module stores no history of its own. | Hard dependency in both directions of use — without it this module does not start. If only the write path failed, `GET /api/v1/journeys/<id>/history/` would return an empty list; the journey itself still works. |
 
 **This module depends on `leads` for nothing.** `leads` calls this module during conversion and owns the link between the two; nothing here points back at a lead.
 
@@ -93,6 +94,7 @@
 
 **HistoryEntry** — `{ id, action:[enum], actor_type:[enum], actor_id?, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:BsDate }`
 
+- Owned by the `audit` module, where the same shape is called **AuditEventHistoryEntry** (`audit/docs/INTEGRATION.md` §4). This module renders it; it does not define it. Every module's `/history/` endpoint returns this identical shape, so one renderer serves all of them.
 - `changes` maps a field name to `{ from, to }`; `{}` when the action carried no diff.
 - Journey notes, closure reasons, and deferment reasons are deliberately **never** present in `changes` or `metadata`.
 

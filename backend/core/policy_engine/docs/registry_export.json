@@ -137,7 +137,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 169,
+  "endpoint_count": 170,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -521,17 +521,41 @@
       ]
     },
     {
+      "permission_key": "audit.event.facets",
+      "app_key": "audit",
+      "model_key": "event",
+      "endpoint_key": "event-facets",
+      "display_name": "List Audit Filter Values",
+      "description": "Return the distinct app, action, entity type, and actor type values present in the audit log, for populating the log screen's filter controls (Admin/Superadmin).",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/audit/events/facets/",
+      "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "audit_review",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "audit.event.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Filter values exist only to narrow the list; they are useless without it."
+        }
+      ]
+    },
+    {
       "permission_key": "audit.event.list",
       "app_key": "audit",
       "model_key": "event",
       "endpoint_key": "event-list",
       "display_name": "List Audit Events",
-      "description": "List and filter the central audit log (Admin/Superadmin).",
+      "description": "List, search, and filter the central audit log (Admin/Superadmin).",
       "http_method": "GET",
       "route_pattern": "/api/v1/audit/events/",
       "operation_type": "list",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "audit_review",
       "is_dependency_root": true,
       "dependencies": []
@@ -547,7 +571,7 @@
       "route_pattern": "/api/v1/audit/events/<event_id>/",
       "operation_type": "read",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "audit_review",
       "is_dependency_root": false,
       "dependencies": [
@@ -1603,7 +1627,7 @@
       "route_pattern": "/api/v1/clients/<client_id>/history/",
       "operation_type": "list",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "client_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -2584,7 +2608,7 @@
       "route_pattern": "/api/v1/documents/<document_id>/history/",
       "operation_type": "list",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "document_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -4092,7 +4116,7 @@
       "route_pattern": "/api/v1/offers/<offer_id>/history/",
       "operation_type": "list",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "offer_management",
       "is_dependency_root": false,
       "dependencies": [

@@ -8,16 +8,21 @@ another Lead Manager's lead by any path (§9, ``docs/SECURITY.md`` §1).
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from audit.models import AuditEvent
-from audit.selectors import get_events
+from audit.selectors import get_events_for_entity
 from core.querying import narrow_to_window
 from django.db.models import Case, Count, IntegerField, Q, QuerySet, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from leads.access import is_admin
+
+if TYPE_CHECKING:
+    # Annotation only. Importing another app's model at runtime for anything but
+    # a ForeignKey is the coupling §4 forbids; the audit selector returns the
+    # queryset, this app never touches the model.
+    from audit.models import AuditEvent
 from leads.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_LEAD, LeadStage
 from leads.models import Lead, LeadNote, LeadSource, LossReason
 
@@ -364,12 +369,10 @@ def get_history_for_lead(lead: Lead) -> QuerySet[AuditEvent]:
 
     Reads the central audit log rather than any table this app owns — the
     history *is* the audit trail, filtered to one lead (§4: leads consumes
-    ``audit``'s selector rather than duplicating its storage).
+    ``audit``'s selector rather than duplicating its storage or its query).
     """
-    return get_events(
-        {
-            "app": AUDIT_APP_LABEL,
-            "entity_type": AUDIT_ENTITY_LEAD,
-            "entity_id": str(lead.id),
-        }
+    return get_events_for_entity(
+        entity_type=AUDIT_ENTITY_LEAD,
+        entity_id=str(lead.id),
+        app_label=AUDIT_APP_LABEL,
     )

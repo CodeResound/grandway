@@ -314,6 +314,34 @@ class ClientStandingEndpointTests(ClientAPITestCase):
         self.assertIn("client_retired", actions)
         self.assertIn("client_restored", actions)
 
+    def test_history_entries_carry_the_shared_audit_shape(self) -> None:
+        """Regression: this endpoint used to omit `actor_id` (contract 1.1.0).
+
+        The six history endpoints now render one shape owned by `audit`; three
+        of them, this one included, had been dropping the acting user's id, so
+        the same audit row looked different depending on which record you
+        reached it from.
+        """
+        self.auth(self.admin)
+        entry = self.client.get(f"{self.url}history/").json()["data"][0]
+        self.assertEqual(
+            set(entry),
+            {
+                "id",
+                "action",
+                "actor_type",
+                "actor_id",
+                "actor_label",
+                "summary",
+                "reason",
+                "changes",
+                "metadata",
+                "created_at",
+                "created_at_bs",
+            },
+        )
+        self.assertEqual(entry["actor_id"], str(self.admin.id))
+
     def test_lead_manager_may_read_history(self) -> None:
         self.auth(self.lead_manager)
         response = self.client.get(f"{self.url}history/")

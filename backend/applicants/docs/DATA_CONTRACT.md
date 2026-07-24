@@ -96,7 +96,7 @@
 
 **Cross-App Dependencies:**
 - `authenticate.User` — one FK (`created_by`). Model-level reference only, per §4.
-- `audit` — runtime service/selector dependency. Every mutation calls `audit.services.record_event`; the history endpoint reads `audit.selectors.get_events`.
+- `audit` — runtime service/selector dependency. Every mutation calls `audit.services.record_event`; the history endpoint reads `audit.selectors.get_events_for_entity` and renders `audit.serializers.AuditEventHistorySerializer`.
 - **Inbound:** `leads.Lead.converted_applicant` is a `OneToOneField` pointing here, and `leads` calls `applicants.services.create_applicant` at conversion. This app does **not** reference `leads` — the dependency runs one direction only.
 - **Inbound:** `applicant_journeys.ApplicantJourney.applicant` is a `PROTECT` FK pointing here.
 - **Outbound (read-only, reverse accessor):** the list and detail responses project a `destinations` array (§8), and the `country`, `country_code`, and `journey_stage` list filters resolve through `applicant.journeys`. **No import of `applicant_journeys` exists** — `applicant_journeys` owns the ForeignKey and this app reads back through the reverse accessor, the same technique already used for `originating_lead`. The coupling is nonetheless real: renaming `ApplicantJourney.target_country_ref` or `stage` would break this app's list endpoint. See `INTEGRATION.md` §2 `Requires`.

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from audit.serializers import AuditEventHistorySerializer
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from rest_framework import status
@@ -36,7 +37,6 @@ from applicants.selectors import (
 from applicants.serializers import (
     ApplicantCreateSerializer,
     ApplicantDetailSerializer,
-    ApplicantHistorySerializer,
     ApplicantListSerializer,
     ApplicantUpdateSerializer,
     StatusChangeSerializer,
@@ -253,6 +253,6 @@ class ApplicantHistoryView(ApplicantScopedView):
         return _paginated(
             request,
             get_history_for_applicant(applicant),
-            ApplicantHistorySerializer,
+            AuditEventHistorySerializer,
             "History retrieved.",
         )

@@ -6,7 +6,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from audit.models import AuditEvent
 from core.constants import StudyLevel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
@@ -201,27 +200,7 @@ class ReopenSerializer(serializers.Serializer):
     stage = serializers.ChoiceField(choices=SELECTABLE_STAGE_CHOICES, required=False)
 
 
-class JourneyHistorySerializer(serializers.ModelSerializer):
-    """One entry of a journey's history, projected from the audit log."""
-
-    created_at_bs = serializers.SerializerMethodField()
-
-    class Meta:
-        model = AuditEvent
-        fields = [
-            "id",
-            "action",
-            "actor_type",
-            "actor_id",
-            "actor_label",
-            "summary",
-            "reason",
-            "changes",
-            "metadata",
-            "created_at",
-            "created_at_bs",
-        ]
-        read_only_fields = fields
-
-    def get_created_at_bs(self, obj: AuditEvent) -> dict[str, Any] | None:
-        return _bs(obj.created_at)
+# A journey's history entries are serialized by ``audit.serializers``'s canonical
+# ``AuditEventHistorySerializer`` — the shape is the audit app's to define, and
+# six per-app copies of it had already drifted apart (§4). The view imports it
+# directly.

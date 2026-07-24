@@ -259,7 +259,7 @@ All three fields are optional; an empty body records a follow-up at the current 
 ```
 **Error codes:** app-wide 404 only.
 **Business rules:** this app owns no history table. The response is the central `audit` log filtered to this lead. `AuditEvent` is append-only and blocks deletion at the model layer, so entries can never be rewritten or removed. The full action vocabulary is tabulated in `DATA_CONTRACT.md` §7.
-**Query access pattern:** `selectors.get_history_for_lead` delegates to `audit.selectors.get_events` with `app`/`entity_type`/`entity_id` filters — a runtime dependency on the `audit` app, not a duplicated table. The lead is resolved through the owner-scoped selector first, so a Lead Manager cannot read the history of a lead they do not own even though `audit` itself is global.
+**Query access pattern:** `selectors.get_history_for_lead` delegates to `audit.selectors.get_events_for_entity` — a runtime dependency on the `audit` app, not a duplicated table, served by the audit table's composite `(entity_type, entity_id)` index. Entries are serialized by `audit.serializers.AuditEventHistorySerializer`, the shape shared by every module's history endpoint. The lead is resolved through the owner-scoped selector first, so a Lead Manager cannot read the history of a lead they do not own even though `audit` itself is global.
 
 ---
 

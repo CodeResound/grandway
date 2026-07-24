@@ -7,10 +7,9 @@ no owner scoping here.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from audit.models import AuditEvent
-from audit.selectors import get_events
+from audit.selectors import get_events_for_entity
 from core.nepal.calendar import nepal_today
 from core.querying import narrow_to_window
 from django.db.models import Count, QuerySet
@@ -22,6 +21,12 @@ from offers.constants import (
     OfferStatus,
 )
 from offers.models import Offer, OfferCondition
+
+if TYPE_CHECKING:
+    # Annotation only. Importing another app's model at runtime for anything but
+    # a ForeignKey is the coupling §4 forbids; the audit selector returns the
+    # queryset, this app never touches the model.
+    from audit.models import AuditEvent
 
 #: Relations every offer read needs. ``journey__applicant`` is here because the
 #: Offer List's first column is the applicant's name (``concepts/offers.txt`` —
@@ -339,10 +344,8 @@ def get_history_for_offer(offer: Offer) -> QuerySet[AuditEvent]:
     Includes condition events: they are recorded against the offer's entity id
     so that the offer's history is one continuous trail rather than several.
     """
-    return get_events(
-        {
-            "app": AUDIT_APP_LABEL,
-            "entity_type": AUDIT_ENTITY_OFFER,
-            "entity_id": str(offer.id),
-        }
+    return get_events_for_entity(
+        entity_type=AUDIT_ENTITY_OFFER,
+        entity_id=str(offer.id),
+        app_label=AUDIT_APP_LABEL,
     )

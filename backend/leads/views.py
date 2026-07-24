@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from audit.serializers import AuditEventHistorySerializer
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from rest_framework import status
@@ -54,7 +55,6 @@ from leads.serializers import (
     FollowUpSerializer,
     LeadCreateSerializer,
     LeadDetailSerializer,
-    LeadHistorySerializer,
     LeadListSerializer,
     LeadNoteCreateSerializer,
     LeadNoteSerializer,
@@ -621,4 +621,4 @@ class LeadHistoryView(LeadScopedView):
         lead, err = self.resolve(request, lead_id)
         if err:
             return err
-        return _paginated(request, get_history_for_lead(lead), LeadHistorySerializer, "History retrieved.")
+        return _paginated(request, get_history_for_lead(lead), AuditEventHistorySerializer, "History retrieved.")

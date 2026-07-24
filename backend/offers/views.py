@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from applicant_journeys.selectors import get_journey_by_id
+from audit.serializers import AuditEventHistorySerializer
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from institutions.selectors import get_campus_by_id, get_institution_by_id, get_program_by_id
@@ -54,7 +55,6 @@ from offers.serializers import (
     DecisionSerializer,
     OfferCreateSerializer,
     OfferDetailSerializer,
-    OfferHistorySerializer,
     OfferListSerializer,
     OfferSearchSerializer,
     OfferUpdateSerializer,
@@ -324,7 +324,7 @@ class OfferHistoryView(OfferScopedView):
         offer, err = self.resolve(request, offer_id)
         if err:
             return err
-        return _paginated(request, get_history_for_offer(offer), OfferHistorySerializer, "History retrieved.")
+        return _paginated(request, get_history_for_offer(offer), AuditEventHistorySerializer, "History retrieved.")
 
 
 class ConditionListCreateView(OfferScopedView):

@@ -1,7 +1,7 @@
 # Integration — Clients
 
 **Owner app:** `clients`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 7 endpoints, one resource |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | History entries gained `actor_id` (`clients.client.list_history` → 1.1.0). The shape is now owned by the `audit` module and shared by all six modules that expose a history endpoint; three of them, this one included, had been omitting `actor_id`. Additive, so no consumer breaks. §2 `Requires` corrected: the `audit` coupling is a read dependency as well as a write one |
 
 ---
 
@@ -28,7 +29,7 @@
 |------------|------|-----|------------------------|
 | `authenticate` | framework | Issues the access JWT and supplies `authority_type`, which decides both whether the caller may act and whether they may write. | Every endpoint returns 401; a `superadmin` gets 403 `CLIENTS_ACTOR_FORBIDDEN` on every route including reads. |
 | `authenticate` | FK | `created_by` (`PROTECT`) and `retired_by` (`SET_NULL`) reference user accounts. | Clients could not record who added or retired them. |
-| `audit` | service call | Every create, update, retire, and restore appends one immutable event carrying the changed fields' previous and new values. This module stores no history of its own. | Client edits still succeed but leave no trace, and `GET /clients/<id>/history/` returns an empty list rather than failing. |
+| `audit` | service call + read shape | Every create, update, retire, and restore appends one immutable event carrying the changed fields' previous and new values. This module stores no history of its own: the history endpoint reads audit's selector and renders audit's shared entry shape. | Hard dependency in both directions of use — without it this module does not start. If only the write path failed, client edits would still succeed but leave no trace, and `GET /clients/<id>/history/` would return an empty list rather than an error. |
 
 **This module depends on no business app, and no business app depends on it.** It is the only app in the project with no edge in either direction — the position `institutions` held until `offers` shipped. In practice that means a client directory can be built, browsed, and maintained entirely on its own.
 
@@ -133,8 +134,10 @@ Field-level validation failures come from the serializer layer and put the offen
 - Read-only in this shape. On write, send `{ number, label?, is_primary? }` — the `id` is not accepted and not needed, because numbers are replaced as a set.
 - `is_primary` is **not enforced to be unique or present.** A client may have zero primary numbers, or several. Ordering puts primaries first, so `contact_numbers[0]` is the sensible one to show.
 
-**HistoryEvent** — `{ id, action, actor_type:[enum], actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:json }`
+**HistoryEvent** — `{ id, action, actor_type:[enum], actor_id:uuid|null, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:json }`
 
+- Owned by the `audit` module, where the same shape is called **AuditEventHistoryEntry** (`audit/docs/INTEGRATION.md` §4). This app renders it; it does not define it. Every module's `/history/` endpoint returns this identical shape.
+- `actor_id` is the UUID of the acting user, or `null` for system/AI actors. Prefer it over `actor_label` when linking to an account — the label is a preserved snapshot of the username at the time and is not re-resolved if the account is renamed.
 - `changes` is a map of field name to `{ "from": "...", "to": "..." }`, both stringified. `{}` on creation events.
 - A contact-number replacement appears as `changes.contact_numbers = { "from": "replaced", "to": "N number(s)" }` — a marker, **not** a before/after list of the numbers themselves.
 - `metadata` is free-form per action — do not rely on a key being present without checking.

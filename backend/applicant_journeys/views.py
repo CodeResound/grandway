@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from applicants.selectors import get_applicant_by_id
+from audit.serializers import AuditEventHistorySerializer
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from institutions.selectors import get_country_by_id
@@ -43,7 +44,6 @@ from applicant_journeys.serializers import (
     DeferSerializer,
     JourneyCreateSerializer,
     JourneyDetailSerializer,
-    JourneyHistorySerializer,
     JourneyListSerializer,
     JourneyUpdateSerializer,
     ReopenSerializer,
@@ -351,6 +351,6 @@ class JourneyHistoryView(JourneyScopedView):
         return _paginated(
             request,
             get_history_for_journey(journey),
-            JourneyHistorySerializer,
+            AuditEventHistorySerializer,
             "History retrieved.",
         )

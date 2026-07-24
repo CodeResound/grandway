@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from applicants.selectors import get_applicant_by_id
+from audit.serializers import AuditEventHistorySerializer
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from rest_framework import status
@@ -47,7 +48,6 @@ from documents.serializers import (
     ArchiveSerializer,
     DocumentCreateSerializer,
     DocumentDetailSerializer,
-    DocumentHistorySerializer,
     DocumentListSerializer,
     DocumentSearchSerializer,
     DocumentUpdateSerializer,
@@ -345,6 +345,6 @@ class DocumentHistoryView(DocumentScopedView):
         return _paginated(
             request,
             get_history_for_document(document),
-            DocumentHistorySerializer,
+            AuditEventHistorySerializer,
             "History retrieved.",
         )

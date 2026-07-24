@@ -1,7 +1,7 @@
 # API — Clients
 
 **Owner app:** `clients`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/clients/`
@@ -16,6 +16,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 7 endpoints across one resource |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | §1.7 history entries gained `actor_id` and are now serialized by audit's shared `AuditEventHistorySerializer` (`clients.client.list_history` → 1.1.0). Additive; no other endpoint changed |
 
 ---
 
@@ -189,8 +190,8 @@ The `status` filter is served by `client_status_name_idx`, which also covers the
 - **Permission key:** `clients.client.list_history` (risk: low)
 - **Auth:** required. Admin or Lead Manager — **readable by a Lead Manager, unlike every write here.**
 
-**Response:** paginated list of HistoryEvent, newest first.
+**Response:** paginated list of HistoryEvent, newest first — serialized by `audit.serializers.AuditEventHistorySerializer`, the shape shared by every module's history endpoint. Includes `actor_id` as of version 1.1.0.
 
-**Query access pattern.** `selectors.get_history_for_client` delegates to `audit.selectors.get_events` filtered on `app_label="clients"`, `entity_type="client"`, `entity_id=<client id>` — the audit table's own index serves it. Contact-number changes appear here as a marker on the parent client's `client_updated` event (`changes.contact_numbers`), not as separate events, because a number has no identity a reader would recognise on its own.
+**Query access pattern.** `selectors.get_history_for_client` delegates to `audit.selectors.get_events_for_entity` with `entity_type="client"`, `entity_id=<client id>`, `app_label="clients"` — served by the audit table's composite `(entity_type, entity_id)` index. Contact-number changes appear here as a marker on the parent client's `client_updated` event (`changes.contact_numbers`), not as separate events, because a number has no identity a reader would recognise on its own.
 
 **Error codes:** `CLIENTS_CLIENT_NOT_FOUND`, `CLIENTS_ACTOR_FORBIDDEN`.

@@ -1,7 +1,7 @@
 # API — Offers
 
 **Owner app:** `offers`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/offers/`
@@ -16,6 +16,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 11 endpoints across two resources |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | §1.7 history entries gained `actor_id` and are now serialized by audit's shared `AuditEventHistorySerializer` (`offers.offer.list_history` → 1.1.0). Additive; no other endpoint changed |
 
 ---
 
@@ -195,9 +196,9 @@ These hold on every endpoint below and are not repeated per endpoint.
 - **URI:** `GET /api/v1/offers/<offer_id>/history/`
 - **Permission key:** `offers.offer.list_history` (risk: low)
 
-**Response:** paginated list of HistoryEvent, newest first.
+**Response:** paginated list of HistoryEvent, newest first — serialized by `audit.serializers.AuditEventHistorySerializer`, the shape shared by every module's history endpoint. Includes `actor_id` as of version 1.1.0.
 
-**Query access pattern.** `selectors.get_history_for_offer` delegates to `audit.selectors.get_events` filtered on `app_label="offers"`, `entity_type="offer"`, `entity_id=<offer id>` — the audit table's own index serves it. Condition events are included because they are written against the offer's entity id.
+**Query access pattern.** `selectors.get_history_for_offer` delegates to `audit.selectors.get_events_for_entity` with `entity_type="offer"`, `entity_id=<offer id>`, `app_label="offers"` — served by the audit table's composite `(entity_type, entity_id)` index. Condition events are included because they are written against the offer's entity id.
 
 **Error codes:** `OFFERS_OFFER_NOT_FOUND`, `OFFERS_ACTOR_FORBIDDEN`.
 

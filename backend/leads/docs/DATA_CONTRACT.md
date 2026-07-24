@@ -192,7 +192,7 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 
 **Cross-App Dependencies:**
 - `authenticate.User` — five FKs (`created_by`, `last_followed_up_by`, `lost_by`, `converted_by`, and `LeadNote.author`). Model-level reference only, per §4.
-- `audit` — runtime service/selector dependency, not a model reference. Every mutation calls `audit.services.record_event`; the history endpoint reads `audit.selectors.get_events`. Recorded in `INTEGRATION.md` §2.
+- `audit` — runtime service/selector dependency, not a model reference. Every mutation calls `audit.services.record_event`; the history endpoint reads `audit.selectors.get_events_for_entity` and renders `audit.serializers.AuditEventHistorySerializer`. Recorded in `INTEGRATION.md` §2.
 - `applicants` — `converted_applicant` is a `OneToOneField` here, and `leads.services.convert_lead` calls `applicants.services.create_applicant`. Both directions of the coupling originate in this app; `applicants` references nothing here.
 - `applicant_journeys` — `converted_journey` FK plus a call to `applicant_journeys.services.create_journey` at conversion. Same one-directional arrangement.
 
@@ -345,6 +345,6 @@ Actions this app writes, using `audit.services.record_event`:
 
 Reference-table changes are recorded with `entity_type` of `lead_source` or `loss_reason` and actions `lead_source_created` / `lead_source_updated` / `loss_reason_created` / `loss_reason_updated`. These are audit-only and do not appear in any lead's history pane.
 
-**Cross-App Dependencies:** `audit` — write via `audit.services.record_event`, read via `audit.selectors.get_events`. Runtime coupling; see `INTEGRATION.md` §2.
+**Cross-App Dependencies:** `audit` — write via `audit.services.record_event`, read via `audit.selectors.get_events_for_entity` and `audit.serializers.AuditEventHistorySerializer`. Runtime coupling; see `INTEGRATION.md` §2.
 
 **Security Notes:** No secrets, passwords, tokens, or full record dumps are ever passed into an audit payload (§17). `changes` carries only the fields that moved, and `metadata` only small scalars.
