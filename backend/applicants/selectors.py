@@ -7,14 +7,17 @@ that matters (Superadmin denied) happens in the view via ``access.py``.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from audit.models import AuditEvent
 from audit.selectors import get_events
-from django.db.models import Case, IntegerField, Q, QuerySet, When
+from core.nepal.calendar import nepal_today
+from core.querying import narrow_to_window
+from django.db.models import Case, Count, IntegerField, Q, QuerySet, When
 
-from applicants.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_APPLICANT
-from applicants.models import Applicant
+from applicants.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_APPLICANT, ApplicantStatus
+from applicants.models import Applicant, PassportDetail
 
 
 def get_applicants() -> QuerySet[Applicant]:
@@ -186,6 +189,76 @@ def filter_applicants(queryset: QuerySet[Applicant], filters: dict[str, Any] | N
         queryset = queryset.filter(created_at__gte=start, created_at__lt=end)
 
     return queryset
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summaries
+# ---------------------------------------------------------------------------
+#
+# Aggregates over this app's own rows, living here because §4 forbids another
+# app querying these tables directly. ``dashboards`` composes what it gets back.
+#
+# No ``actor`` parameter anywhere below, unlike ``leads``: applicants are shared
+# across the consultancy, so there is no scope to apply and pretending otherwise
+# would invent a restriction the app does not have.
+
+
+def get_applicant_status_counts(
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+    country_id: str | None = None,
+) -> dict[str, int]:
+    """How many applicants hold each standing.
+
+    Every status is present with a zero rather than omitted — an absent
+    ``archived`` key reads as "no archiving happens here" rather than "none yet".
+
+    ``country_id`` reaches through the reverse ``journeys`` accessor, so it means
+    "has a journey to this country", exactly as the list filter does.
+    """
+    queryset = narrow_to_window(
+        Applicant.objects.all(),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    if country_id:
+        queryset = queryset.filter(journeys__target_country_ref_id=country_id).distinct()
+
+    counted = dict(queryset.values_list("status").annotate(total=Count("id", distinct=True)))
+    return {status: counted.get(status, 0) for status in ApplicantStatus.values}
+
+
+def get_expiring_passports(
+    *,
+    within_days: int = 180,
+    country_id: str | None = None,
+) -> QuerySet[PassportDetail]:
+    """Passports already expired or expiring within ``within_days``, soonest first.
+
+    A visa application cannot be lodged on a passport that expires too soon, so
+    this is a blocker discovered months ahead or not at all. The default horizon
+    is deliberately long — six months, not a week — because renewing a Nepali
+    passport is not a same-week errand.
+
+    Already-expired passports are **included**, not filtered out: the applicant
+    whose passport lapsed last month is the most blocked person on the list, and
+    a query that only looked forward would drop exactly them.
+
+    Archived applicants are excluded — their passport expiring is not work
+    anybody needs to do. The comparison is made against today in Nepal (§39.5).
+    """
+    horizon = nepal_today() + timedelta(days=within_days)
+    queryset = (
+        PassportDetail.objects.select_related("applicant")
+        .filter(expiry_date__isnull=False, expiry_date__lte=horizon)
+        .exclude(applicant__status=ApplicantStatus.ARCHIVED)
+    )
+    if country_id:
+        queryset = queryset.filter(applicant__journeys__target_country_ref_id=country_id).distinct()
+    return queryset.order_by("expiry_date", "id")
 
 
 def get_history_for_applicant(applicant: Applicant) -> QuerySet[AuditEvent]:

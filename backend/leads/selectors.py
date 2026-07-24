@@ -7,14 +7,18 @@ another Lead Manager's lead by any path (§9, ``docs/SECURITY.md`` §1).
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from audit.models import AuditEvent
 from audit.selectors import get_events
-from django.db.models import Case, IntegerField, Q, QuerySet, When
+from core.querying import narrow_to_window
+from django.db.models import Case, Count, IntegerField, Q, QuerySet, When
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from leads.access import is_admin
-from leads.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_LEAD
+from leads.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_LEAD, LeadStage
 from leads.models import Lead, LeadNote, LeadSource, LossReason
 
 # ---------------------------------------------------------------------------
@@ -177,6 +181,172 @@ def filter_leads(queryset: QuerySet[Lead], filters: dict[str, Any] | None = None
         queryset = queryset.filter(created_at__gte=start, created_at__lt=end)
 
     return queryset
+
+
+# ---------------------------------------------------------------------------
+# Notes and history
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summaries
+# ---------------------------------------------------------------------------
+#
+# Aggregates over this app's own rows, living in this app because §4 forbids
+# another app querying these tables directly. ``dashboards`` composes what it
+# gets back; it never reaches into ``leads_lead`` itself.
+#
+# Every one of these takes ``actor`` and starts from ``get_leads_for_actor``.
+# That is not defensive habit — leads are the only owner-scoped rows in the
+# project, so a summary that skipped the scoping would let a Lead Manager read
+# the size and shape of another manager's pipeline off a dashboard tile.
+
+
+def get_lead_funnel_counts(
+    *,
+    actor: Any,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+    source_id: str | None = None,
+) -> dict[str, int]:
+    """How many leads sit at each stage, within the caller's scope.
+
+    Every stage is present with a zero rather than omitted. A funnel that drops
+    its empty stages reads as though those stages do not exist, when the fact
+    worth seeing is precisely that nothing has reached them.
+    """
+    queryset = narrow_to_window(
+        get_leads_for_actor(actor),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    if source_id:
+        queryset = queryset.filter(source_id=source_id)
+
+    counted = dict(queryset.values_list("stage").annotate(total=Count("id")))
+    return {stage: counted.get(stage, 0) for stage in LeadStage.values}
+
+
+def get_lead_source_conversion(
+    *,
+    actor: Any,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+) -> list[dict[str, Any]]:
+    """Per source: how many arrived, how many converted, how many were lost.
+
+    The question intake reporting actually asks is not "which source sends the
+    most people" but "which source sends people who become clients" — a channel
+    delivering fifty leads and two conversions is worse than one delivering ten
+    and five. Both numbers are returned so the caller can show the rate without
+    losing the volume behind it.
+
+    Only sources with at least one lead in the window appear. A source nobody
+    came through contributes nothing to a conversion comparison, and listing
+    every configured source would bury the ones that matter.
+    """
+    queryset = narrow_to_window(
+        get_leads_for_actor(actor),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    rows = (
+        queryset.values("source_id", "source__code", "source__name_np", "source__name_en")
+        .annotate(
+            total=Count("id"),
+            converted=Count("id", filter=Q(stage=LeadStage.CONVERTED)),
+            lost=Count("id", filter=Q(stage=LeadStage.LOST)),
+        )
+        .order_by("-total")
+    )
+    return [
+        {
+            "source_id": str(row["source_id"]),
+            "source_code": row["source__code"],
+            "source_name_np": row["source__name_np"],
+            "source_name_en": row["source__name_en"],
+            "total": row["total"],
+            "converted": row["converted"],
+            "lost": row["lost"],
+            # Neither converted nor lost: still somewhere in the funnel.
+            "in_progress": row["total"] - row["converted"] - row["lost"],
+        }
+        for row in rows
+    ]
+
+
+def get_stale_leads(
+    *,
+    actor: Any,
+    stale_after_days: int = 7,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+) -> QuerySet[Lead]:
+    """Live leads nobody has touched in ``stale_after_days``, oldest contact first.
+
+    A lead has no due date — nothing in this app can be "overdue". Silence is
+    the only signal there is, so staleness is measured from the last follow-up,
+    falling back to creation for a lead never followed up at all. Without that
+    fallback a brand-new lead nobody ever called would look perpetually fresh.
+
+    Terminal stages are excluded: a converted or lost lead is not neglected, it
+    is finished.
+    """
+    cutoff = timezone.now() - timedelta(days=stale_after_days)
+    queryset = narrow_to_window(
+        get_leads_for_actor(actor),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    return (
+        queryset.exclude(stage__in=(LeadStage.CONVERTED, LeadStage.LOST))
+        .annotate(last_touched=Coalesce("last_followed_up_at", "created_at"))
+        .filter(last_touched__lt=cutoff)
+        .order_by("last_touched", "id")
+    )
+
+
+def get_lead_workload_by_owner(
+    *,
+    actor: Any,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+) -> list[dict[str, Any]]:
+    """Open leads per owner, heaviest first.
+
+    Owner scoping applies here as everywhere else, so a Lead Manager sees
+    exactly one row — their own. That is not a degraded view: the section
+    answers "how is work distributed", and a Lead Manager's honest answer is
+    "here is mine". Only an Admin sees a distribution to rebalance.
+    """
+    queryset = narrow_to_window(
+        get_leads_for_actor(actor),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    rows = (
+        queryset.exclude(stage__in=(LeadStage.CONVERTED, LeadStage.LOST))
+        .values("created_by_id", "created_by__username", "created_by__display_name")
+        .annotate(open_leads=Count("id"))
+        .order_by("-open_leads")
+    )
+    return [
+        {
+            "owner_id": str(row["created_by_id"]),
+            "owner_username": row["created_by__username"],
+            "owner_display_name": row["created_by__display_name"],
+            "open_leads": row["open_leads"],
+        }
+        for row in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

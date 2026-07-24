@@ -17,4 +17,5 @@ urlpatterns: list = [
     path("document-templates/", include("document_templates.urls", namespace="document_templates")),
     path("files/", include("uploaded_files.urls", namespace="files")),
     path("checklists/", include("checklists.urls", namespace="checklists")),
+    path("dashboard/", include("dashboards.urls", namespace="dashboards")),
 ]

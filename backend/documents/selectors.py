@@ -6,10 +6,12 @@ the population that may read is one authority type, and it reads everything.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from audit.models import AuditEvent
 from audit.selectors import get_events
+from core.querying import narrow_to_window
 from django.db.models import Count, Max, QuerySet
 
 from documents.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_DOCUMENT, DocumentStatus
@@ -124,6 +126,59 @@ def get_workspace_summaries() -> QuerySet[dict[str, Any]]:
         .annotate(document_count=Count("id"), last_updated=Max("updated_at"))
         .order_by("-last_updated")
     )
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summaries
+# ---------------------------------------------------------------------------
+#
+# Aggregates over this app's own rows, living here because §4 forbids another
+# app querying this table directly. ``dashboards`` composes what it gets back.
+
+
+def get_document_status_counts(
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+) -> dict[str, int]:
+    """How many documents hold each status. Every status present, zero-filled.
+
+    There is **no country filter here, and there cannot be one.** A document
+    belongs to an applicant, not to a journey, so it has no destination to
+    filter by — a person's documents are theirs regardless of where they end up
+    applying. A caller narrowing the rest of a dashboard by country must present
+    this section as unnarrowed rather than silently implying otherwise.
+    """
+    queryset = narrow_to_window(
+        Document.objects.all(),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    counted = dict(queryset.values_list("status").annotate(total=Count("id")))
+    return {status: counted.get(status, 0) for status in DocumentStatus.values}
+
+
+def get_documents_in_progress(
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+) -> QuerySet[Document]:
+    """Draft documents, least recently touched first — the stalled-work list.
+
+    A document has no due date and no assignee, so "overdue" is not expressible
+    here. The closest honest signal is a draft nobody has returned to, which is
+    why the ordering is *oldest edit first* rather than newest.
+    """
+    queryset = narrow_to_window(
+        Document.objects.filter(status=DocumentStatus.DRAFT),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    return queryset.select_related("applicant", "created_by").order_by("updated_at", "id")
 
 
 def get_history_for_document(document: Document) -> QuerySet[AuditEvent]:

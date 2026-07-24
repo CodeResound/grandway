@@ -27,6 +27,10 @@
       "display_name": "Clients"
     },
     {
+      "app_key": "dashboards",
+      "display_name": "Dashboards"
+    },
+    {
       "app_key": "document_history",
       "display_name": "Document History"
     },
@@ -113,6 +117,10 @@
       "display_name": "Offer Management"
     },
     {
+      "category_key": "operations_dashboard",
+      "display_name": "Operations Dashboard"
+    },
+    {
       "category_key": "policy_engine_administration",
       "display_name": "Policy Engine Administration"
     },
@@ -121,7 +129,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 154,
+  "endpoint_count": 162,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -1700,6 +1708,373 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The client must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "dashboards.activity.list",
+      "app_key": "dashboards",
+      "model_key": "activity",
+      "endpoint_key": "dashboard-activity",
+      "display_name": "View Recent Activity",
+      "description": "The recent-activity feed, projected from the central audit log. Paginated, newest first, and not narrowed by the caller's authority — the audit log is not owner-scoped.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/dashboard/activity/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "operations_dashboard",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "audit.event.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "This feed is a projection of the audit event log and nothing else."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "dashboards.blockers.read",
+      "app_key": "dashboards",
+      "model_key": "blockers",
+      "endpoint_key": "dashboard-blockers",
+      "display_name": "View Blockers and Risk",
+      "description": "Work that is stuck: blocked checklist items, journeys whose destination has no authored requirements, expiring passports, offers past their deadline, and rejected files.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/dashboard/blockers/",
+      "operation_type": "read",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "operations_dashboard",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "An expiring passport row opens the applicant's file."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "checklists.checklist.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Blocked items and unserved journeys open the checklist workspace."
+        },
+        {
+          "target_permission_key": "checklists.template.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A journey with no checklist is fixed by authoring the country template."
+        },
+        {
+          "target_permission_key": "offers.offer.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Overdue offers open the offer record."
+        },
+        {
+          "target_permission_key": "uploaded_files.file.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Rejected files open the file ledger."
+        }
+      ]
+    },
+    {
+      "permission_key": "dashboards.conversion.read",
+      "app_key": "dashboards",
+      "model_key": "conversion",
+      "endpoint_key": "dashboard-conversion",
+      "display_name": "View Source and Conversion",
+      "description": "Intake mix by lead source, and the lead-to-applicant, applicant-to-journey, journey-to-offer, and offer-acceptance rates for the window.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/dashboard/conversion/",
+      "operation_type": "read",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "operations_dashboard",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The journey-to-offer rate counts journeys."
+        },
+        {
+          "target_permission_key": "applicants.applicant.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The applicant-to-journey rate counts applicants."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "leads.lead.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Source mix and the lead-to-applicant rate are owner-scoped through the leads."
+        },
+        {
+          "target_permission_key": "leads.source.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The source breakdown is meaningless without the source catalogue."
+        },
+        {
+          "target_permission_key": "offers.offer.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The acceptance rate counts decided offers."
+        }
+      ]
+    },
+    {
+      "permission_key": "dashboards.outcomes.read",
+      "app_key": "dashboards",
+      "model_key": "outcomes",
+      "endpoint_key": "dashboard-outcomes",
+      "display_name": "View Final Outcomes",
+      "description": "How work ended over the window: journey outcomes, offer decisions, and archived or closed volumes. Windowed on when each thing ended, not when it started.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/dashboard/outcomes/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "operations_dashboard",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Journey outcomes drill into the journey list."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "offers.offer.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Offer decisions drill into the offer list."
+        }
+      ]
+    },
+    {
+      "permission_key": "dashboards.pipeline.read",
+      "app_key": "dashboards",
+      "model_key": "pipeline",
+      "endpoint_key": "dashboard-pipeline",
+      "display_name": "View Pipeline Health",
+      "description": "Stage and status counts across leads, applicants, journeys, offers, checklists, documents, and file verification. Every bucket is zero-filled.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/dashboard/pipeline/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "operations_dashboard",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Journey stage counts drill into the journey list."
+        },
+        {
+          "target_permission_key": "applicants.applicant.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Applicant status counts drill into the applicant list."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "checklists.checklist.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Checklist status counts drill into the checklist list."
+        },
+        {
+          "target_permission_key": "leads.lead.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead funnel counts are owner-scoped through the lead list."
+        },
+        {
+          "target_permission_key": "offers.offer.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Offer status counts drill into the offer list."
+        }
+      ]
+    },
+    {
+      "permission_key": "dashboards.summary.read",
+      "app_key": "dashboards",
+      "model_key": "summary",
+      "endpoint_key": "dashboard-summary",
+      "display_name": "View Dashboard Summary",
+      "description": "Top-line alert counts and volumes across leads, applicants, journeys, offers, checklists, and files. The strip a user reads first.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/dashboard/summary/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "operations_dashboard",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "dashboards.today.read",
+      "app_key": "dashboards",
+      "model_key": "today",
+      "endpoint_key": "dashboard-today",
+      "display_name": "View Today's Work",
+      "description": "Overdue and due-soon work: checklist items, offers awaiting a response, files awaiting verification, stalled documents, and leads nobody has followed up.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/dashboard/today/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "operations_dashboard",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "checklists.checklist.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Every overdue and due-soon row opens the applicant's checklist."
+        },
+        {
+          "target_permission_key": "leads.lead.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Stale leads open the lead record, and the counts are owner-scoped by it."
+        },
+        {
+          "target_permission_key": "offers.offer.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Offers awaiting a response open the offer record."
+        },
+        {
+          "target_permission_key": "uploaded_files.file.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Files awaiting verification open the file ledger."
+        }
+      ]
+    },
+    {
+      "permission_key": "dashboards.workload.read",
+      "app_key": "dashboards",
+      "model_key": "workload",
+      "endpoint_key": "dashboard-workload",
+      "display_name": "View Workload by Owner",
+      "description": "Open leads, checklist items, and offers awaiting a response, per staff member. A Lead Manager sees only their own row for leads; an Admin sees the distribution.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/dashboard/workload/",
+      "operation_type": "read",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "operations_dashboard",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "checklists.checklist.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A workload row opens that person's assigned checklist items."
+        },
+        {
+          "target_permission_key": "leads.lead.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead workload rows are owner-scoped through the lead list."
+        },
+        {
+          "target_permission_key": "offers.offer.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A workload row opens the offers that person recorded."
         }
       ]
     },

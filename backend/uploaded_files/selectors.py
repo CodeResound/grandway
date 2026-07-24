@@ -16,11 +16,13 @@ otherwise fire twenty owner queries plus up to eighty user queries. Covered by
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
-from django.db.models import Q, QuerySet
+from core.querying import narrow_to_window
+from django.db.models import Count, Q, QuerySet
 
-from uploaded_files.constants import ADMIN_ONLY_OWNER_TYPES, OWNER_FIELDS
+from uploaded_files.constants import ADMIN_ONLY_OWNER_TYPES, OWNER_FIELDS, VerificationStatus
 from uploaded_files.models import UploadedFile
 
 #: The joins every read needs. ``replaces`` is included because the version
@@ -169,6 +171,96 @@ def get_version_chain(uploaded_file: UploadedFile) -> list[UploadedFile]:
         chain.append(successor)
 
     return chain
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summaries
+# ---------------------------------------------------------------------------
+#
+# Aggregates over this app's own rows, living here because §4 forbids another
+# app querying this table directly. ``dashboards`` composes what it gets back.
+#
+# **Every one of these takes ``is_admin`` and starts from ``get_visible_files``.**
+# A count is not exempt from the rule the list obeys: telling a Lead Manager
+# that eleven files await verification, three of which they may not see, is the
+# same side door around the document stack's Admin-only rule that
+# ``get_visible_files`` exists to close — it just leaks a number instead of a row.
+
+
+def _live_files(*, is_admin: bool) -> QuerySet[UploadedFile]:
+    """Visible, non-archived, current-version files.
+
+    Superseded versions are excluded: a replaced file's verification status is
+    history, and counting it would make every replacement look like fresh work.
+    """
+    return get_visible_files(is_admin=is_admin).filter(archived_at__isnull=True, superseded_at__isnull=True)
+
+
+def get_file_verification_counts(
+    *,
+    is_admin: bool,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+    country_id: str | None = None,
+) -> dict[str, int]:
+    """How many live files hold each verification status. Zero-filled.
+
+    ``country_id`` matches only files owned by a **journey**, since that is the
+    only owner type carrying a destination. An applicant-owned passport scan is
+    correctly absent from a country-narrowed count — it belongs to the person,
+    not to any one study plan.
+    """
+    queryset = narrow_to_window(
+        _live_files(is_admin=is_admin),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    if country_id:
+        queryset = queryset.filter(journey__target_country_ref_id=country_id)
+
+    counted = dict(queryset.values_list("verification_status").annotate(total=Count("id")))
+    return {status: counted.get(status, 0) for status in VerificationStatus.values}
+
+
+def get_files_awaiting_verification(
+    *,
+    is_admin: bool,
+    country_id: str | None = None,
+) -> QuerySet[UploadedFile]:
+    """Live files nobody has reviewed yet, oldest upload first.
+
+    Oldest first, unlike every other list in this app: this is a queue, and the
+    file that has waited longest is the one to look at. A newest-first review
+    queue starves its own backlog.
+
+    Verification is a record of human judgement, not a gate — nothing in
+    Grandway refuses to proceed on an unverified file (``models.py``). A caller
+    must present this as work outstanding, never as a blocked state.
+    """
+    queryset = _live_files(is_admin=is_admin).filter(verification_status=VerificationStatus.PENDING)
+    if country_id:
+        queryset = queryset.filter(journey__target_country_ref_id=country_id)
+    return queryset.order_by("created_at", "id")
+
+
+def get_rejected_files(
+    *,
+    is_admin: bool,
+    country_id: str | None = None,
+) -> QuerySet[UploadedFile]:
+    """Live files a reviewer rejected and nobody has replaced, most recent first.
+
+    Only files that are still *current* appear: uploading a replacement
+    supersedes the rejected version, which drops out of this list on its own.
+    Anything left here is a rejection nobody has acted on, and
+    ``rejection_reason`` says what is wrong with it.
+    """
+    queryset = _live_files(is_admin=is_admin).filter(verification_status=VerificationStatus.REJECTED)
+    if country_id:
+        queryset = queryset.filter(journey__target_country_ref_id=country_id)
+    return queryset.order_by("-reviewed_at", "-id")
 
 
 def get_files_for_owner(owner_type: str, owner_id: str) -> QuerySet[UploadedFile]:

@@ -6,13 +6,21 @@ no owner scoping here.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from audit.models import AuditEvent
 from audit.selectors import get_events
-from django.db.models import QuerySet
+from core.nepal.calendar import nepal_today
+from core.querying import narrow_to_window
+from django.db.models import Count, QuerySet
 
-from offers.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_OFFER
+from offers.constants import (
+    AUDIT_APP_LABEL,
+    AUDIT_ENTITY_OFFER,
+    TERMINAL_STATUSES,
+    OfferStatus,
+)
 from offers.models import Offer, OfferCondition
 
 #: Relations every offer read needs. ``journey__applicant`` is here because the
@@ -116,6 +124,199 @@ def filter_offers(queryset: QuerySet[Offer], filters: dict[str, Any] | None = No
         queryset = queryset.filter(created_at__gte=start, created_at__lt=end)
 
     return queryset
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summaries
+# ---------------------------------------------------------------------------
+#
+# Aggregates over this app's own rows, living here because §4 forbids another
+# app querying these tables directly. ``dashboards`` composes what it gets back.
+#
+# Offers are shared across the consultancy, so none of these take an ``actor``.
+
+
+def _narrow_offers(
+    queryset: QuerySet[Offer],
+    *,
+    field: str,
+    date_from: date | None,
+    date_to: date | None,
+    fiscal_year: str | None,
+    country_id: str | None,
+    institution_id: str | None,
+) -> QuerySet[Offer]:
+    """The filters every offer summary shares.
+
+    ``country_id`` resolves through the journey's catalogue destination, not
+    through the offer's own ``country_name`` snapshot. The snapshot is free text
+    preserved for the historical record and would not match a catalogue id.
+    """
+    queryset = narrow_to_window(
+        queryset,
+        field=field,
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    if country_id:
+        queryset = queryset.filter(journey__target_country_ref_id=country_id)
+    if institution_id:
+        queryset = queryset.filter(institution_id=institution_id)
+    return queryset
+
+
+def get_offer_status_counts(
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+    country_id: str | None = None,
+    institution_id: str | None = None,
+) -> dict[str, int]:
+    """How many offers hold each status, windowed on when they were recorded.
+
+    Every status is present with a zero rather than omitted.
+    """
+    queryset = _narrow_offers(
+        Offer.objects.all(),
+        field="created_at",
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+        country_id=country_id,
+        institution_id=institution_id,
+    )
+    counted = dict(queryset.values_list("status").annotate(total=Count("id")))
+    return {status: counted.get(status, 0) for status in OfferStatus.values}
+
+
+def get_decision_counts(
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+    country_id: str | None = None,
+    institution_id: str | None = None,
+) -> dict[str, int]:
+    """How many offers were **decided** each way in the window.
+
+    Windowed on ``decided_at``, not ``created_at``: "offers accepted in
+    Shrawan" is a question about when the applicant answered, and an offer
+    issued in Ashadh and accepted in Shrawan belongs to Shrawan. Undecided
+    offers have a null ``decided_at`` and are absent from every bucket.
+    """
+    queryset = _narrow_offers(
+        Offer.objects.filter(decided_at__isnull=False),
+        field="decided_at",
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+        country_id=country_id,
+        institution_id=institution_id,
+    )
+    counted = dict(queryset.values_list("status").annotate(total=Count("id")))
+    return {status: counted.get(status, 0) for status in TERMINAL_STATUSES}
+
+
+def get_offers_awaiting_response(
+    *,
+    due_within_days: int = 7,
+    country_id: str | None = None,
+    institution_id: str | None = None,
+) -> QuerySet[Offer]:
+    """Issued offers whose response deadline has passed or falls soon, soonest first.
+
+    Mirrors ``Offer.is_response_overdue`` (``models.py``) rather than
+    re-deriving what "overdue" means: only an ``issued`` offer can be overdue,
+    and the comparison is against today in **Nepal** (§39.5) — a deadline is a
+    calendar day where the staff work, not in UTC.
+
+    Already-passed deadlines are included alongside the merely-approaching ones.
+    Splitting them into two queries would put the most urgent rows in the
+    section a user reads second; the caller distinguishes them by comparing
+    ``response_deadline`` to today.
+
+    Offers with **no** deadline are excluded. Nothing is late about a deadline
+    that was never set, and including them would make this list unactionable.
+    """
+    horizon = nepal_today() + timedelta(days=due_within_days)
+    queryset = (
+        Offer.objects.select_related("journey", "journey__applicant", "institution", "created_by")
+        .filter(
+            status=OfferStatus.ISSUED,
+            response_deadline__isnull=False,
+            response_deadline__lte=horizon,
+        )
+        .order_by("response_deadline", "id")
+    )
+    if country_id:
+        queryset = queryset.filter(journey__target_country_ref_id=country_id)
+    if institution_id:
+        queryset = queryset.filter(institution_id=institution_id)
+    return queryset
+
+
+def get_offer_workload_by_owner(
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+    country_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Offers still awaiting a response, per the staff member who recorded them.
+
+    ``created_by`` is the only ownership this app records — there is no assignee
+    on an offer — so "whose offer is this" means "who entered it". A caller
+    presenting this as workload should say "recorded by", not "assigned to".
+    """
+    queryset = _narrow_offers(
+        Offer.objects.filter(status=OfferStatus.ISSUED),
+        field="created_at",
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+        country_id=country_id,
+        institution_id=None,
+    )
+    rows = (
+        queryset.values("created_by_id", "created_by__username", "created_by__display_name")
+        .annotate(awaiting_response=Count("id"))
+        .order_by("-awaiting_response")
+    )
+    return [
+        {
+            "owner_id": str(row["created_by_id"]),
+            "owner_username": row["created_by__username"],
+            "owner_display_name": row["created_by__display_name"],
+            "awaiting_response": row["awaiting_response"],
+        }
+        for row in rows
+    ]
+
+
+def count_journeys_with_an_offer(
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+    country_id: str | None = None,
+) -> int:
+    """How many distinct journeys hold at least one offer in the window.
+
+    The numerator for journey-to-offer conversion. Distinct on the journey,
+    because a study plan that collected four competing offers converted once.
+    """
+    queryset = _narrow_offers(
+        Offer.objects.all(),
+        field="created_at",
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+        country_id=country_id,
+        institution_id=None,
+    )
+    return queryset.values("journey_id").distinct().count()
 
 
 def get_conditions_for_offer(offer_id: str) -> QuerySet[OfferCondition]:

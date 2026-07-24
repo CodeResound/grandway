@@ -16,8 +16,10 @@ Two things in this module carry more weight than they look:
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
+from core.querying import narrow_to_window
 from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
@@ -247,6 +249,171 @@ def get_unresolved_required_items(checklist: Checklist) -> QuerySet[ChecklistIte
     client. ``blocked`` counts as unresolved — see ``ChecklistItem.is_resolved``.
     """
     return checklist.items.filter(is_required=True).exclude(status__in=RESOLVED_ITEM_STATUSES)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summaries
+# ---------------------------------------------------------------------------
+#
+# Aggregates over this app's own rows, living here because §4 forbids another
+# app querying these tables directly. ``dashboards`` composes what it gets back.
+#
+# The overdue rule below is the one already used by ``filter_checklists``'s
+# ``overdue`` branch and is not re-derived: a completed, waived, or archived
+# item is never overdue however long its due date has passed, because overdue
+# means *the work is late*, not *the date passed*.
+
+#: Checklist statuses whose items still represent outstanding work. A completed
+#: or archived checklist's items are finished, whatever their own status says.
+_LIVE_CHECKLIST_STATUSES: tuple[str, ...] = (ChecklistStatus.DRAFT, ChecklistStatus.ACTIVE)
+
+
+def _live_items() -> QuerySet[ChecklistItem]:
+    """Items on a live checklist that are not yet resolved, with owners joined."""
+    return (
+        ChecklistItem.objects.select_related(
+            "checklist",
+            "checklist__journey",
+            "checklist__journey__applicant",
+            "checklist__country",
+            "assigned_to",
+        )
+        .filter(checklist__status__in=_LIVE_CHECKLIST_STATUSES)
+        .exclude(status__in=RESOLVED_ITEM_STATUSES)
+    )
+
+
+def get_checklist_status_counts(
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    fiscal_year: str | None = None,
+    country_id: str | None = None,
+) -> dict[str, int]:
+    """How many checklists hold each status. Every status present, zero-filled."""
+    queryset = narrow_to_window(
+        Checklist.objects.all(),
+        date_from=date_from,
+        date_to=date_to,
+        fiscal_year=fiscal_year,
+    )
+    if country_id:
+        queryset = queryset.filter(country_id=country_id)
+
+    counted = dict(queryset.values_list("status").annotate(total=Count("id")))
+    return {status: counted.get(status, 0) for status in ChecklistStatus.values}
+
+
+def get_overdue_checklist_items(
+    *,
+    country_id: str | None = None,
+    assignee_id: str | None = None,
+) -> QuerySet[ChecklistItem]:
+    """Unresolved items on live checklists whose due date has passed, oldest first.
+
+    The single most useful worklist in the system: every row is a specific
+    requirement, on a specific person's file, that someone should already have
+    dealt with.
+
+    ``blocked`` items are **included** — a requirement stuck on something
+    outside the office's control is still not done, and is exactly the kind of
+    thing that quietly stops a file from moving. ``ChecklistItem.is_resolved``
+    makes the same call for the same reason.
+    """
+    queryset = _live_items().filter(due_at__isnull=False, due_at__lt=timezone.now())
+    if country_id:
+        queryset = queryset.filter(checklist__country_id=country_id)
+    if assignee_id:
+        queryset = queryset.filter(assigned_to_id=assignee_id)
+    return queryset.order_by("due_at", "id")
+
+
+def get_due_soon_checklist_items(
+    *,
+    due_within_days: int = 7,
+    country_id: str | None = None,
+    assignee_id: str | None = None,
+) -> QuerySet[ChecklistItem]:
+    """Unresolved items falling due within ``due_within_days``, soonest first.
+
+    Strictly forward-looking: already-overdue items are **excluded** so they
+    appear once, in ``get_overdue_checklist_items``, rather than in both lists.
+    A dashboard that double-counted them would overstate the backlog.
+    """
+    now = timezone.now()
+    horizon = now + timedelta(days=due_within_days)
+    queryset = _live_items().filter(due_at__gte=now, due_at__lte=horizon)
+    if country_id:
+        queryset = queryset.filter(checklist__country_id=country_id)
+    if assignee_id:
+        queryset = queryset.filter(assigned_to_id=assignee_id)
+    return queryset.order_by("due_at", "id")
+
+
+def get_blocked_checklist_items(
+    *,
+    country_id: str | None = None,
+    assignee_id: str | None = None,
+) -> QuerySet[ChecklistItem]:
+    """Items someone has explicitly declared stuck, newest first.
+
+    Distinct from overdue: a blocked item may not be late at all. It is the one
+    status meaning "we cannot proceed on this", and it is a claim a human made
+    deliberately — ``status_note`` carries why, and is mandatory for this status.
+    """
+    queryset = (
+        ChecklistItem.objects.select_related(
+            "checklist",
+            "checklist__journey",
+            "checklist__journey__applicant",
+            "checklist__country",
+            "assigned_to",
+        )
+        .filter(checklist__status__in=_LIVE_CHECKLIST_STATUSES, status=ItemStatus.BLOCKED)
+        .order_by("-updated_at", "-id")
+    )
+    if country_id:
+        queryset = queryset.filter(checklist__country_id=country_id)
+    if assignee_id:
+        queryset = queryset.filter(assigned_to_id=assignee_id)
+    return queryset
+
+
+def get_checklist_workload_by_assignee(
+    *,
+    country_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Open, overdue, and blocked item counts per assignee, heaviest first.
+
+    Unassigned items are returned under a null owner rather than dropped. Work
+    nobody owns is the most likely to be missed, and a workload view that hid it
+    would hide the worst case it exists to surface.
+    """
+    queryset = _live_items()
+    if country_id:
+        queryset = queryset.filter(checklist__country_id=country_id)
+
+    now = timezone.now()
+    rows = (
+        queryset.values("assigned_to_id", "assigned_to__username", "assigned_to__display_name")
+        .annotate(
+            open_items=Count("id"),
+            overdue_items=Count("id", filter=Q(due_at__isnull=False, due_at__lt=now)),
+            blocked_items=Count("id", filter=Q(status=ItemStatus.BLOCKED)),
+        )
+        .order_by("-overdue_items", "-open_items")
+    )
+    return [
+        {
+            "owner_id": str(row["assigned_to_id"]) if row["assigned_to_id"] else None,
+            "owner_username": row["assigned_to__username"] or "",
+            "owner_display_name": row["assigned_to__display_name"] or "Unassigned",
+            "open_items": row["open_items"],
+            "overdue_items": row["overdue_items"],
+            "blocked_items": row["blocked_items"],
+        }
+        for row in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

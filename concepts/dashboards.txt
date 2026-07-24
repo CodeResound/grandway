@@ -1,0 +1,248 @@
+# dashboards
+
+## Goal
+`dashboards` is the operational command center for Grandway. It does not own business data; it summarizes the current state of the platform so staff can see what needs attention now, what is moving, and where the process is stuck.
+
+## Why it exists
+Grandway already stores the source of truth in the domain apps:
+- applicants and journeys hold the people and study plans
+- documents, document_history, and document_templates handle document work
+- uploaded_files handles file lifecycle
+- offers handles admission decisions
+- checklists handles outstanding work
+- notifications handles actionable alerts
+- audit handles the trace of important actions
+
+The dashboard should pull the most useful signals from those areas and present them in one place.
+
+## What should be useful to show
+The dashboard should emphasize action, not vanity. The best content is:
+- items that are overdue
+- items due soon
+- work waiting on a person
+- work blocked by missing documents, files, offers, or checklist items
+- pipeline movement across leads, applicants, and journeys
+- workload by staff member
+- final outcomes that show whether the operation is converting
+
+## Core sections
+
+### 1. Today’s work
+The first screen should show what needs attention now:
+- overdue tasks and deadlines
+- documents waiting for completion or review
+- checklist items past due
+- offers waiting for response
+- upcoming appointments
+- files awaiting verification or replacement
+
+This is the most useful part of the dashboard because it supports immediate action.
+
+### 2. Pipeline health
+The dashboard should show the active flow through the business:
+- new leads
+- qualified leads
+- applicants in progress
+- journeys active by stage
+- offers issued, accepted, rejected, deferred, or expired
+- documents created, pending, completed, or archived
+
+This helps staff see whether the pipeline is moving or stalling.
+
+### 3. Blockers and risk
+The dashboard should surface risk before it becomes a missed outcome:
+- missing documents
+- overdue checklist items
+- expired or expiring offers
+- appointments that were missed or are about to occur
+- passport, test, or other time-sensitive expiries when those records exist
+- files that were rejected or need replacement
+
+This section should be highly visible because it prevents avoidable delays.
+
+### 4. Workload by owner
+The dashboard should show how work is distributed:
+- number of open items per Lead Manager
+- number of pending documents per assignee
+- number of overdue checklist items per team member
+- number of offers awaiting response per owner
+
+This helps managers rebalance work instead of only counting total volume.
+
+### 5. Source and conversion views
+The dashboard should show the health of intake:
+- lead sources
+- conversion by source
+- lead to applicant conversion
+- applicant to journey conversion
+- journey to offer conversion
+- offer acceptance rate
+
+These metrics help answer whether marketing and counseling efforts are producing outcomes.
+
+### 6. Final outcomes
+The dashboard should summarize results over time:
+- accepted offers
+- deferred offers
+- rejected offers
+- completed journeys
+- archived or closed records
+- active versus inactive workload
+
+This gives leadership a high-level picture without drilling into every record.
+
+## Recommended layout
+A useful dashboard would usually read in this order:
+1. top-line counts and alerts
+2. overdue and due-soon actions
+3. pipeline movement
+4. blocked work
+5. workload by owner
+6. source and conversion trends
+7. recent activity
+
+That order puts urgent work before reporting.
+
+## Useful filters
+The dashboard should be filterable by:
+- date range
+- branch
+- Lead Manager
+- applicant journey stage
+- institution
+- destination country
+- offer status
+- document status
+- checklist status
+
+Filters should narrow the same underlying data instead of creating separate dashboard types for every role.
+
+## Drill-down behavior
+Every metric should lead somewhere useful:
+- an overdue count should open the underlying worklist
+- a document count should open the documents workspace
+- an offer count should open the offers list
+- a checklist metric should open the relevant checklist detail
+- a workload card should open the assigned records
+
+The dashboard is only useful if it gets staff to the next action quickly.
+
+## What not to emphasize
+Avoid building the dashboard around:
+- raw totals with no action
+- duplicate data already visible in a list view
+- charts that look good but do not change decisions
+- metrics that cannot be filtered or drilled into
+- summary numbers that no team member can act on
+
+## Relationship to other apps
+`dashboards` should read from the source apps and may also summarize:
+- `notifications` for pending alerts and follow-ups
+- `audit` for notable recent actions if a change feed is needed
+
+It should not replace list views, workflow screens, or reporting exports.
+
+## Boundaries
+`dashboards` should not:
+- own leads, applicants, documents, offers, or checklists
+- mutate business state
+- become a reporting warehouse
+- hide the source record behind an opaque summary
+
+## Rules to keep aligned with the current project
+- Grandway keeps source data in the domain apps.
+- The dashboard only summarizes those records.
+- The dashboard should reflect the same lifecycle states used elsewhere.
+- The most important content is the work that is blocked, overdue, or waiting on human action.
+
+## Actors and access
+- **Admin**: sees every metric across the whole consultancy. The workload section
+  shows every staff member's row.
+- **Lead Manager**: calls the same endpoints and gets the same sections, narrowed
+  to what they may already see elsewhere. Leads are owner-scoped, so their lead
+  counts, source mix, and conversion rates cover only their own leads, and the
+  workload section shows only their own row. Applicants, journeys, offers,
+  checklists, documents, and files are shared across the consultancy, so those
+  numbers are not narrowed.
+- **Superadmin**: denied. It is a platform authority that manages Admin accounts
+  and does not participate in consultancy operations — the same rule every other
+  business app applies.
+
+The dashboard never widens what an actor can see. A number a Lead Manager cannot
+drill into is a number they should not have been shown.
+
+## Key user flows
+1. Morning triage: open the dashboard -> read the top-line alert counts ->
+   open Today's work -> click an overdue checklist item -> land on that
+   applicant's checklist -> resolve or reassign it.
+2. Unblocking a stalled file: open Blockers and risk -> see a journey with no
+   checklist because nobody authored that country's requirements -> author the
+   template -> the applicant inherits it.
+3. Rebalancing work: open Workload by owner -> see one Lead Manager holding most
+   of the overdue items -> click their row -> land on their assigned records.
+4. Chasing a decision: open Today's work -> see offers past their response
+   deadline -> click through to the offer -> record the applicant's decision.
+5. Reviewing intake health: set a date range or fiscal year -> open Source and
+   conversion -> compare conversion by source -> open Final outcomes for the
+   same period.
+
+## UI screens & wireframe notes
+- **Dashboard home**: the single screen the sections compose into, read in the
+  order given under "Recommended layout". Every section loads independently, so
+  a slow panel never blocks the rest of the page. One shared filter bar sits at
+  the top and applies to every section at once.
+- **Filter bar**: date range, fiscal year, destination country, journey stage,
+  owner, institution, offer status, document status, checklist status, and a
+  "due within N days" control for the due-soon horizon. Changing any control
+  refreshes every section against the same narrowed data.
+- **Alert strip**: the top-line counts. Each is a number plus a label plus a
+  destination — never a number alone.
+- **Today's work**: a worklist, not a chart. Rows carry the applicant's name,
+  what is due, when it was due, and who owns it. Paginated.
+- **Pipeline health**: stage and status counts for leads, applicants, journeys,
+  offers, and documents, each count linking to that app's list view pre-filtered
+  to the same stage.
+- **Blockers and risk**: the most visible section. Grouped by cause, each group
+  a short list of the actual records, not a total.
+- **Workload by owner**: one row per staff member, columns for open leads,
+  pending checklist items, and offers awaiting response. A row opens that
+  person's assigned records.
+- **Source and conversion**: intake mix and the conversion rates between each
+  pair of stages, for the selected period.
+- **Final outcomes**: journey outcomes, offer decisions, and archived or closed
+  volumes for the selected period.
+- **Recent activity**: a paginated feed read from the audit trail.
+
+## Constraints / Out of scope
+- The dashboard owns no data and writes nothing. Every number is derived at read
+  time from the domain apps. There is no stored counter, no nightly rollup, and
+  no reporting warehouse.
+- Each summary query lives in the app that owns the records it counts. The
+  dashboard composes those results; it never reaches into another app's tables
+  directly.
+- Read-only for now. Quick-create actions are not included.
+- No caching. Every section queries live data.
+
+### Not buildable yet
+Three things this document asks for have nothing behind them in the backend today
+and are deliberately absent rather than faked with placeholder zeroes:
+- **Appointments** — there is no appointments app, so "upcoming appointments" and
+  "appointments that were missed or are about to occur" ship as nothing.
+- **Notifications** — there is no notifications app, so there are no pending
+  alerts to summarize.
+- **Branch** — no branch or office concept exists anywhere in the backend, so the
+  branch filter cannot be built. It needs either a field on the user account or
+  its own app first.
+
+Test and other time-sensitive expiries are partially available: passport expiry
+exists on the applicant record, but test scores are not yet a module.
+
+## Open questions
+- Whether different roles need different default dashboard layouts.
+- Which metrics should be visible on day one versus later.
+- Whether charts are needed beyond summary cards and worklists.
+- How much historical trend data should be retained in the UI.
+- Whether the dashboard should include quick-create actions or remain read-first.
+
+## Outcome
+This app should give staff a fast operational view of the business, with the most useful content centered on work remaining, pipeline movement, and conversion health.
