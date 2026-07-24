@@ -1,7 +1,7 @@
 # API Documentation — Leads
 
 **App:** `leads`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Base prefix:** `/api/v1/leads/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Authority and ownership rules are enforced inline per `SECURITY.md` §1 — this app does not use the §9 `is_staff` snippet, because leads are owner-scoped rows.
 **Throttle:** Project DRF defaults only. No custom scopes — every endpoint is authenticated and none is expensive enough to warrant one today (`SECURITY.md` §7).
@@ -14,6 +14,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial API documentation — 17 endpoints; conversion deferred to Phase 4 |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Lead list (§3.1) widened: `search` now matches email and any contact number, and results are relevance-ordered rather than newest-first. Owner scoping is unchanged — ranking reorders inside the caller's existing scope. Additive only |
 
 ---
 
@@ -115,13 +116,17 @@ Same shape and same access split as §1. A reason is mandatory whenever a lead i
 **Request query params:**
 - `stage` — one of the eight `LeadStage` values
 - `source` — a `LeadSource` id
-- `search` — matches across `full_name_np`, `full_name_en`, `full_name_romanized`
+- `search` — matches across `full_name_np`, `full_name_en`, `full_name_romanized`, `email`, and any contact number. All partial (`icontains`) matches
 - `fiscal_year` — Nepali fiscal year as `YYYY/YY`, e.g. `2081/82`, filtering on `created_at`
 - `page`, `page_size` (max 100)
 
-**Response:** paginated array of the lead **list** shape — `DATA_CONTRACT.md` §3, minus `study_interest` and the lifecycle-state fields. Ordered newest first.
-**Business rules:** an Admin sees every lead; a Lead Manager sees only leads they created. The scope is applied in the queryset, not after fetching.
-**Query access pattern:** `selectors.get_leads_for_actor` applies `select_related("source", "created_by")` and `prefetch_related("contact_numbers")`, so rendering a page issues a constant number of queries regardless of page size. `search` runs OR `icontains` across the three name fields, served by the `lead_name_*_trgm_idx` GIN trigram indexes; ordering and stage/owner filters are served by `lead_owner_recent_idx` and `lead_stage_recent_idx` (`DATA_CONTRACT.md` §3).
+**Response:** paginated array of the lead **list** shape — `DATA_CONTRACT.md` §3, minus `study_interest` and the lifecycle-state fields. Ordered newest first, **except** when `search` is supplied, in which case results are ordered by relevance and only tie-broken by recency.
+**Business rules:**
+- An Admin sees every lead; a Lead Manager sees only leads they created. The scope is applied in the queryset, not after fetching.
+- **Relevance ordering (only when `search` is present):** `3` a name field equals the query, `2` a name field starts with it, `1` a name field contains it, `0` matched only on email or contact number. Ties fall back to `-created_at`, then `-id`. Lexical, not fuzzy.
+- Ranking composes **on top of** owner scoping and never widens it: a Lead Manager's search reorders their own leads and can never surface another manager's.
+
+**Query access pattern:** `selectors.get_leads_for_actor` applies `select_related("source", "created_by")` and `prefetch_related("contact_numbers")`, so rendering a page issues a constant number of queries regardless of page size. `search` runs OR `icontains` across the three name fields (served by the `lead_name_*_trgm_idx` GIN trigram indexes), `email` (`lead_email_trgm_idx`), and `contact_numbers.number` (`lead_contact_number_idx`); the contact-number join can multiply rows, so the selector applies `distinct()`. Ordering and stage/owner filters are served by `lead_owner_recent_idx` and `lead_stage_recent_idx` (`DATA_CONTRACT.md` §3). Relevance is a `Case`/`When` annotation rather than `TrigramSimilarity`, deliberately — the test suite runs on SQLite, where `SIMILARITY` does not exist.
 **Error codes:** none beyond the app-wide 401/403.
 
 ### 3.2 Create — `POST /api/v1/leads/`

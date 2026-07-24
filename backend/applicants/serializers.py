@@ -197,6 +197,7 @@ class ApplicantListSerializer(serializers.ModelSerializer):
     created_by = UserBriefSerializer(read_only=True)
     contact_numbers = ApplicantContactNumberSerializer(many=True, read_only=True)
     date_of_birth_bs = serializers.SerializerMethodField()
+    destinations = serializers.SerializerMethodField()
 
     class Meta:
         model = Applicant
@@ -214,6 +215,7 @@ class ApplicantListSerializer(serializers.ModelSerializer):
             "creation_source",
             "created_by",
             "contact_numbers",
+            "destinations",
             "created_at",
             "updated_at",
         ]
@@ -221,6 +223,36 @@ class ApplicantListSerializer(serializers.ModelSerializer):
 
     def get_date_of_birth_bs(self, obj: Applicant) -> dict[str, Any] | None:
         return _bs(obj.date_of_birth)
+
+    def get_destinations(self, obj: Applicant) -> list[dict[str, Any]]:
+        """Where this person is trying to go, one entry per journey.
+
+        The applicant record deliberately holds no destination — a person is not
+        a study plan, and someone may try for Australia one year and Canada the
+        next (``applicants/models.py``). But a list that cannot show where
+        anyone is headed forces a second round trip per row just to render a
+        country column, so the destinations are projected here.
+
+        Read through the reverse ``journeys`` accessor, which needs no import of
+        ``applicant_journeys`` — that app owns the ForeignKey. Same technique as
+        ``get_originating_lead_id`` below. ``country_id`` is null for a journey
+        recorded before the catalogue existed; ``target_country`` is the free
+        text it was typed as, and is the only destination such a journey has.
+        """
+        entries: list[dict[str, Any]] = []
+        for journey in obj.journeys.all():
+            country = journey.target_country_ref
+            entries.append(
+                {
+                    "journey_id": str(journey.id),
+                    "stage": journey.stage,
+                    "country_id": str(country.id) if country else None,
+                    "country_code": country.code if country else "",
+                    "country_name_en": country.name_en if country else "",
+                    "target_country": journey.target_country,
+                }
+            )
+        return entries
 
 
 class ApplicantDetailSerializer(ApplicantListSerializer):

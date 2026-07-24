@@ -170,14 +170,25 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "leads.lead.list",
         "operation_type": "list",
         "display_name": "List Leads",
-        "description": "List leads in the caller's scope: own leads for a Lead Manager, all for an Admin.",
+        "description": (
+            "List leads in the caller's scope: own leads for a Lead Manager, all for an Admin. "
+            "Searchable by name, email, and contact number."
+        ),
         "http_method": "GET",
         "route_pattern": "/api/v1/leads/",
         "view_import_path": "leads.views.LeadListCreateView",
         "risk_level": "low",
+        # The route and method are unchanged; the contract behind them is not.
+        # A version bump appends a record — it never edits the 1.0.0 one (§35 item 10).
+        "version": "1.1.0",
         "dependencies": _REQUIRES_LOGIN,
-        "change_summary": "Initial registration of the lead list endpoint.",
-        "change_reason": _PHASE_2,
+        "change_summary": "Widened search to email and contact number; added relevance ordering.",
+        "change_reason": (
+            "A lead is very often a phone number in a call log before anyone has agreed how to spell "
+            "the name, and search matched names only. Backward compatible: every previous filter "
+            "behaves unchanged and no field was removed, renamed, or added (§22, §29). Owner scoping "
+            "is unaffected — ranking reorders rows inside the caller's existing scope."
+        ),
     },
     # 8. Create a lead. Requires a source, hence the dependency on source.list.
     {

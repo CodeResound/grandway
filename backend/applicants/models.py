@@ -73,6 +73,10 @@ class Applicant(BaseModel):
                 name="appl_name_rom_trgm_idx",
                 opclasses=["gin_trgm_ops"],
             ),
+            # ``search_applicants`` also matches the email with a leading
+            # wildcard, so the same reasoning as the name fields applies: a
+            # B-tree index cannot serve ``LIKE '%…%'``.
+            GinIndex(fields=["email"], name="appl_email_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:
@@ -111,6 +115,13 @@ class ApplicantContactNumber(BaseModel):
         ordering = ["-is_primary", "created_at"]
         constraints = [
             models.UniqueConstraint(fields=["applicant", "number"], name="uniq_applicant_contact_number"),
+        ]
+        indexes = [
+            # ``search_applicants`` joins here to find a file from a phone
+            # number read off a call log. The unique constraint above is on
+            # ``(applicant, number)`` and cannot serve a lookup that knows only
+            # the number.
+            models.Index(fields=["number"], name="appl_contact_number_idx"),
         ]
 
     def __str__(self) -> str:
@@ -172,6 +183,13 @@ class PassportDetail(BaseModel):
         db_table = "applicants_passportdetail"
         verbose_name = "Passport Detail"
         verbose_name_plural = "Passport Details"
+        indexes = [
+            # ``search_applicants`` matches the passport number so staff can
+            # find a file from the document in front of them. Numbers are
+            # normalized to upper case on write, so this index serves both the
+            # prefix case and the equality case.
+            models.Index(fields=["passport_number"], name="appl_passport_number_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"passport<{self.passport_number}>"

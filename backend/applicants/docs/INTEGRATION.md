@@ -1,7 +1,7 @@
 # Integration — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 6 endpoints |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the two calls that back an avatar, and the two caveats that still block a simple one |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | List endpoint widened (`applicants.applicant.list` → 1.1.0): `search` now spans email, contact number, and passport number and returns **relevance-ordered** results; new `country`, `country_code`, and `journey_stage` filters; both read shapes gained a `destinations` array. **Added `applicant_journeys` to §2 `Requires`** — the first thing this module needs from another business app, and the reason §3's "ordering is fixed newest-first" is no longer unconditionally true |
 
 ---
 
@@ -30,6 +31,8 @@
 | `authenticate` | framework | Issues the access JWT and supplies `authority_type`, which decides whether the caller may read, edit, or create. | Every endpoint returns 401. Without a recognised `authority_type` the caller gets 403 `APPLICANTS_ACTOR_FORBIDDEN`. |
 | `authenticate` | FK | `created_by` references a user account. | Applicants cannot be created; attribution is unresolvable. |
 | `audit` | service call | Every mutation appends one immutable event; the history endpoint reads that log back. This module stores no history of its own. | `GET /api/v1/applicants/<id>/history/` returns an empty list — the change history disappears, though the applicant itself still works. |
+| `applicant_journeys` | reverse FK read | An applicant has **no destination of its own** — the destination belongs to the study plan. The `destinations` array on both read shapes, and the `country`, `country_code`, and `journey_stage` list filters, are all read back through the journeys that point here. | The three filters always return an empty page and `destinations` is always `[]`. Nothing else degrades: creating, reading, editing, and archiving an applicant work with no journey in the system, and a person with no journey is a normal, fully functional record today. |
+| `institutions` | indirect FK read | `destinations[].country_id` / `country_code` / `country_name_en` are the catalogue country the journey targets. This module never queries the catalogue itself; it reads what the journey already points at. | The three country fields are `null`/`""` and `?country=`/`?country_code=` match nothing. `target_country` — the free text the destination was typed as — still resolves, and is the only destination a pre-catalogue journey ever had. |
 
 **This module depends on `leads` for nothing.** An applicant can be created, read, edited, and archived with no lead in the system. The relationship runs the other way: `leads` calls this module to create an applicant during conversion, and `leads` owns the link between the two. `originating_lead_id` on the detail response is read back through that link and is simply `null` for a directly created applicant.
 
@@ -64,7 +67,10 @@
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). `meta` carries `count`, `page`, `page_size`, `next`, `previous`; the last two are absolute URLs or `null`. Applied to the applicant list and the history list. There are no unpaginated list endpoints in this module.
 - **IDs:** UUID strings.
 - **Times:** ISO 8601 UTC for datetimes; `YYYY-MM-DD` for dates. Every user-facing **date** carries a `<field>_bs` sibling holding a Bikram Sambat object. `created_at` and `updated_at` never do.
-- **List/search/filter/order params:** on `GET /api/v1/applicants/` only — `status`, `creation_source`, `search` (matches all three name forms at once), `fiscal_year` (`YYYY/YY`). Ordering is fixed newest-first; there is no client-controlled ordering anywhere in this module.
+- **List/search/filter/order params:** on `GET /api/v1/applicants/` only — `status`, `creation_source`, `search`, `country`, `country_code`, `journey_stage`, `fiscal_year` (`YYYY/YY`). They compose: supplying several narrows the same result set rather than one replacing another. There is no client-controlled ordering anywhere in this module, but the server's ordering is **not** unconditionally newest-first — see below.
+- **Ordering.** Every list is newest-first **except** `GET /api/v1/applicants/?search=…`, which is ordered by relevance and only tie-broken by recency. Do not assume `data[0]` is the most recently created applicant when you passed a `search`.
+- **What `search` matches.** All three name forms, the `email`, **any** of the applicant's contact numbers, and the passport number. All partial, case-insensitive, substring matches. It is **not** fuzzy: a misspelling matches nothing, and there is no did-you-mean.
+- **How `search` ranks.** `3` a name equals the query, `2` a name starts with it, `1` a name contains it, `0` matched only on email, contact number, or passport. Ties fall to newest-first, then id. The score itself is not returned in the response — only the order reflects it.
 
 ## 4. Models
 
@@ -91,12 +97,20 @@
 
 - `relationship` here is **free text**, unlike `FamilyMember.relationship` which is an enum — an emergency contact may be a friend, landlord, or colleague.
 
-**Applicant (list shape)** — `{ id, full_name_np, full_name_en, full_name_romanized, date_of_birth?, date_of_birth_bs?:BsDate, gender:[enum], nationality, email, status:[enum], creation_source:[enum], created_by:UserBrief, contact_numbers:[ContactNumber], created_at, updated_at }`
+**Destination** — `{ journey_id, stage:[enum], country_id?, country_code, country_name_en, target_country }`
+
+- One entry per journey the applicant holds. **Not owned by this module** — it is a read-only projection of `applicant_journeys`.
+- `stage` is an `applicant_journeys` `JourneyStage` value, not an applicant status. The two lifecycles are independent: a journey reaching `closed` does not archive the applicant.
+- `country_id`, `country_code`, and `country_name_en` are `null`/`""` together for a journey with no catalogue link. In that case `target_country` — free text — is the **only** destination that journey has. Render `country_name_en || target_country`.
+- Use `journey_id` to call the `applicant_journeys` module; this module exposes no journey endpoints.
+
+**Applicant (list shape)** — `{ id, full_name_np, full_name_en, full_name_romanized, date_of_birth?, date_of_birth_bs?:BsDate, gender:[enum], nationality, email, status:[enum], creation_source:[enum], created_by:UserBrief, contact_numbers:[ContactNumber], destinations:[Destination], created_at, updated_at }`
 
 **Applicant (detail shape)** — the list shape plus `{ addresses:[Address], passport?:Passport, family_members:[FamilyMember], emergency_contacts:[EmergencyContact], originating_lead_id? }`
 
 - The detail shape is returned by retrieve, create, update, **and** the status action. Only the list returns the shorter shape.
 - `passport` is `null` when the applicant has none.
+- `destinations` is `[]` for a person with no journey yet — a normal, common state, not an error and not a permission problem. It appears on **both** shapes.
 - `originating_lead_id` is the id of the lead this applicant was converted from, or `null` when created directly. It is a bare id string, not an object — fetch the lead from the `leads` module if you need more.
 
 **HistoryEntry** — `{ id, action:[enum], actor_type:[enum], actor_id?, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:BsDate }`
@@ -213,6 +227,24 @@
       "contact_numbers": [
         { "id": "c1c2c3c4-0000-1111-2222-333344445555", "number": "9800000000", "label": "mobile", "is_primary": true }
       ],
+      "destinations": [
+        {
+          "journey_id": "1f2e3d4c-5b6a-7089-9a8b-7c6d5e4f3021",
+          "stage": "offer_stage",
+          "country_id": "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9",
+          "country_code": "au",
+          "country_name_en": "Australia",
+          "target_country": ""
+        },
+        {
+          "journey_id": "2a3b4c5d-6e7f-8091-a2b3-c4d5e6f70819",
+          "stage": "closed",
+          "country_id": null,
+          "country_code": "",
+          "country_name_en": "",
+          "target_country": "Canada"
+        }
+      ],
       "created_at": "2026-07-23T05:00:00Z",
       "updated_at": "2026-07-23T05:00:00Z"
     }
@@ -258,6 +290,7 @@
 - `ContactNumber.label`: `mobile` | `home` | `work` | `whatsapp` | `viber` | `other`
 - `FamilyMember.relationship`: `father` | `mother` | `spouse` | `sibling` | `child` | `guardian` | `other`
 - `EmergencyContact.relationship`: **not an enum** — free text.
+- `Destination.stage`: `planning` | `profile_building` | `shortlisting` | `applying` | `offer_stage` | `visa_stage` | `completed` | `closed` | `deferred` — owned by `applicant_journeys`, not this module. Also the accepted values for the `?journey_stage=` filter.
 - `HistoryEntry.actor_type`: `superadmin` | `admin` | `lead_manager` | `system` | `ai`
 - `HistoryEntry.action`: `applicant_created` | `applicant_updated` | `applicant_contact_changed` | `applicant_address_changed` | `applicant_passport_changed` | `applicant_family_changed` | `applicant_emergency_contact_changed` | `applicant_status_changed`
 
@@ -286,10 +319,14 @@
 - update: any subset of the same fields, all optional
 
 **Returns:** Applicant (detail shape) for create, retrieve, and update; list[Applicant (list shape)] for the list, paginated.
-**Requires state:** an authenticated Admin or Lead Manager for read and update; an authenticated **Admin** for create. No other resource needs to exist first.
+**Requires state:**
+- an authenticated Admin or Lead Manager for read and update; an authenticated **Admin** for create. No other resource needs to exist first.
+- for the list: nothing. But `?country=`, `?country_code=`, and `?journey_stage=` match only applicants who **already have a journey** — an applicant created a moment ago has none and is invisible to all three until one is opened through the `applicant_journeys` module.
+
 **Side effects:**
 - create — appends `applicant_created` to the audit log.
 - update — appends `applicant_updated` when scalar fields moved, plus one further event per nested collection actually supplied (`applicant_contact_changed`, `applicant_address_changed`, `applicant_passport_changed`, `applicant_family_changed`, `applicant_emergency_contact_changed`). A `PATCH` that changes nothing writes no event.
+- list and retrieve — none, these are reads.
 
 **Notes:**
 - **Shared, not owner-scoped.** Every Admin and Lead Manager sees and edits every applicant. This deliberately differs from `leads`, where a Lead Manager sees only their own records.
@@ -297,7 +334,11 @@
 - All five sub-resources are nested in the payload; there are no standalone endpoints for them. Sending a collection **replaces it entirely** — always send the complete intended list, never a delta. Sending `passport` upserts the single record.
 - `status`, `creation_source`, and `created_by` are not writable here; sending them is ignored, not rejected.
 - `full_name_romanized` is generated server-side; sending it has no effect.
-- `search` matches Devanagari, Roman, and romanized names simultaneously, so a user may type in either script.
+- `search` matches Devanagari, Roman, and romanized names simultaneously, so a user may type in either script — and also the email, any contact number, and the passport number.
+- **A `search` result set is relevance-ordered, not newest-first.** See §3 for the scoring. Every other list is newest-first.
+- **The country filters mean "has *a* journey there", not "is currently going there".** A person who tried for Australia, closed that journey, and is now applying to Canada matches `?country_code=au` **and** `?country_code=ca`. Read `destinations[].stage` to tell which is live; there is no "current destination" field and no filter for one.
+- An applicant with two journeys to the same country is returned **once**, not twice.
+- An unknown `country`/`country_code` returns an empty page with `200`, not a `400`. Do not treat empty as an invalid-input signal.
 - Archived applicants still appear in the list — filter on `status` to exclude them.
 - `originating_lead_id` appears only on the detail shape and is `null` for directly created applicants.
 
@@ -361,6 +402,19 @@
 2. `GET /api/v1/applicants/<applicant_id>/` → identity and contact numbers were copied from the lead; `creation_source` reads `lead_conversion` and `originating_lead_id` points back.
 3. `PATCH /api/v1/applicants/<applicant_id>/` to add the detail a lead never carried — passport, date of birth, family, emergency contacts.
 
+**Find a person you have something about but not a name**
+1. `GET /api/v1/applicants/?search=<the fragment you have>` → matches names in either script, the email, any contact number, and the passport number. Results are relevance-ordered, so an exact name match is `data[0]`.
+   - Empty `data` with `meta.count = 0`: nothing matched. The search is substring-based, not fuzzy, so a misspelling matches nothing — retry with a shorter fragment rather than a corrected guess.
+2. Read `destinations` on each row to disambiguate two people with the same name by where each is headed.
+3. `GET /api/v1/applicants/<applicant.id>/` → the full record.
+
+**Work a destination cohort** *(what the country filter is for)*
+1. `GET /api/v1/catalogue/countries/` *(other module: `institutions`)* → capture the `id` or `code` of the destination.
+2. `GET /api/v1/applicants/?country_code=au&status=active` → every active applicant with a journey to Australia. Filters compose; add `journey_stage=offer_stage` to narrow to those awaiting a decision.
+   - Empty page and `200`: either nobody matches, or the code does not exist. The two are indistinguishable — verify the code against step 1 rather than treating empty as an error.
+   - A person appears here on the strength of **any** journey to that country, including a closed one. Read `destinations[].stage` before treating the row as live work.
+3. `GET /api/v1/journeys/?applicant=<applicant.id>` *(other module: `applicant_journeys`)* → the journeys themselves, if you need more than the projected summary.
+
 **Maintain a file over time**
 1. `GET /api/v1/applicants/?search=राम` → find the person by name in either script.
 2. `GET /api/v1/applicants/<applicant.id>/` → the full record.
@@ -385,3 +439,8 @@
 - **`HistoryEntry.metadata` keys are per-action and not exhaustively specified.** Observed keys: `creation_source`, `count`. Treat as advisory display data.
 - **No bulk operations and no export.** Each applicant is acted on individually.
 - **`nationality` is free text** with no validation or canonical list, so values will vary in spelling.
+- **Search is substring-based, not fuzzy.** A misspelt or transliterated-differently name matches nothing, and there is no did-you-mean, no similarity threshold, and no minimum query length. A one-character `search` will match a large fraction of the table.
+- **The relevance score is not returned.** Only the ordering reflects it, so a client cannot show "how good" a match is or set its own cut-off.
+- **There is no "current destination".** `destinations` lists every journey the person ever had, in no documented order, and nothing marks one as the live one. Deriving it from `stage` is a client-side convention, not a backend rule.
+- **No filter for "has no journey".** `?country=`/`?journey_stage=` can only narrow *to* a destination; there is no documented way to list the applicants who have none — precisely the cohort someone would want to chase.
+- **`destinations[].country_code` casing is not guaranteed.** The example shows `"au"`; the filter accepts either case, but what the field returns follows however the catalogue row was created. Compare case-insensitively.

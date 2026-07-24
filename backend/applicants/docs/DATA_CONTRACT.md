@@ -1,7 +1,7 @@
 # Data Contract — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.1.1
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns the permanent, authoritative identity of a person the consultancy works with — name, date of birth, contact numbers, addresses, passport, family, emergency contacts, and standing. It does **not** own study objectives (`applicant_journeys`), academic history (`education`, not built), test attempts (`test_scores`, not built), or any file. It owns no history table either — an applicant's history is the central `audit` log filtered to that applicant. It carries **no reference to the originating lead**: `leads.Lead` owns that link, so this app has no dependency on `leads`.
@@ -15,6 +15,7 @@
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial contract — six models, shared (non-owner-scoped) access |
 | 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the inbound nullable `documents.Document.applicant` FK and the access asymmetry it introduces: applicants are readable by any Admin or Lead Manager, their documents are Admin-only |
 | 1.1.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. A photograph now has a home in `uploaded_files`; this model still holds no reference, and nothing marks a primary photograph |
+| 1.2.0 | 2026-07-24 | AI (Claude Opus 4.8) | Three search indexes added (no column change): GIN trigram on `Applicant.email`, B-tree on `ApplicantContactNumber.number` and `PassportDetail.passport_number`. **Recorded the first outbound read of `applicant_journeys` from this app** — the list response projects a `destinations` array and three list filters resolve through the reverse `journeys` accessor. It is a reverse-accessor read, not an import, so the FK still runs one direction only; §8 documents the derived read model |
 
 ---
 
@@ -63,6 +64,7 @@
 **Indexes:**
 - `applicant_status_recent_idx` — `(status, -created_at)`. Supports the default list view and status filters.
 - `appl_name_np_trgm_idx`, `appl_name_en_trgm_idx`, `appl_name_rom_trgm_idx` — GIN trigram indexes (`gin_trgm_ops`) on the three name fields, supporting `search_applicants`'s leading-wildcard `icontains` across all three (§39.6). The `pg_trgm` extension is declared by this app's own initial migration — see the comment there for why it does not rely on the `leads` migration that also creates it.
+- `appl_email_trgm_idx` — GIN trigram on `email`, supporting the same leading-wildcard `icontains` now that `search_applicants` matches the email as well (migration `0002_search_indexes`).
 - `status` additionally carries `db_index=True`.
 
 **Soft Delete:** N/A — applicants are never deleted. A closed file is archived via `status = "archived"`, which is fully reversible and hides nothing from search. The record carries identity, history, and the attribution for where the person came from; deleting it would destroy the consultancy's ability to explain its own past work. There is no delete endpoint.
@@ -97,6 +99,7 @@
 - `audit` — runtime service/selector dependency. Every mutation calls `audit.services.record_event`; the history endpoint reads `audit.selectors.get_events`.
 - **Inbound:** `leads.Lead.converted_applicant` is a `OneToOneField` pointing here, and `leads` calls `applicants.services.create_applicant` at conversion. This app does **not** reference `leads` — the dependency runs one direction only.
 - **Inbound:** `applicant_journeys.ApplicantJourney.applicant` is a `PROTECT` FK pointing here.
+- **Outbound (read-only, reverse accessor):** the list and detail responses project a `destinations` array (§8), and the `country`, `country_code`, and `journey_stage` list filters resolve through `applicant.journeys`. **No import of `applicant_journeys` exists** — `applicant_journeys` owns the ForeignKey and this app reads back through the reverse accessor, the same technique already used for `originating_lead`. The coupling is nonetheless real: renaming `ApplicantJourney.target_country_ref` or `stage` would break this app's list endpoint. See `INTEGRATION.md` §2 `Requires`.
 - **Inbound:** `documents.Document.applicant` is a **nullable** `PROTECT` FK pointing here (`related_name="documents"`), and `documents` calls `applicants.selectors.get_applicant_by_id` when a document is created against a person. Nullable because a document may be standalone — belonging to no applicant at all. This app does **not** reference `documents`, and creating or archiving a document never touches the applicant's status. **Note the access asymmetry:** applicants are readable by any Admin or Lead Manager, but their documents are **Admin-only**, so a Lead Manager's view of an applicant file is legitimately incomplete (see `documents/docs/SECURITY.md` §1).
 
 **Security Notes:** Applicants are **shared, not owner-scoped** — any Admin or Lead Manager may read and edit any applicant. This is a deliberate departure from `leads`; see `SECURITY.md` §1. Superadmin is denied entirely. Creation is Admin-only.
@@ -123,7 +126,9 @@
 - `(applicant, number)` is unique.
 - Managed **nested inside the applicant payload**; supplying `contact_numbers` replaces the whole set.
 
-**Indexes:** `uniq_applicant_contact_number` — unique constraint on `(applicant, number)`
+**Indexes:**
+- `uniq_applicant_contact_number` — unique constraint on `(applicant, number)`
+- `appl_contact_number_idx` — B-tree on `number` alone. The unique constraint's leading column is the applicant, so it cannot serve `search_applicants`, which knows the number and not the person (migration `0002_search_indexes`).
 
 **Soft Delete:** N/A — replaced wholesale on update and cascade-deleted with the applicant, which is itself never deleted. Removal is a correction, not a lifecycle event.
 
@@ -181,7 +186,9 @@
 - One record per applicant: a renewal overwrites it, with the change captured in the audit history. Whether old passport numbers need preserving is an open question in the concept file.
 - Managed nested; supplying `passport` upserts the row.
 
-**Indexes:** `expiry_date` (`db_index=True`) — supports the expiry queries the notification module will need.
+**Indexes:**
+- `expiry_date` (`db_index=True`) — supports the expiry queries the notification module will need, and the dashboard's expiring-passport blocker.
+- `appl_passport_number_idx` — B-tree on `passport_number`, supporting `search_applicants`'s passport lookup. Numbers are upper-cased on write, so it serves both equality and prefix matching (migration `0002_search_indexes`).
 
 **Soft Delete:** N/A — upserted in place and cascade-deleted with the applicant.
 
@@ -253,3 +260,46 @@ This app owns **no history table**. History is `audit.AuditEvent` filtered to `a
 **Cross-App Dependencies:** `audit` — write via `record_event`, read via `get_events`.
 
 **Security Notes:** No secrets or full record dumps enter an audit payload (§17). `changes` carries only fields that moved; free text the user wrote (addresses, notes) is not copied into events.
+
+---
+
+## 8. Applicant destinations (no table — read model)
+
+**Purpose:** Where a person is trying to go, projected onto the applicant list and detail responses as a `destinations` array.
+
+This app owns **no destination column and never will**. A person is not a study plan: someone may try for a master's in Australia, have it fall through, and try again for a diploma in Canada two years later. That is two journeys and one applicant, and `applicant_journeys.ApplicantJourney` is where the destination correctly lives.
+
+The projection exists because a list that cannot show where anyone is headed forces a second round trip per row just to render a country column. It is derived at read time from `applicant.journeys` and is never stored, so it cannot disagree with the journeys it summarizes.
+
+| Field | Type | Nullable | Description |
+|-------|------|----------|--------------|
+| journey_id | UUID string | No | The `ApplicantJourney` this destination belongs to |
+| stage | string | No | That journey's `JourneyStage` value |
+| country_id | UUID string | Yes | The `institutions.Country` id, or `null` for a journey with no catalogue link |
+| country_code | string | No | The country's ASCII code, `""` when there is no catalogue link |
+| country_name_en | string | No | The catalogue name, `""` when there is no catalogue link |
+| target_country | string | No | The free text the destination was typed as. The **only** destination a pre-catalogue journey has |
+
+**Validation Rules:** none — read-only, never accepted from a client on any endpoint.
+
+**Indexes:** none of its own. The projection is served by `prefetch_related("journeys__target_country_ref")`, and the `country`/`country_code`/`journey_stage` filters that traverse the same relation are served by `applicant_journeys`' own `target_country_ref` and `stage` indexes.
+
+**Soft Delete:** N/A — a read model over another app's rows; it owns nothing to delete.
+
+**Example:**
+```json
+"destinations": [
+  {
+    "journey_id": "1f2e3d4c-5b6a-7089-9a8b-7c6d5e4f3021",
+    "stage": "offer_stage",
+    "country_id": "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9",
+    "country_code": "au",
+    "country_name_en": "Australia",
+    "target_country": ""
+  }
+]
+```
+
+**Cross-App Dependencies:** `applicant_journeys` — read-only, through the reverse `journeys` accessor. No import exists; see §1 `Cross-App Dependencies` and `INTEGRATION.md` §2 `Requires` for why the coupling is still real.
+
+**Security Notes:** Journeys are shared across the consultancy exactly as applicants are, so projecting them here widens nobody's visibility. An empty array means the person has no journey yet — never that one was hidden.

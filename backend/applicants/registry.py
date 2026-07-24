@@ -41,18 +41,39 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "applicants.applicant.list",
         "operation_type": "list",
         "display_name": "List Applicants",
-        "description": "List every applicant. Shared across the consultancy — not owner-scoped.",
+        "description": (
+            "List every applicant. Shared across the consultancy — not owner-scoped. "
+            "Searchable by name, email, contact number, and passport number, and filterable "
+            "by destination country and journey stage."
+        ),
         "http_method": "GET",
         "route_pattern": "/api/v1/applicants/",
         "view_import_path": "applicants.views.ApplicantListCreateView",
         "risk_level": "low",
+        # The route and method are unchanged; the contract behind them is not.
+        # A version bump appends a record — it never edits the 1.0.0 one (§35 item 10).
+        "version": "1.1.0",
         "dependencies": [
             _dep(
                 "authenticate.session.login", "A session must be established by login before this endpoint is usable."
-            )
+            ),
+            _dep(
+                "applicant_journeys.journey.list",
+                "The country and journey-stage filters resolve through the applicant's journeys, "
+                "and the response projects each journey's destination.",
+            ),
         ],
-        "change_summary": "Initial registration of the applicant list endpoint.",
-        "change_reason": _PHASE,
+        "change_summary": (
+            "Widened search to email, contact number, and passport number; added relevance ordering; "
+            "added the country, country_code, and journey_stage filters; added the destinations "
+            "response field."
+        ),
+        "change_reason": (
+            "Staff could not find an applicant by destination country at all — the destination lives on "
+            "the journey, not the applicant — and search matched names only. Backward compatible: "
+            "every previous filter behaves unchanged, no field was removed or renamed, and the new "
+            "response field is additive (§22, §29)."
+        ),
     },
     # 2. Create an applicant directly, with no preceding lead. Admin only.
     {

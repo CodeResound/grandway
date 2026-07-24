@@ -189,6 +189,9 @@ class Lead(BaseModel):
                 name="lead_name_rom_trgm_idx",
                 opclasses=["gin_trgm_ops"],
             ),
+            # ``search_leads`` also matches the email with a leading wildcard,
+            # so the same reasoning as the name fields applies.
+            GinIndex(fields=["email"], name="lead_email_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:
@@ -233,6 +236,12 @@ class LeadContactNumber(BaseModel):
         ordering = ["-is_primary", "created_at"]
         constraints = [
             models.UniqueConstraint(fields=["lead", "number"], name="uniq_lead_contact_number"),
+        ]
+        indexes = [
+            # ``search_leads`` joins here to find a lead from a phone number
+            # alone. The unique constraint above is on ``(lead, number)`` and
+            # cannot serve a lookup that does not know the lead.
+            models.Index(fields=["number"], name="lead_contact_number_idx"),
         ]
 
     def __str__(self) -> str:

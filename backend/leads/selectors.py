@@ -11,7 +11,7 @@ from typing import Any
 
 from audit.models import AuditEvent
 from audit.selectors import get_events
-from django.db.models import Q, QuerySet
+from django.db.models import Case, IntegerField, Q, QuerySet, When
 
 from leads.access import is_admin
 from leads.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_LEAD
@@ -77,19 +77,76 @@ def get_lead_for_actor(actor: Any, lead_id: str) -> Lead | None:
     )
 
 
-def search_leads(queryset: QuerySet[Lead], query: str) -> QuerySet[Lead]:
-    """Narrow leads by name across all three language representations (§39.6).
+#: The three language representations of a lead's name (§39.1), searched
+#: together. Mirrors ``applicants.selectors._NAME_FIELDS`` — the two apps hold
+#: the same person at two stages of their life and are searched the same way.
+_NAME_FIELDS = ("full_name_np", "full_name_en", "full_name_romanized")
 
-    OR semantics over ``full_name_np`` / ``full_name_en`` / ``full_name_romanized``
-    using ``icontains``; the GIN trigram indexes carry the performance. Never
-    ``__exact`` on a Devanagari name.
+
+def _name_match(query: str) -> Q:
+    """OR across the three name representations with ``icontains`` (§39.6)."""
+    matches = Q()
+    for field in _NAME_FIELDS:
+        matches |= Q(**{f"{field}__icontains": query})
+    return matches
+
+
+def search_leads(queryset: QuerySet[Lead], query: str) -> QuerySet[Lead]:
+    """Narrow leads by name, email, or contact number.
+
+    Names are matched across all three language representations with
+    ``icontains``; the GIN trigram indexes carry the performance and ``__exact``
+    is never used on a Devanagari name (§39.6). Phone and email matter more here
+    than anywhere else in the project — a lead is very often a number in a call
+    log before anyone has agreed how to spell the name.
+
+    ``contact_numbers`` is a reverse foreign key, so a person with three numbers
+    would otherwise appear three times — hence ``distinct()``.
+
+    There is no destination filter: a lead's countries of interest live in
+    ``LeadStudyInterest.interested_countries``, a ``JSONField`` whose ``contains``
+    lookup is PostgreSQL-only and would fail the SQLite test suite. Recorded in
+    ``docs/INTEGRATION.md`` §9 `Gaps`.
     """
     query = (query or "").strip()
     if not query:
         return queryset
     return queryset.filter(
-        Q(full_name_np__icontains=query) | Q(full_name_en__icontains=query) | Q(full_name_romanized__icontains=query)
-    )
+        _name_match(query) | Q(email__icontains=query) | Q(contact_numbers__number__icontains=query)
+    ).distinct()
+
+
+def rank_leads(queryset: QuerySet[Lead], query: str) -> QuerySet[Lead]:
+    """Order a searched queryset by how well each row matches the query.
+
+    Identical scoring to ``applicants.selectors.rank_applicants`` — see its
+    docstring for why the score is a portable ``Case``/``When`` rather than
+    ``TrigramSimilarity``:
+
+    * ``3`` — a name field equals the query outright
+    * ``2`` — a name field starts with it
+    * ``1`` — a name field contains it
+    * ``0`` — matched only on email or contact number
+    """
+    query = (query or "").strip()
+    if not query:
+        return queryset
+
+    exact = Q()
+    prefix = Q()
+    for field in _NAME_FIELDS:
+        exact |= Q(**{f"{field}__iexact": query})
+        prefix |= Q(**{f"{field}__istartswith": query})
+
+    return queryset.annotate(
+        relevance=Case(
+            When(exact, then=3),
+            When(prefix, then=2),
+            When(_name_match(query), then=1),
+            default=0,
+            output_field=IntegerField(),
+        )
+    ).order_by("-relevance", "-created_at", "-id")
 
 
 def filter_leads(queryset: QuerySet[Lead], filters: dict[str, Any] | None = None) -> QuerySet[Lead]:

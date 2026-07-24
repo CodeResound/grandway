@@ -48,6 +48,7 @@ from leads.selectors import (
     get_loss_reason_by_id,
     get_loss_reasons,
     get_notes_for_lead,
+    rank_leads,
 )
 from leads.serializers import (
     FollowUpSerializer,
@@ -279,15 +280,20 @@ class LeadListCreateView(APIView):
             require_lead_actor(request.user)
         except ActorNotPermittedError:
             return _forbidden()
+        search = request.query_params.get("search")
         queryset = filter_leads(
             get_leads_for_actor(request.user),
             {
                 "stage": request.query_params.get("stage"),
                 "source": request.query_params.get("source"),
-                "search": request.query_params.get("search"),
+                "search": search,
                 "fiscal_year": request.query_params.get("fiscal_year"),
             },
         )
+        # Relevance ordering applies only when there is a query to be relevant
+        # to; an unsearched list keeps the model's newest-first ordering.
+        if search:
+            queryset = rank_leads(queryset, search)
         return _paginated(request, queryset, LeadListSerializer, "Leads retrieved.")
 
     def post(self, request: Request) -> Response:

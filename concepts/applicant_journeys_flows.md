@@ -157,6 +157,7 @@ Screen names below are quoted from `concepts/applicant_journeys.txt` → `UI scr
 ## Cross-app dependencies
 
 - **This app references (outbound):** `applicants.applicant.read` and `applicants.applicant.list` to pick and label the person a journey belongs to; `applicants.applicant.change_status` as an optional prompt after closing the last open journey; the history endpoint is served from the `audit` module's event log. All flows require a session from `authenticate.session.login`.
+  - *Note:* every row `applicants.applicant.list` returns now carries a `destinations` array summarising that person's existing journeys, so the applicant picker can warn "already has an open Australia journey" before a duplicate is created. Its `?search=` also spans email, phone, and passport, and returns relevance-ordered results — do not re-sort the picker's list.
 - **Referenced by other apps (inbound):** `concepts/applicants_flows.md` — the Journeys panel on Applicant Detail calls `journey.list` and `journey.create`. `concepts/leads_flows.md` — the conversion flow produces a journey and links to it. `concepts/project_flows.md` — the end-to-end enquiry-to-objective journey.
 
 When an endpoint here is added, changed, or deprecated, grep `concepts/*_flows.md` for its

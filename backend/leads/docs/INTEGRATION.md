@@ -1,7 +1,7 @@
 # Integration — Leads
 
 **Owner app:** `leads`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 17 endpoints; conversion not yet available |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Lead list widened (`leads.lead.list` → 1.1.0): `search` now matches email and any contact number, and its results are **relevance-ordered**, so §3's "ordering is fixed newest-first" is no longer unconditionally true. Owner scoping is unchanged. Recorded in §9 that there is still no way to filter leads by country of interest |
 
 ---
 
@@ -63,7 +64,11 @@
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). Paginated responses put the array in `data` and fill `meta` with `count`, `page`, `page_size`, `next`, `previous`; `next`/`previous` are absolute URLs or `null`. **Paginated:** lead list, notes list, history list. **Not paginated:** `/sources/` and `/loss-reasons/` — both return the full array with `meta` as `{}`.
 - **IDs:** UUID strings everywhere. Sent as strings in request bodies and path segments.
 - **Times:** ISO 8601, UTC, e.g. `2026-07-23T04:00:00Z`. User-facing datetimes additionally carry a `<field>_bs` sibling holding the Bikram Sambat projection as an object (see `BsDate` in §4). `created_at` and `updated_at` never have a `_bs` sibling.
-- **List/search/filter/order params:** on `GET /api/v1/leads/` only — `stage`, `source` (a lead-source id), `search`, `fiscal_year` (`YYYY/YY`, Nepali fiscal year, filters on creation date). Ordering is fixed: leads, notes, and history are always newest first; sources and loss reasons are always by `display_order` then `name_np`. There is no client-controlled ordering. `GET /api/v1/leads/sources/` and `/loss-reasons/` accept `include_inactive=true` and nothing else.
+- **List/search/filter/order params:** on `GET /api/v1/leads/` only — `stage`, `source` (a lead-source id), `search`, `fiscal_year` (`YYYY/YY`, Nepali fiscal year, filters on creation date). There is no client-controlled ordering anywhere in this module. `GET /api/v1/leads/sources/` and `/loss-reasons/` accept `include_inactive=true` and nothing else.
+- **Ordering.** Notes and history are always newest first; sources and loss reasons are always by `display_order` then `name_np`. Leads are newest first **except** `GET /api/v1/leads/?search=…`, which is relevance-ordered and only tie-broken by recency. Do not assume `data[0]` is the most recent lead when you passed a `search`.
+- **What `search` matches.** All three name forms, the `email`, and **any** of the lead's contact numbers. All partial, case-insensitive, substring matches. It is **not** fuzzy: a misspelling matches nothing.
+- **How `search` ranks.** `3` a name equals the query, `2` a name starts with it, `1` a name contains it, `0` matched only on email or contact number. Ties fall to newest-first, then id. The score is not returned in the response — only the order reflects it.
+- **Ranking never widens scope.** A Lead Manager's search reorders their own leads and can never surface another manager's. Scoping is applied before ranking, in the database.
 
 ## 4. Models
 
@@ -352,7 +357,8 @@
 - Sending `contact_numbers` **replaces the entire set** — always send the complete list the lead should end up with, never a delta. The same number cannot appear twice on one lead.
 - Sending `study_interest` upserts the single interest record; a lead never has more than one.
 - A new lead always starts at `stage: "new"`.
-- `search` matches across the Devanagari, English, and romanized names simultaneously, so a user can type in either script.
+- `search` matches across the Devanagari, English, and romanized names simultaneously, so a user can type in either script — and also the `email` and any contact number. A lead is very often a number in a call log before anyone has agreed how to spell the name.
+- **A `search` result set is relevance-ordered, not newest-first.** See §3 for the scoring. Every other list in this module is newest-first.
 
 **Errors:**
 - `LEADS_ACTOR_FORBIDDEN` (403) — the caller is a Superadmin
@@ -572,3 +578,6 @@
 - **No bulk operations.** There is no bulk create, bulk stage change, or bulk close. Each lead is acted on individually.
 - **No lead deletion or archival.** By design — a lead's availability is expressed entirely through its stage. Do not expect a delete endpoint to appear.
 - **`updated_at` on `LeadNote` is present in the model but not exposed** in the note response shape, because notes are never edited.
+- **There is no way to filter leads by country of interest.** `study_interest.interested_countries` is returned on the detail shape but is not a filter, so "every lead interested in Australia" cannot be answered by this API. The values are stored in a JSON array whose containment lookup is PostgreSQL-only and could not be covered by the project's test suite, so it was deliberately not built rather than shipped untested. The equivalent filter **does** exist one stage later, on `GET /api/v1/applicants/?country_code=` *(other module: `applicants`)*.
+- **Search is substring-based, not fuzzy.** A misspelt or differently transliterated name matches nothing, and there is no did-you-mean, no similarity threshold, and no minimum query length — a one-character `search` will match a large fraction of the caller's leads.
+- **The relevance score is not returned.** Only the ordering reflects it, so a client cannot show match quality or apply its own cut-off.

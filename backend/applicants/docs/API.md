@@ -1,7 +1,7 @@
 # API Documentation — Applicants
 
 **App:** `applicants`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Base prefix:** `/api/v1/applicants/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Authority rules are enforced inline per `SECURITY.md` §1 — applicants are **shared**, not owner-scoped, which deliberately differs from `leads`.
 **Throttle:** Project DRF defaults only. No custom scopes.
@@ -14,6 +14,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial API documentation — 6 endpoints |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | List endpoint (§1.1) widened: `search` now matches email, contact number, and passport number and orders by relevance; new `country`, `country_code`, and `journey_stage` filters resolve through the applicant's journeys; the list and detail shapes gained a `destinations` array. Additive only — no filter, field, or ordering that a client already relied on changed |
 
 ---
 
@@ -51,13 +52,22 @@
 **Request query params:**
 - `status` — `active` | `dormant` | `archived`
 - `creation_source` — `lead_conversion` | `direct_admin`
-- `search` — matches `full_name_np`, `full_name_en`, `full_name_romanized`
+- `search` — matches `full_name_np`, `full_name_en`, `full_name_romanized`, `email`, any contact number, and the passport number. All partial (`icontains`) matches
+- `country` — a `institutions.Country` id. Matches applicants with **a** journey targeting it
+- `country_code` — the same filter by the country's ASCII code (`AU`), case-insensitive
+- `journey_stage` — an `applicant_journeys.JourneyStage` value; matches applicants with a journey at that stage
 - `fiscal_year` — `YYYY/YY`, Nepali fiscal year, filtering on `created_at`
 - `page`, `page_size` (max 100)
 
-**Response:** paginated array of the applicant **list** shape — `DATA_CONTRACT.md` §1, minus addresses, passport, family, emergency contacts, and `originating_lead_id`. Newest first.
-**Business rules:** every Admin and Lead Manager sees every applicant. Archived applicants are **not** hidden — filter on `status` to exclude them.
-**Query access pattern:** `selectors.get_applicants` applies `select_related("created_by")` and `prefetch_related("contact_numbers")`, so a page costs a constant number of queries. `search` runs OR `icontains` across the three name fields, served by the `appl_name_*_trgm_idx` GIN trigram indexes.
+**Response:** paginated array of the applicant **list** shape — `DATA_CONTRACT.md` §1, minus addresses, passport, family, emergency contacts, and `originating_lead_id`. Newest first, **except** when `search` is supplied, in which case results are ordered by relevance (below) and only tie-broken by recency.
+**Business rules:**
+- Every Admin and Lead Manager sees every applicant. Archived applicants are **not** hidden — filter on `status` to exclude them.
+- **Relevance ordering (only when `search` is present):** `3` a name field equals the query, `2` a name field starts with it, `1` a name field contains it, `0` matched only on email, contact number, or passport. Ties fall back to `-created_at`, then `-id`. The score is lexical, not fuzzy — a misspelling still matches nothing, because the filter underneath is `icontains`.
+- **An applicant has no country of its own.** The destination belongs to the journey (`applicant_journeys.ApplicantJourney.target_country_ref`), and a person may pursue several over the years. `country`/`country_code`/`journey_stage` therefore mean "has **a** journey matching this", and an applicant with two journeys to the same country is returned once.
+- The three filters compose with `search` and with each other; they narrow the same queryset rather than replacing one another.
+- An unknown country id or code returns an empty page and `200`, never a `400`.
+
+**Query access pattern:** `selectors.get_applicants` applies `select_related("created_by")` and `prefetch_related("contact_numbers", "journeys__target_country_ref")`, so a page costs a constant number of queries including the `destinations` projection. `search` runs OR `icontains` across the three name fields (served by the `appl_name_*_trgm_idx` GIN trigram indexes), `email` (`appl_email_trgm_idx`), `contact_numbers.number` (`appl_contact_number_idx`), and `passport.passport_number` (`appl_passport_number_idx`). The contact-number join can multiply rows, so the selector applies `distinct()`; so do all three journey-traversing filters. Relevance is a `Case`/`When` annotation rather than `TrigramSimilarity`, deliberately — the test suite runs on SQLite, where `SIMILARITY` does not exist, and a pg_trgm ranking would leave the ordering rule covered by no test.
 **Error codes:** none beyond the app-wide 401/403.
 
 ### 1.2 Create — `POST /api/v1/applicants/`

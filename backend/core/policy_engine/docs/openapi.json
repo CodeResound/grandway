@@ -20,7 +20,7 @@
       "get": {
         "operationId": "applicants.applicant.list",
         "summary": "List Applicants",
-        "description": "List every applicant. Shared across the consultancy — not owner-scoped.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "List every applicant. Shared across the consultancy — not owner-scoped. Searchable by name, email, contact number, and passport number, and filterable by destination country and journey stage.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "applicants"
         ],
@@ -5718,7 +5718,7 @@
       "get": {
         "operationId": "leads.lead.list",
         "summary": "List Leads",
-        "description": "List leads in the caller's scope: own leads for a Lead Manager, all for an Admin.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "List leads in the caller's scope: own leads for a Lead Manager, all for an Admin. Searchable by name, email, and contact number.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "leads"
         ],

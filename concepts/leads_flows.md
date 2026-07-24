@@ -58,6 +58,9 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** an authenticated Admin or Lead Manager.
    - **Side effects:** none.
    - *Note:* a Lead Manager sees only leads they created; an Admin sees all. The same call serves both — no separate "all leads" endpoint.
+   - *Note:* the same endpoint's `?search=` matches the name in either script, the email, and **any** of the lead's contact numbers. Label the box "Search name, phone, or email" — a lead is very often a number in a call log before anyone has agreed how to spell the name.
+   - *Note:* a searched list is **relevance-ordered** (exact name match first), not newest-first. Every other list here is newest-first. Do not re-sort a searched list client-side.
+   - *Note:* ranking never widens scope. A Lead Manager's search reorders their own leads and can never surface another manager's, so the result count is still owner-scoped.
 
 2. **Lead Detail** — the page loads →
    `GET /api/v1/leads/<lead_id>/` (`leads.lead.read`)
@@ -239,7 +242,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 | `leads.loss_reason.list` | `GET /api/v1/leads/loss-reasons/` | Close an enquiry; Configure the pickers | |
 | `leads.loss_reason.create` | `POST /api/v1/leads/loss-reasons/` | Configure the pickers | Admin only |
 | `leads.loss_reason.update` | `PATCH /api/v1/leads/loss-reasons/<reason_id>/` | Configure the pickers | Admin only |
-| `leads.lead.list` | `GET /api/v1/leads/` | Work a lead through follow-up | Owner-scoped; also the funnel/search surface |
+| `leads.lead.list` | `GET /api/v1/leads/` | Work a lead through follow-up | Owner-scoped; also the funnel/search surface. Search spans name, email, and phone and returns relevance-ordered results |
 | `leads.lead.create` | `POST /api/v1/leads/` | Record a new enquiry | |
 | `leads.lead.read` | `GET /api/v1/leads/<lead_id>/` | Work a lead; Close; Revive; Review | |
 | `leads.lead.update` | `PATCH /api/v1/leads/<lead_id>/` | — | `unused by flow — correction path (Edit Lead form), not a journey. Same form as create; replaces contact numbers wholesale.` |
@@ -269,3 +272,4 @@ not just this file.
 - **Direct applicant creation is out of scope for this app.** `concepts/leads.txt` mentions an Admin creating an applicant without a lead; that lives in `concepts/applicants_flows.md`.
 - **No funnel or dashboard flow is defined.** The lead list supports `stage`, `source`, `search`, and `fiscal_year` filters, which is enough to build a funnel view, but reporting belongs to the `dashboards` app and no flow claims it yet.
 - **Whether an Admin should see a Lead Manager filter on the lead list is undecided.** An Admin sees all leads, but there is no `created_by`/owner query parameter, so an Admin cannot currently narrow the list to one Lead Manager's work. If that is wanted, it needs a new filter on `leads.lead.list`.
+- **A lead cannot be filtered by country of interest.** `study_interest.interested_countries` is shown on Lead Detail but is not a filter, so "every lead interested in Australia" is not answerable — the values live in a JSON array whose containment lookup is PostgreSQL-only and could not be covered by the test suite. The equivalent filter exists one stage later, on `applicants.applicant.list` **(cross-app: `applicants`)**. A UI that offers a destination filter on the lead funnel would be promising something the API does not do.

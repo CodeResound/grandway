@@ -79,11 +79,14 @@ Screen names below are quoted from `concepts/applicants.txt` → `UI screens & w
 
 **Steps**
 
-1. **Applicant List** — the user searches by name in either script →
+1. **Applicant List** — the user searches by whatever they have to hand →
    `GET /api/v1/applicants/?search=<query>` (`applicants.applicant.list`)
    - **Requires state:** an authenticated Admin or Lead Manager.
    - **Side effects:** none.
    - *Note:* one search box matches Devanagari, Roman, and romanized forms simultaneously. Do not build separate script-specific fields.
+   - *Note:* the same box also matches the email, **any** of the person's contact numbers, and the passport number — staff often have a phone number from a call log rather than a spelling. Label it "Search name, phone, email, or passport", not "Search by name".
+   - *Note:* a searched list comes back **relevance-ordered** (exact name match first), not newest-first. Do not re-sort it client-side, and do not add a "sort by newest" control that silently discards the ranking.
+   - *Failure — empty result:* the search is substring-based, not fuzzy. A misspelling matches nothing and there is no did-you-mean. Prompt the user to try a shorter fragment rather than showing "no such applicant".
 
 2. **Applicant Detail** — the user opens the file →
    `GET /api/v1/applicants/<applicant_id>/` (`applicants.applicant.read`)
@@ -144,11 +147,47 @@ Screen names below are quoted from `concepts/applicants.txt` → `UI screens & w
 
 ---
 
+## Flow: Work a destination cohort
+
+- **Actor:** Admin or Lead Manager
+- **Goal:** See everyone headed for one country, so a country-specific action — a visa briefing, an intake deadline, a document push — can be worked as a batch.
+- **Entry point:** Applicant List → destination filter, or a dashboard country drill-down
+
+**Steps**
+
+1. **Country picker** — the filter bar loads its country options →
+   `GET /api/v1/catalogue/countries/` (`institutions.country.list`) **(cross-app: `institutions`)**
+   - **Requires state:** an authenticated Admin or Lead Manager.
+   - **Side effects:** none.
+   - *Note:* populate the picker from this endpoint. Never hardcode country codes — the catalogue is data, added by staff without a deployment.
+
+2. **Applicant List** — the user picks Australia →
+   `GET /api/v1/applicants/?country_code=au` (`applicants.applicant.list`)
+   - **Requires state:** an authenticated Admin or Lead Manager. Matching applicants must already **have a journey** — an applicant with none is invisible to this filter, which is correct: they have not chosen a destination yet.
+   - **Side effects:** none.
+   - *Note:* **an applicant has no country of its own.** The destination belongs to the journey, so this filter means "has *a* journey to Australia" — including a journey that was closed years ago. Render `destinations[].stage` on each row so the user can see which destination is live. Do not label the column "Destination" as though there were one.
+   - *Note:* a person with two Australian journeys appears **once**. Do not de-duplicate again client-side, and do not assume `destinations.length === 1`.
+   - *Note:* the filters compose. Add `status=active` to drop archived files, and `journey_stage=offer_stage` to narrow to those awaiting a decision, in the same request.
+   - *Failure — empty result:* an unknown country code returns an empty page and `200`, exactly like a real country with no applicants. The two are indistinguishable, so validate the code against step 1 rather than showing an error.
+
+3. **Applicant Detail** — the user opens one row →
+   `GET /api/v1/applicants/<applicant_id>/` (`applicants.applicant.read`)
+   - **Requires state:** the applicant must exist.
+   - **Side effects:** none.
+
+4. **Journeys panel** — the user needs more than the projected summary →
+   `GET /api/v1/journeys/?applicant=<applicant_id>` (`applicant_journeys.journey.list`) **(cross-app: `applicant_journeys`)**
+   - **Requires state:** the applicant must exist.
+   - **Side effects:** none.
+   - *Note:* `destinations` on the applicant carries only `journey_id`, `stage`, and the country. Institution, program, intake, and budget live on the journey itself.
+
+---
+
 ## Endpoint coverage
 
 | `permission_key` | `METHOD /path` | Used by flow(s) | Notes |
 |------------------|----------------|-----------------|-------|
-| `applicants.applicant.list` | `GET /api/v1/applicants/` | Maintain a file over time | Also the search surface |
+| `applicants.applicant.list` | `GET /api/v1/applicants/` | Maintain a file over time; Work a destination cohort | Also the search surface. Search spans name, email, phone, and passport and returns relevance-ordered results; `country`/`country_code`/`journey_stage` resolve through the person's journeys |
 | `applicants.applicant.create` | `POST /api/v1/applicants/` | Create an applicant directly | Admin only |
 | `applicants.applicant.read` | `GET /api/v1/applicants/<applicant_id>/` | Complete a file; Maintain a file | |
 | `applicants.applicant.update` | `PATCH /api/v1/applicants/<applicant_id>/` | Complete a file; Maintain a file | Collections replace wholesale |
@@ -157,7 +196,8 @@ Screen names below are quoted from `concepts/applicants.txt` → `UI screens & w
 
 ## Cross-app dependencies
 
-- **This app references (outbound):** `applicant_journeys.journey.create` and `applicant_journeys.journey.list` from the Journeys panel on Applicant Detail; `applicants.applicant.list_history` is served from the `audit` module's event log, which every mutating endpoint here writes to. All flows require a session from `authenticate.session.login`.
+- **This app references (outbound):** `applicant_journeys.journey.create` and `applicant_journeys.journey.list` from the Journeys panel on Applicant Detail and from "Work a destination cohort"; `institutions.country.list` to populate the destination filter; `applicants.applicant.list_history` is served from the `audit` module's event log, which every mutating endpoint here writes to. All flows require a session from `authenticate.session.login`.
+- **Reads `applicant_journeys` data with no endpoint call.** The `destinations` array on every applicant row, and the `country`/`country_code`/`journey_stage` filters, are served by the applicants endpoint itself — a client does **not** call the journeys module to render them. This is the one place where journey data reaches the screen without a journeys request, and it is why the destination filter works on the applicant list at all.
 - **Referenced by other apps (inbound):** `concepts/leads_flows.md` — the "Convert a lead into a client" flow calls `applicants.applicant.read` after conversion. `concepts/applicant_journeys_flows.md` — several flows call `applicants.applicant.list` and `.read` to pick the person a journey belongs to. `concepts/project_flows.md` — the end-to-end enquiry-to-objective journey.
 
 When an endpoint here is added, changed, or deprecated, grep `concepts/*_flows.md` for its
