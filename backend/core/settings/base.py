@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "documents",
     "document_history",
     "document_templates",
+    "uploaded_files",
 ]
 
 # The authenticate app owns the platform's identity layer with a custom user model.
@@ -141,6 +142,46 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# ---------------------------------------------------------------------------
+# Uploaded file storage — the uploaded_files app (CLAUDE.md §14, §37).
+#
+# MEDIA_ROOT is the project's only byte store and is deliberately LOCAL: §37
+# makes local-first the default posture, and applicant passports, transcripts,
+# and bank statements are precisely the data that should not leave the machine
+# by default.
+#
+# **Nothing serves MEDIA_ROOT.** core/urls.py routes exactly four prefixes —
+# admin/, health/, ready/, and api/v1/ — and none of them is a static file
+# handler, so no URL maps to the storage volume in any environment. The only
+# path from the disk to a client is the authenticated download endpoint
+# GET /api/v1/files/<id>/download/, which applies the same authority check as
+# every other route. A guessable media URL would defeat "privacy by default"
+# (concepts/project_overview.txt) for the most sensitive data in the system.
+#
+# MEDIA_URL is left at Django's default (which normalizes to "/") rather than
+# being set to anything: it is the prefix FileField.url would build, and since
+# nothing in this project ever calls .url or serves the volume, its value is
+# inert. Do NOT add django.conf.urls.static.static(MEDIA_URL, ...) to
+# core/urls.py for local convenience — that single line would publish every
+# applicant passport at a guessable path. Guarded by
+# core/tests/test_media_is_not_served.py.
+#
+# The default lands inside backend/mediafiles/, which .gitignore already covers,
+# so development uploads can never be committed. Deployments override it with a
+# path on a real volume.
+# ---------------------------------------------------------------------------
+MEDIA_ROOT = Path(config("MEDIA_ROOT", default=str(BASE_DIR / "mediafiles")))
+
+# Files land on disk readable by the owner and the group only. Django's default
+# (0o644) would make every applicant document world-readable to any account on
+# the host.
+FILE_UPLOAD_PERMISSIONS = 0o640
+FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o750
+
+# One file per request — every upload endpoint in this project accepts exactly
+# one. A request carrying more is rejected by Django before any view runs.
+DATA_UPLOAD_MAX_NUMBER_FILES = 1
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

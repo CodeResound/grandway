@@ -1,7 +1,7 @@
 # Data Contract — Offers
 
 **Owner app:** `offers`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the formal admission decisions institutions make against applicant journeys — what was offered, for which program and intake, under what conditions and money terms, and how the applicant responded. It does **not** own the study plan (`applicant_journeys`), the person (`applicants`), or the catalogue the offer references (`institutions`). It owns no history table — an offer's history is the central `audit` log filtered to that offer.
@@ -13,6 +13,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — `Offer` and `OfferCondition` |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. An offer letter now has a home in `uploaded_files`; this model still holds no reference to it |
 
 ---
 
@@ -21,7 +22,7 @@
 `concepts/offers.txt` lists five open questions and one out-of-scope item that the project's current state decides for it. Each departure is recorded here rather than left to be inferred.
 
 - **§39.1 bilingual identity is inverted, inherited from `institutions`.** `institution_name_en` is required and `institution_name_np` is optional; there is no `_romanized` field. The snapshot copies foreign proper nouns from the catalogue, which has the same shape and the same reason: a required Devanagari name would force invented transliterations for "University of Melbourne". **Unicode normalization (§39.2) still applies in full** to every user-entered text field. See `institutions/docs/DATA_CONTRACT.md` — "Deliberate Deviations" for the original rationale.
-- **No supporting files.** The concept lists "Notes and supporting files" among offer information. `notes` ships; file attachment does not. §14 requires a documented file contract and `concepts/project_overview.txt` names a dedicated `uploaded_files` domain that does not exist yet. Adding a `FileField` here would either pre-empt that app or ship an undocumented upload path. Same decision `applicants` made about the applicant photograph.
+- **No supporting files *on this model*.** The concept lists "Notes and supporting files" among offer information. `notes` ships; a file field does not. **`uploaded_files` now exists** and holds a `PROTECT` foreign key to `Offer`, so an offer letter has a home — `POST /api/v1/files/` with `offer=<id>`. What is still deliberately absent is a reference in the other direction: this model has no file column and this app does not call that one, so an offer payload says nothing about the letter attached to it. Adding a count or a primary-file pointer later is additive.
 - **Conditions are a dedicated sub-record, not a reusable checklist.** The concept asks which; the project answers it. `checklists` is a named future domain with no code behind it, and building a generic checklist inside `offers` would pre-empt it. `OfferCondition` is owned by this app and belongs to exactly one offer. When `checklists` ships, the question of whether offer conditions should migrate onto it is worth reopening — it is recorded in the concept file as still open.
 - **No history table**, for the same reason as `leads`, `applicants`, `applicant_journeys`, and `institutions`: `audit` already provides an immutable append-only log and §4 forbids duplicating another app's storage.
 - **No `superseded_by` link.** The concept says an offer "may be superseded by a later offer for the same journey". A stored link would add a column and a write path for a fact a client can already read: a journey's offers are returned newest-first, and the one accepted offer is queryable directly. Recorded in `docs/INTEGRATION.md` §9 `Gaps`.

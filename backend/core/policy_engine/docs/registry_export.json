@@ -49,6 +49,10 @@
     {
       "app_key": "policy_engine",
       "display_name": "Core Policy Engine"
+    },
+    {
+      "app_key": "uploaded_files",
+      "display_name": "Uploaded Files"
     }
   ],
   "categories": [
@@ -81,6 +85,10 @@
       "display_name": "Document Management"
     },
     {
+      "category_key": "file_management",
+      "display_name": "File Management"
+    },
+    {
       "category_key": "journey_management",
       "display_name": "Journey Management"
     },
@@ -105,7 +113,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 126,
+  "endpoint_count": 136,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -3223,6 +3231,260 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The permission tree aggregates data across all registered applications."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.archive",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-archive",
+      "display_name": "Archive File",
+      "description": "Retire a file from active work. A reason is required. Nothing is deleted and the version chain is unaffected. Admin authority only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/files/<file_id>/archive/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The file must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.download",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-download",
+      "display_name": "Download File",
+      "description": "Stream the stored bytes as an attachment. The only path from the storage volume to a client, and the only read in the project that writes an audit event.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/files/<file_id>/download/",
+      "operation_type": "custom",
+      "risk_level": "critical",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The file must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.list",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-list",
+      "display_name": "List Files",
+      "description": "List file records. Filter by owner (applicant, journey, offer, document, snapshot), category, verification status, archive state, or checksum.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/files/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.read",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-read",
+      "display_name": "View File",
+      "description": "Retrieve one file's metadata. Never returns the bytes or the storage path.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/files/<file_id>/",
+      "operation_type": "read",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Acting on files requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.replace",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-replace",
+      "display_name": "Replace File",
+      "description": "Supersede this file with a newer one. Multipart. Creates a new record inheriting the owner and category, starting pending; the predecessor is kept.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/files/<file_id>/replace/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The file must be readable before it can be acted on."
+        },
+        {
+          "target_permission_key": "uploaded_files.file.upload",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Replacing a file is an upload against an existing record."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.restore",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-restore",
+      "display_name": "Restore File",
+      "description": "Return an archived file to active work. Admin authority only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/files/<file_id>/restore/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.archive",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Restoring reverses archival, so it presupposes it."
+        },
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The file must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.update",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-update",
+      "display_name": "Edit File",
+      "description": "Correct a file's category or notes. Every other field is refused.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/files/<file_id>/",
+      "operation_type": "update",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The file must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.upload",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-upload",
+      "display_name": "Upload File",
+      "description": "Store one file against exactly one business record. Multipart. Validated for size, extension, and leading bytes; created as pending.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/files/",
+      "operation_type": "create",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Acting on files requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.verify",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-verify",
+      "display_name": "Review File",
+      "description": "Record a verdict on a file: verified or rejected. Rejecting requires a reason. Admin authority only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/files/<file_id>/verify/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The file must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "uploaded_files.file.versions",
+      "app_key": "uploaded_files",
+      "model_key": "file",
+      "endpoint_key": "file-versions",
+      "display_name": "List File Versions",
+      "description": "Return the whole replacement chain containing this file, oldest first. Unpaginated.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/files/<file_id>/versions/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "file_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The file must be readable before it can be acted on."
         }
       ]
     }

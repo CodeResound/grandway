@@ -1,7 +1,7 @@
 # Integration — Document History
 
 **Owner app:** `document_history`
-**Version:** 1.0.3
+**Version:** 1.0.4
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -15,6 +15,7 @@
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Defects found by the §19.5 consumer-comprehension test: added success status codes, the recovery response shape, the 403 to every `Errors` list, the Bikram Sambat `fiscal_year` warning, corrected the query-parameter rule, and recorded three new gaps |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint change. Second §19.5 review round: declared the recovery `Document` field set complete, defined `is_editable`, disambiguated the `-id` tiebreaker, removed a stale claim that the 403 was absent from §7's error lists, and documented capture-note propagation, empty-body capture, nullable BS objects, response size, and the unenforced permission keys |
 | 1.0.3 | 2026-07-24 | AI (Claude) | No endpoint change. Recorded that the signatory ids frozen into `render_context` now resolve against `document_templates` — while this module still validates nothing inside `render_context` — and that it gained no dependency on that module in either direction |
+| 1.0.4 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the calls that store and find a generated PDF, and that nothing here will report it |
 
 ---
 
@@ -38,11 +39,11 @@
 
 **This module writes to exactly one thing outside itself, and only on one endpoint.** `POST /snapshots/<id>/recover/` writes `label` and `content` into the working `Document` through `documents.services.update_document`. Every other endpoint here is inert with respect to the rest of the system: capturing, listing, reading, and reprinting change nothing outside this module's own two tables. In particular, **capturing a snapshot does not change the document's `status`** — there is no `printed` status in `documents`, deliberately.
 
-**One app this module deliberately does not contain, and which does not exist yet:**
-
-| Missing app | What it would own | What you cannot do today |
-|---|---|---|
-| `uploaded_files` | File storage, verification, versioning | Attach or reference a generated PDF. **A snapshot has no file field at all** — see §9 |
+**One app this module deliberately does not contain, and which now exists:** `uploaded_files`
+(`/api/v1/files/`) owns file storage, verification, and versioning. A generated PDF has a home there
+— `POST /api/v1/files/` with `snapshot=<snapshot_id>` and `category=generated_document` — but
+**a snapshot payload here still has no file field at all**, so the connection is visible only from
+that module. See §9.
 
 **One app this module deliberately does not contain, and which now exists:** `document_templates`
 (`/api/v1/document-templates/`) owns the signatory library whose ids you freeze into
@@ -461,7 +462,7 @@ own contract §4 is authoritative.** Fields this recovery overwrote are marked.
 - **A "has this been printed?" badge on a documents list costs one extra request per row, and there is no way around it.** No field on the `Document` resource reports snapshot existence or count, and **both list endpoints here require a document id** — there is no cross-document query of any kind. A 50-row Documents list with a printed indicator is 50 additional calls, against a shared 1000/hour budget with no separate throttle for this module. There is no batch endpoint, no `?document_id__in=`, and no aggregate. `GET /api/v1/audit/events/?app=document_history` is the nearest substitute and returns audit events with a different shape, from a different module. **Design the screen around this or do not build the badge** — this is a structural constraint, not an oversight to route around.
 - **The actor is exposed only as a username string.** `captured_by_username` and `performed_by_username` are backed by `PROTECT` foreign keys to user accounts, but **neither id is returned**. You cannot deep-link a timeline row to a user, join to a directory, or render an avatar without a name lookup. Worse for an append-only history: a username is mutable, so renaming a user retroactively changes what every one of their past snapshots appears to say, and there is nothing to anchor the true actor to. This matches the convention in `documents` and every other module in the project — it is consistent, not accidental — but on a module whose entire purpose is proving what was issued and by whom, it is the sharpest gap in this contract.
 - **`Snapshot.family` will grow without a version bump.** §5 lists six values, but the field is a plain string copied from `documents`, and a family added there appears here with no change to this module and no `/api/v2/`. **Do not generate a closed union type from §5.** Treat `family` as an open string with a fallback branch; the six values are what exists today, not a guarantee.
-- **No generated-file storage or reference of any kind.** A snapshot has no file field, no PDF URL, and no attachment. `uploaded_files` does not exist, so any reference stored today would be an unresolvable string. The snapshot *is* the record; if you generate a PDF client-side you must store it yourself, and nothing in this API will know about it. `concepts/document_history.txt` names "Generated file reference" as a core entity — it is deliberately deferred, not overlooked.
+- **No generated-file reference *on this resource*.** A snapshot payload has no file field, no PDF URL, and no attachment. **`uploaded_files` (`/api/v1/files/`) is now built**, so a client-generated PDF can be stored against a snapshot — `POST /api/v1/files/` with `snapshot=<snapshot_id>`, `category=generated_document`, `upload_source=system_generated` — and listed with `GET /api/v1/files/?snapshot=<snapshot_id>`. **Nothing in this API will tell you it exists**: the snapshot *is* the record, and the link is visible only from the file's side. `concepts/document_history.txt` names "Generated file reference" as a core entity — the reverse pointer is deliberately deferred, not overlooked.
 - **No compare endpoint.** The concept file's "Compare Snapshots" screen is backed by two retrieves and a client-side diff. The backend does not compute, return, or store a diff between two versions.
 - **No cross-document view.** Both list endpoints require a document id. You cannot ask "everything printed this month", "every snapshot of family `bank_statement`", or "everything user X printed". The `audit` module's event list (`GET /api/v1/audit/events/?app=document_history`) is the nearest available substitute and returns audit events, not snapshots.
 - **`render_context` is completely unvalidated.** The backend checks only that it is a JSON object under 256 KiB. It does not know what a template version is, cannot tell a real signatory id from a typo, and will return whatever you stored forever. **If your client stops sending a computed value, older snapshots keep theirs and newer ones simply lack it** — with no error and no migration. Version your own `render_context` shape; `template_version` is the conventional place, but nothing enforces it.

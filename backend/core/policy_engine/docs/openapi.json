@@ -3862,6 +3862,502 @@
         ]
       }
     },
+    "/api/v1/files/": {
+      "get": {
+        "operationId": "uploaded_files.file.list",
+        "summary": "List Files",
+        "description": "List file records. Filter by owner (applicant, journey, offer, document, snapshot), category, verification status, archive state, or checksum.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.list",
+        "x-risk-level": "medium",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "uploaded_files.file.upload",
+        "summary": "Upload File",
+        "description": "Store one file against exactly one business record. Multipart. Validated for size, extension, and leading bytes; created as pending.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.upload",
+        "x-risk-level": "high",
+        "x-operation-type": "create",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/files/{file_id}/": {
+      "get": {
+        "operationId": "uploaded_files.file.read",
+        "summary": "View File",
+        "description": "Retrieve one file's metadata. Never returns the bytes or the storage path.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.read",
+        "x-risk-level": "medium",
+        "x-operation-type": "read",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "uploaded_files.file.update",
+        "summary": "Edit File",
+        "description": "Correct a file's category or notes. Every other field is refused.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.update",
+        "x-risk-level": "low",
+        "x-operation-type": "update",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/archive/": {
+      "post": {
+        "operationId": "uploaded_files.file.archive",
+        "summary": "Archive File",
+        "description": "Retire a file from active work. A reason is required. Nothing is deleted and the version chain is unaffected. Admin authority only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.archive",
+        "x-risk-level": "high",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/download/": {
+      "get": {
+        "operationId": "uploaded_files.file.download",
+        "summary": "Download File",
+        "description": "Stream the stored bytes as an attachment. The only path from the storage volume to a client, and the only read in the project that writes an audit event.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.download",
+        "x-risk-level": "critical",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/replace/": {
+      "post": {
+        "operationId": "uploaded_files.file.replace",
+        "summary": "Replace File",
+        "description": "Supersede this file with a newer one. Multipart. Creates a new record inheriting the owner and category, starting pending; the predecessor is kept.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.replace",
+        "x-risk-level": "high",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/restore/": {
+      "post": {
+        "operationId": "uploaded_files.file.restore",
+        "summary": "Restore File",
+        "description": "Return an archived file to active work. Admin authority only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.restore",
+        "x-risk-level": "medium",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/verify/": {
+      "post": {
+        "operationId": "uploaded_files.file.verify",
+        "summary": "Review File",
+        "description": "Record a verdict on a file: verified or rejected. Rejecting requires a reason. Admin authority only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.verify",
+        "x-risk-level": "high",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/versions/": {
+      "get": {
+        "operationId": "uploaded_files.file.versions",
+        "summary": "List File Versions",
+        "description": "Return the whole replacement chain containing this file, oldest first. Unpaginated.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "uploaded_files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "uploaded_files.file.versions",
+        "x-risk-level": "medium",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/journeys/": {
       "get": {
         "operationId": "applicant_journeys.journey.list",

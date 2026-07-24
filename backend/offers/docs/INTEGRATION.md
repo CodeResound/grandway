@@ -1,7 +1,7 @@
 # Integration — Offers
 
 **Owner app:** `offers`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 11 endpoints across two resources |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the two calls that back the Offer Detail supporting-files section |
 
 ---
 
@@ -522,7 +523,7 @@ Field-level validation failures come from the serializer layer and put the offen
 - **No text search on the offer list.** There is no `q` parameter. `intake` matches `intake_label` partially and that is the only substring filter — the snapshot institution and program names cannot be searched at all. A client wanting "find offers from Melbourne" must either filter by the catalogue `institution` id (which misses every manual offer) or fetch and filter client-side.
 - **No `superseded_by` link.** The concept says an offer "may be superseded by a later offer for the same journey", but nothing records that relationship. Infer it from the newest-first ordering of `GET /offers/?journey=<id>`, or from which offer is `accepted`. If a UI needs an explicit "superseded" badge, it must define the rule itself.
 - **Intakes are free text.** `intake_label` and `deferred_to_intake` are unstructured strings, because `institutions` has no Intake table in its Phase 1 (`concepts/institutions.txt` — "Still open, and blocking Phase 2"). So there is no date-based intake search, no way to group offers by intake reliably, and `?intake=` is a substring match that will miss `"February 2027"` when the stored value is `"Feb 2027"`. Normalise on input in the UI if you need grouping.
-- **No supporting files.** The concept lists supporting files as offer information; only `notes` exists. The `uploaded_files` module named in `concepts/project_overview.txt` is not built, and this app deliberately does not pre-empt it. An offer letter PDF has nowhere to live today.
+- **No supporting files *on this resource*.** The concept lists supporting files as offer information; only `notes` exists here. **The `uploaded_files` module (`/api/v1/files/`) is now built** and an offer letter does have a home: `POST /api/v1/files/` with `offer=<offer_id>`, `category=offer_letter`, listed with `GET /api/v1/files/?offer=<offer_id>`. But **an offer payload carries no file references of any kind** — no count, no ids. A screen showing an offer and its letter makes two calls and joins them itself.
 - **Offer conditions are not `checklists`.** The `checklists` domain is named in the project overview and not built. Whether offer conditions should eventually become checklist items is an open question; today they are owned entirely by this module and are not reusable across offers.
 - **Nothing reconciles a journey's free-text destination with the offer's catalogue reference.** A journey may say `target_institution_name: "Melbourne Uni"` while an offer on it points at the catalogue's "University of Melbourne". Both are stored; nothing compares them, and no endpoint reports a mismatch.
 - **The journey's stage is never driven by offer activity.** Deliberate, but it means a journey can sit at `planning` with three issued offers on it, and no API surface flags the inconsistency.

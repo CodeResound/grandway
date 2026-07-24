@@ -1,10 +1,10 @@
 # Data Contract — Document Templates
 
 **Owner app:** `document_templates`
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Status:** Active
 **Created:** 2026-07-24
-**Purpose:** Owns the signatory library that certificate documents point at, and the catalogue of template slugs the document picker offers. It does **not** own the editable document record (`documents`), the immutable print snapshot (`document_history`), file storage (`uploaded_files`, which does not exist), or the template *rendering* — which lives in the frontend as code, not here.
+**Purpose:** Owns the signatory library that certificate documents point at, and the catalogue of template slugs the document picker offers. It does **not** own the editable document record (`documents`), the immutable print snapshot (`document_history`), file storage (`uploaded_files`, which now exists but which this app does not call), or the template *rendering* — which lives in the frontend as code, not here.
 
 ---
 
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — two models, `Signatory` and `DocumentTemplate` |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No schema change. Renamed the `PATCH` status guard's error code and documented the `name_romanized` re-derivation rule |
+| 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Same, for `signature_image_url` |
 
 ---
 

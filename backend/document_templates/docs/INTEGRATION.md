@@ -1,7 +1,7 @@
 # Integration — Document Templates
 
 **Owner app:** `document_templates`
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 10 endpoints, two resources |
 | 1.0.1 | 2026-07-24 | AI (Claude) | Defects found by the §19.5 consumer-comprehension test. **`DOCUMENT_TEMPLATES_STATUS_INVALID_TRANSITION` renamed to `..._STATUS_IMMUTABLE` for the `PATCH` guard** — no transition in this app is ever invalid, so the old name described a rule that does not exist. Documented that a rename re-derives `name_romanized`, that omitting `status` returns everything, the create-error precedence, a worked query-parameter error body, the real pagination cost of mirroring the catalogue, and four new gaps |
+| 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Same, for `signature_image_url` |
 
 ---
 
@@ -43,7 +44,7 @@
 
 Both stored those ids against a table that did not exist until this module shipped. **What changed is that you now have a real list to pick from. What did not change is that nothing stops either module accepting an id that was never in that list** — see §9.
 
-**One app this module deliberately does not contain, and which does not exist yet:** `uploaded_files` would own file storage. A signature is therefore a **link**, not an upload — see §3.
+**One app this module deliberately does not contain, and which now exists:** `uploaded_files` (`/api/v1/files/`) owns file storage. **A signature is still a link, not an upload** — this module was not migrated to it, and a `Signatory` is not one of that module's five owner types, so a signature image cannot be attached there today either. See §3 and §9.
 
 ## 3. Conventions
 
@@ -404,7 +405,7 @@ Both stored those ids against a table that did not exist until this module shipp
 - **No bulk reorder.** `display_order` is set one `PATCH` at a time, with no transaction across them — reordering a family of eleven bank templates is eleven independent writes that can half-apply.
 - **No lookup-by-key endpoint.** Every route takes the UUID `id`. Holding a `documents.template_key` and wanting its label means listing the catalogue and matching client-side — cheap at 53 rows, but there is no `GET /templates/?key=...` and no `GET /templates/by-key/<key>/`.
 - **No template *definition* of any kind.** No sections, no field hints, no signature slots, no layout, no preview, and no version chain. The templates are frontend code; this module knows only that a slug exists, what family it belongs to, and what to call it. `concepts/document_templates.txt` describes a Template Editor, a Template Detail / Version History screen, and a Template Preview — **none of the three has a backing endpoint**, deliberately, because nothing consumes that metadata and inventing a schema for it would guarantee drift from the templates that actually render.
-- **No signature image storage.** `signature_image_url` is a link to a host this API knows nothing about. No upload endpoint, no size or type validation, no reachability check, no CDN. `uploaded_files` does not exist. If the link rots, every certificate rendered from that signatory shows a broken image and nothing here will report it.
+- **No signature image storage.** `signature_image_url` is a link to a host this API knows nothing about. No upload endpoint, no size or type validation, no reachability check, no CDN. **`uploaded_files` shipped on 2026-07-24 and this field was deliberately not migrated to it** — repointing it would change a shipped response shape, and a `Signatory` is not one of that module's owner types, so there is nowhere to attach a signature even by hand. If the link rots, every certificate rendered from that signatory shows a broken image and nothing here will report it.
 - **`role` is unconstrained free text.** Two values are in use (`director`, `instructor`) because that is what the certificate templates read, but any 100-character string is accepted. Do not build a closed dropdown from what you observe; do not assume a signatory's `role` matches the slot you are filling.
 - **`family` will grow without a version bump.** The six values come from `documents` and a seventh would appear here with no change to this module and no `/api/v2/`. Treat it as an open string.
 - **No Bikram Sambat dates and no `?fiscal_year=` filter**, unlike `documents` and `document_history`. Both timestamps here are system bookkeeping on a reference library, not user-facing business dates.

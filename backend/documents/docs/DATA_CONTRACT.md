@@ -1,10 +1,10 @@
 # Data Contract — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.2
+**Version:** 1.0.3
 **Status:** Active
 **Created:** 2026-07-24
-**Purpose:** Owns the editable document working record — identity, ownership, template association, status, and the entered source data. It does **not** own the immutable print snapshot (`document_history`), the template catalogue or its signatories (`document_templates`), supporting files (`uploaded_files`), or the person (`applicants`). `document_history` and `document_templates` both now exist; `uploaded_files` does not. It owns no history table — a document's history is the central `audit` log filtered to that document.
+**Purpose:** Owns the editable document working record — identity, ownership, template association, status, and the entered source data. It does **not** own the immutable print snapshot (`document_history`), the template catalogue or its signatories (`document_templates`), supporting files (`uploaded_files`), or the person (`applicants`). `document_history`, `document_templates`, and `uploaded_files` all now exist. **This model still holds no reference to a file** — attaching one is a call to `/api/v1/files/` with `document=<id>`, and nothing here knows it happened. It owns no history table — a document's history is the central `audit` log filtered to that document.
 
 ---
 
@@ -15,6 +15,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — one model, `Document` |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No schema change. Recorded `document_history` as an inbound dependency and restated why `printed` stays absent |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No schema change. `document_templates` shipped: recorded it as an inbound dependency that imports this app's family enum, slug validator, and key/family rule but holds no database relation. **Corrected the slug count from 42 to 53** and stated why the signature-FK omission is now deliberate rather than forced |
+| 1.0.3 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Recorded that a document still holds no file reference: attachments are reached from `/api/v1/files/?document=<id>` |
 
 ---
 

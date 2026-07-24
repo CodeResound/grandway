@@ -235,9 +235,15 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 
 **Not backed, and deliberately so:**
 
-- **Any generated-file link.** A snapshot has no file field. `uploaded_files` does not exist, so a
-  generated PDF cannot be stored, referenced, or retrieved through any endpoint in this project.
-  **Do not ship a "download the saved PDF" control** — there is nothing behind it.
+- **Any generated-file link *in a snapshot payload*.** A snapshot still has no file field.
+  `uploaded_files` shipped on 2026-07-24 and a snapshot **is** one of its five owner types, so a
+  client that generates a PDF may store it — `POST /api/v1/files/` with `snapshot=<snapshot_id>`,
+  `category=generated_document`, `upload_source=system_generated` (`uploaded_files.file.upload`,
+  cross-app: `uploaded_files`) — and find it again with `GET /api/v1/files/?snapshot=<snapshot_id>`
+  (`uploaded_files.file.list`, cross-app: `uploaded_files`).
+  **Nothing in this module knows the file exists.** A "download the saved PDF" control on a history
+  row is therefore shippable only if your own client uploaded that PDF in the first place; the
+  backend neither generates nor tracks one.
 - **Any cross-document view** — "everything printed this month", "all snapshots of family
   `bank_statement`". Both list endpoints require a document id.
 - **A signatory picker** is not this app's to provide, but one now exists —
@@ -273,8 +279,11 @@ not just this file.
   `concepts/document_history.txt` asks this; it is deferred, and both list endpoints are per-document
   today. The `audit` module's event list (`?app=document_history`) is the nearest substitute and
   returns audit events, not snapshots.
-- **Should generated PDFs be retained?** Deferred until `uploaded_files` exists. Nothing in the
-  schema anticipates it beyond the fact that adding an FK later is additive.
+- **Should generated PDFs be retained?** Now answerable and still unanswered. `uploaded_files`
+  exists, carries a `generated_document` category, and accepts a snapshot as an owner — so retention
+  is a product decision rather than a missing capability. What is still absent is any *automatic*
+  retention: nothing on the backend generates a PDF, and a snapshot payload has no reverse pointer to
+  one that was uploaded.
 - **Nothing enforces the `content` / `render_context` split.** A client that puts a computed closing
   balance inside the document body will have it frozen there, and no endpoint will flag it. The
   convention is load-bearing for the frontend and invisible to the backend.

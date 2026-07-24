@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 # Provide required env defaults so base settings can import without a running DB or .env file
 os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-production")
@@ -9,6 +10,12 @@ os.environ.setdefault("DB_PASSWORD", "test")
 from .base import *  # noqa: F401, F403, E402
 
 DEBUG = True
+
+# Uploaded files never touch the repository working tree during a test run.
+# Individual upload tests still wrap themselves in override_settings with their
+# own temp directory so they can clean up; this is the backstop that keeps a
+# test which forgets to do so from writing into backend/mediafiles/.
+MEDIA_ROOT = tempfile.mkdtemp(prefix="grandway-test-media-")
 
 DATABASES = {
     "default": {

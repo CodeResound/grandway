@@ -1,7 +1,7 @@
 # Data Contract — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.1.0
+**Version:** 1.1.1
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns the permanent, authoritative identity of a person the consultancy works with — name, date of birth, contact numbers, addresses, passport, family, emergency contacts, and standing. It does **not** own study objectives (`applicant_journeys`), academic history (`education`, not built), test attempts (`test_scores`, not built), or any file. It owns no history table either — an applicant's history is the central `audit` log filtered to that applicant. It carries **no reference to the originating lead**: `leads.Lead` owns that link, so this app has no dependency on `leads`.
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial contract — six models, shared (non-owner-scoped) access |
 | 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the inbound nullable `documents.Document.applicant` FK and the access asymmetry it introduces: applicants are readable by any Admin or Lead Manager, their documents are Admin-only |
+| 1.1.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. A photograph now has a home in `uploaded_files`; this model still holds no reference, and nothing marks a primary photograph |
 
 ---
 
@@ -22,7 +23,7 @@
 `concepts/applicants.txt` is the grounding document; three provisions are implemented differently than a literal reading suggests.
 
 - **No history table.** The concept asks for a chronological history of applicant actions. The central `audit` app already provides an immutable append-only event log, and §4 forbids duplicating another app's storage. History is `audit.AuditEvent` filtered to `app_label="applicants"`, `entity_type="applicant"`, `entity_id=<id>`. Same decision as `leads`.
-- **No photograph.** The concept lists it, but §14 requires a documented file contract and `project_overview.txt` has a dedicated `uploaded_files` domain. Adding an `ImageField` now would pre-empt that app or ship an undocumented upload path. Recorded as an open question in the concept file.
+- **No photograph *field*.** The concept lists one, and this model still has no image column. **`uploaded_files` now exists** and holds a `PROTECT` foreign key to `Applicant`, so a photograph has a home — `POST /api/v1/files/` with `applicant=<id>`, `category=photograph`. Two things are still deliberately absent and both matter: this model has no pointer back, and **nothing marks one file as *the* photograph**. A caller filtering by category may get several and must pick one itself.
 - **No `origin_lead` field.** The concept says the record notes "when applicable, the originating lead." Storing it here would make `applicants` depend on `leads`, which is wrong — an applicant may be created directly with no lead at all. `leads.Lead.converted_applicant` is a `OneToOneField` pointing this way, so the same fact is available through the reverse accessor `applicant.originating_lead` with no second column and no inverted dependency. The `OneToOne` additionally makes "two leads converting to one applicant" impossible at the database level.
 
 ---

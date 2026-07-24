@@ -1,10 +1,10 @@
 # Data Contract — Document History
 
 **Owner app:** `document_history`
-**Version:** 1.0.2
+**Version:** 1.0.3
 **Status:** Active
 **Created:** 2026-07-24
-**Purpose:** Owns the immutable print snapshots of a document and the print events that produced them. It does **not** own the editable working record (`documents`), the template catalogue or its signatories (`document_templates`), generated files (`uploaded_files`), or the person (`applicants`). Only `uploaded_files` does not exist.
+**Purpose:** Owns the immutable print snapshots of a document and the print events that produced them. It does **not** own the editable working record (`documents`), the template catalogue or its signatories (`document_templates`), generated files (`uploaded_files`), or the person (`applicants`). All four now exist — but this app holds **no reference to a file**, so a snapshot and its generated PDF are connected only from the file's side.
 
 ---
 
@@ -15,6 +15,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — two models, `DocumentSnapshot` and `PrintEvent` |
 | 1.0.1 | 2026-07-24 | AI (Claude) | Added the `-id` ordering tiebreaker on `PrintEvent` so a paginated timeline cannot skip or duplicate a row |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No schema change. `document_templates` shipped, so the signatory table the render context references now exists; corrected the template count to 53 |
+| 1.0.3 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. A generated PDF now has a home against a snapshot; the reverse pointer stays deliberately deferred |
 
 ---
 
@@ -34,7 +35,7 @@ A second rule follows from it: **the backend copies the document body, it never 
 
 - **The snapshot stores source data plus render context, not rendered markup.** The concept's first open question asks which. Storing the full rendered HTML would reproduce the visual output exactly, but it is unbounded in size, duplicates data already held twice, and would be an injection liability the moment anything served it back. `render_context` carries what markup cannot be reconstructed from — the frontend-computed values (running balances, closing balance, amount-in-words), the template version, and the signatory metadata — which is what the concept actually requires: "If the document contains frontend-computed values, those values are frozen as part of the snapshot rather than recomputed later."
 - **`render_context` is an unvalidated JSON object.** §5 requires a contract for every data object, and this one cannot have a *server-enforced* one, for the reason `documents.content` cannot: the shape differs across 53 templates and the authoritative version lives with the renderer. The two things checked are that it is an object and that it fits under 256 KiB. A serializer that named fields would silently drop the keys a template it has never heard of depends on.
-- **Generated file references are deferred entirely.** The concept names "Generated file reference" as a core entity and its second open question asks whether PDFs should be retained. There is **no field for it**, because `uploaded_files` does not exist: any reference stored today would be an opaque string nothing can resolve, verify, or clean up. This is the same call `documents` made when it omitted a `printed` status — "a status no code writes is a lie in the schema". Adding the FK later is additive. The concept already permits this: "No assumption that a generated PDF must exist; the snapshot is the record, the file is optional."
+- **Generated file references remain deferred, and the reason has changed.** The concept names "Generated file reference" as a core entity and its second open question asks whether PDFs should be retained. There is still **no field for it** on either model. What changed on 2026-07-24 is that `uploaded_files` shipped, holds a `PROTECT` foreign key to `DocumentSnapshot`, and carries a `generated_document` category and a `system_generated` upload source — so a generated PDF now has a real home, reachable as `POST /api/v1/files/` with `snapshot=<id>` and `GET /api/v1/files/?snapshot=<id>`. **Nothing in this app knows about it**, by decision rather than by absence: adding a reverse pointer changes a shipped response shape and belongs in its own session. The concept already permits this: "No assumption that a generated PDF must exist; the snapshot is the record, the file is optional."
 - **The timeline is per-document only.** The concept's third open question asks whether a wider document-family view is needed for Admin review. It is not built (§32). Both list endpoints require a document id in the path; there is no cross-document snapshot or print-event query. Additive later.
 - **`document_history` exposes a direct recover endpoint, not a recovery payload.** The concept's fifth open question asks which. A payload-only design makes recovery two client calls that can fail between, and the resulting write is not attributable to a recovery at all. The endpoint calls `documents.services.update_document` in one transaction, so the write goes through the owning app's own rules — and both apps' audit logs record it.
 - **`label` is copied as a single field, not a §39.1 bilingual pair, and has no `_romanized` sibling.** It is copied verbatim from `documents.Document.label`, which recorded that deviation with its reasoning: a label is operational shorthand from a template picker, not an entity's legally canonical identity. Adding a language pair here would invent text the source record does not have. **Unicode normalization (§39.2) still applies in full** to `capture_note` and `note`, the two fields a user actually types.

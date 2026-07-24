@@ -190,7 +190,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 **Every screen in `concepts/offers.txt` is backed**, with two qualifications:
 
 - The **Offer List**'s filters are backed except for text search — there is no `q` parameter, so "find offers from Melbourne" can only be done by catalogue `institution` id, which misses every manually recorded offer. Filter client-side, or narrow by journey first.
-- The **Offer Detail** screen's "supporting files" section has no endpoint at all. Nothing can be attached to an offer today; this waits on `uploaded_files`.
+- The **Offer Detail** screen's "supporting files" section is backed since 2026-07-24, but by another module: `POST /api/v1/files/` with `offer=<offer_id>`, `category=offer_letter` (`uploaded_files.file.upload`, cross-app: `uploaded_files`) and `GET /api/v1/files/?offer=<offer_id>&is_archived=false` (`uploaded_files.file.list`, cross-app: `uploaded_files`). See `concepts/uploaded_files_flows.md`. **An offer payload carries no file reference**, so the section is always a second call the screen joins itself.
 
 ## Cross-app dependencies
 

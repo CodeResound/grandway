@@ -1,7 +1,7 @@
 # Data Contract — Clients
 
 **Owner app:** `clients`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the consultancy's B2B partner directory — the agencies, schools, and companies that refer or send applicants, with the contact and identity details staff need to work with them. It does **not** own people (`leads`, `applicants`), study plans (`applicant_journeys`), the study catalogue (`institutions`), or offers. It owns no history table — a client's history is the central `audit` log filtered to that client.
@@ -13,6 +13,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — `Client` and `ClientContactNumber` |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Recorded that `logo_url` was deliberately not migrated, and that a `Client` is not an accepted owner type |
 
 ---
 
@@ -20,7 +21,7 @@
 
 `concepts/clients.txt` leaves five questions open. Four were settled with the user; the fifth was settled by the project's own state. Each departure from the concept file or from `CLAUDE.md` is recorded here rather than left to be inferred.
 
-- **The logo is a URL, not an uploaded file.** The concept asks which. §14 requires a documented file contract — allowed types, max size, storage location, filename rule, MIME validation, access control — and `concepts/project_overview.txt` names a dedicated `uploaded_files` domain that does not exist yet. `logo_url` is a plain link to a logo hosted elsewhere: no storage decision, no upload path, and additively replaceable when `uploaded_files` ships. Third app to defer file handling this way, after the applicant photograph and offer attachments.
+- **The logo is a URL, not an uploaded file.** The concept asks which. `logo_url` is a plain link to a logo hosted elsewhere: no storage decision and no upload path. **`uploaded_files` shipped on 2026-07-24 and this field was deliberately not migrated to it** — repointing it would change a shipped response shape (§22/§29) and needs its own session and deprecation path. Note also that a `Client` is **not** one of that app's five owner types, so a logo cannot be attached there today even by hand; adding a sixth owner column is the change that would make migration possible.
 - **`ClientStatus` has two values, not three.** The concept asks whether a separate `paused` or `archived` distinction is needed. It is not: a third status is only worth having if something branches on it, and in V1 nothing does — the only behaviour attached to status is whether the directory presents a partner as a current contact, which is binary. The nuance a `paused` value would have carried is carried better by the **mandatory** `status_note`, which says *why* in words instead of encoding it in an enum nothing reads. This is the opposite call from `institutions.AvailabilityStatus`, which genuinely needs four values because its program search filters on them.
 - **One inline spokesperson, not a contact table.** The concept says V1 "may" put a primary spokesperson directly on the client record, and separately rules out "complex multi-contact CRM structure in V1". Both are honoured: the spokesperson is four inline fields. Contact *numbers* are a child table, because an organization realistically has a landline and two mobiles while having exactly one person you ask for.
 - **No history table**, for the same reason as `leads`, `applicants`, `applicant_journeys`, `institutions`, and `offers`: `audit` already provides an immutable append-only log and §4 forbids duplicating another app's storage.

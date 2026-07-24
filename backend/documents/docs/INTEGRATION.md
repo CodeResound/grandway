@@ -1,7 +1,7 @@
 # Integration — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.2
+**Version:** 1.0.3
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 9 endpoints, one resource |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. `document_history` moved from "missing" to a documented consumer; print/recover gaps closed |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint change. `document_templates` moved from "missing" to a documented consumer. Restated the signatory and template-registry gaps precisely — both libraries now exist and **this module still validates neither** — and corrected the slug count to 53 |
+| 1.0.3 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Moved `uploaded_files` from the missing-apps table to the now-exists list and named the calls a client makes instead |
 
 ---
 
@@ -35,13 +36,13 @@
 
 **This module writes to nothing outside itself.** Creating, editing, or archiving a document does not touch the applicant's status or any other record.
 
-**One app this module deliberately does not contain, and which does not exist yet:**
+**Three apps this module deliberately does not contain, and which now exist:**
 
-| Missing app | What it would own | What you cannot do today |
-|---|---|---|
-| `uploaded_files` | File storage, verification, versioning | Attach a supporting file to a document, or store a generated PDF anywhere |
-
-**Two apps this module deliberately does not contain, and which now exist:**
+- **`uploaded_files`** (`/api/v1/files/`) owns file storage, verification, and versioning. **A
+  document still has no attachment field here** — attach a supporting file or a generated PDF by
+  calling `POST /api/v1/files/` with `document=<document_id>`, and list them with
+  `GET /api/v1/files/?document=<document_id>`. This module is not involved in either call and
+  returns no file references.
 
 - **`document_history`** (`/api/v1/document-history/`) owns immutable print snapshots and print
   events. It **consumes** this module — it holds `PROTECT` foreign keys to `Document` and performs a
@@ -463,7 +464,7 @@
 
 - **Signature references are still unvalidated, even though the signatory table now exists.** `content.instructorId` / `content.directorId` on certificate templates name records in `document_templates`, and you can now fetch the real list from `GET /api/v1/document-templates/signatories/?status=active`. But this module stores `content` as an opaque JSON body and does not look inside it: a typo, a stale id, or the id of a `draft` signatory are all accepted silently. **A document may still name a signatory that never existed** — what changed is that a correct client has a list to pick from, not that an incorrect one is caught.
 - **The template catalogue is advisory; `template_key` is still not checked against it.** `document_templates` holds a catalogue of registered slugs, and this module does not consult it. A well-formed slug matching its family prefix is accepted whether or not it is registered, and whether or not it is retired. See the next item — the two gaps compound.
-- **No supporting files.** `uploaded_files` does not exist, so nothing can be attached to a document.
+- **No supporting files *on this resource*.** `uploaded_files` now exists, but **a document payload carries no file references at all** — no count, no list, no ids. Files that belong to a document are reachable only from that module, via `GET /api/v1/files/?document=<document_id>`. A screen showing a document and its attachments must make two calls and join them itself.
 - **A template registry exists, and this module does not use it.** `template_key` is format-checked and family-checked but **not** checked against `document_templates`' catalogue. A typo that happens to match the family prefix — `bank-vyass-statement` — is still accepted. Enforcing the catalogue would narrow this endpoint's accepted input, which is a breaking change and a separate decision; until it is made, your picker is the only thing standing between a typo and a document nobody can render.
 
 ### Behavioural — things that will surprise a client

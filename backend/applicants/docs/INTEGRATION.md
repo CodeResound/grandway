@@ -1,7 +1,7 @@
 # Integration — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 6 endpoints |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the two calls that back an avatar, and the two caveats that still block a simple one |
 
 ---
 
@@ -375,7 +376,7 @@
 
 ## 9. Gaps
 
-- **No photograph.** `concepts/applicants.txt` lists one, but no file handling exists in this module and none is planned here — files will belong to a separate module. Do not build an avatar upload against this contract.
+- **No photograph *on this resource*.** `concepts/applicants.txt` lists one; no file handling exists in this module and none is planned here. **Files live in `uploaded_files` (`/api/v1/files/`), which is now built** — upload with `applicant=<applicant_id>` and `category=photograph`, list with `GET /api/v1/files/?applicant=<applicant_id>&category=photograph`. Two caveats before you build an avatar: an applicant payload carries **no file reference at all**, and **nothing designates a primary photograph** — the filter can return several, and choosing among them is a client-side convention, not a backend rule.
 - **No academic history, test scores, documents, or files.** The `education` and `test_scores` modules are specified but not built; there is no endpoint for either.
 - **No duplicate detection or merging.** Two records for the same person can be created and nothing prevents or resolves it.
 - **No field-level redaction.** Every lead actor who can read an applicant reads the whole record including passport and date of birth. Whether those should be Admin-only is unresolved.

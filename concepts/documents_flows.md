@@ -238,14 +238,20 @@ One related gap is now backed, and one still is not:
   - **The ids are still unvalidated on save.** This app stores `content` as an opaque body and does
     not look inside it, so a typo, a stale id, or the id of a `draft` signatory are all accepted
     silently. **Your dropdown is the only guard.**
-- **Supporting files are unbacked.** Flow 2's "attaches supporting files when needed" needs
-  `uploaded_files`, which does not exist. Nothing can be attached to a document, and **no generated
-  PDF can be stored anywhere** — a snapshot has no file field, and a signature is a link to a host
-  this project knows nothing about.
+- **Supporting files are backed now, but not from here.** Flow 2's "attaches supporting files when
+  needed" is buildable: `uploaded_files` shipped on 2026-07-24, and a document is one of its five
+  owner types. **The calls are that app's, not this one's** — `POST /api/v1/files/` with
+  `document=<document_id>` (`uploaded_files.file.upload`, cross-app: `uploaded_files`) and
+  `GET /api/v1/files/?document=<document_id>&is_archived=false` (`uploaded_files.file.list`,
+  cross-app: `uploaded_files`). See `concepts/uploaded_files_flows.md`.
+  - **A document payload carries no file reference of any kind** — no count, no ids. The attachments
+    panel is a second call the screen joins itself.
+  - A generated PDF may likewise be stored against a **snapshot**, not against the document — see
+    `concepts/document_history_flows.md`.
 
-**Do not ship a file-attach control or a "download the saved PDF" link on a history row** — each
-would need an API that is not there. The signatory dropdown, by contrast, must now be backed by the
-real endpoint rather than hardcoded data.
+**A file-attach control is now shippable; a "download the saved PDF" link on a history row is not**,
+because nothing generates or stores that PDF automatically — a client that produces one must upload
+it itself. The signatory dropdown must be backed by the real endpoint rather than hardcoded data.
 
 ---
 
@@ -289,10 +295,13 @@ real endpoint rather than hardcoded data.
   Document type picker and `document_templates.signatory.list` for the instructor and director
   dropdowns. Both are **advisory** — this app validates neither the `template_key` nor the signatory
   ids against them. See `concepts/document_templates_flows.md`.
-- **Blocked on (not yet existing):** `uploaded_files` (supporting files, and any generated PDF) —
-  a named domain in `concepts/project_overview.txt` with no concept file. Neither
-  `document_history` nor `document_templates` is on this list any more: both shipped, and their flow
-  files complete the frontend handoff for printing and for the template and signatory pickers.
+- **This app also references (outbound, new 2026-07-24):** `uploaded_files.file.upload` and
+  `uploaded_files.file.list` for the Document Workspace attachments panel — see
+  `concepts/uploaded_files_flows.md`. The coupling is one-way: this app returns no file references,
+  so the panel is always a separate call.
+- **Blocked on (not yet existing):** nothing. `document_history`, `document_templates`, and
+  `uploaded_files` have all shipped, and their flow files complete the frontend handoff for
+  printing, for the template and signatory pickers, and for attachments.
 
 **Note the access asymmetry with `applicants`.** An applicant is readable by any Admin or Lead
 Manager, but their documents are Admin-only. A Lead Manager's applicant file view is legitimately

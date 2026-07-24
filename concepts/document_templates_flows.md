@@ -48,9 +48,11 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** nothing.
    - **Side effects:** appends `signatory_created` to the audit log. Nothing outside this module
      changes.
-   - **There is no image upload.** `signature_image_url` is a link to a host this project knows
-     nothing about — put the file somewhere yourself first. **Do not ship a file-picker control**;
-     it would need `uploaded_files`, which does not exist.
+   - **There is still no image upload.** `signature_image_url` is a link to a host this project
+     knows nothing about — put the file somewhere yourself first. **Do not ship a file-picker
+     control.** `uploaded_files` shipped on 2026-07-24, but a `Signatory` is **not** one of its five
+     owner types, so there is nowhere to attach a signature image even by hand; migrating this field
+     is a separate, unscheduled decision.
    - **`name_np` is required, `name_en` is not.** They are two independent identities (§39.1), not a
      field and its translation — collect both for a real person.
    - **Never render `name_romanized`.** It is a search aid derived from `name_np`. It is returned so
@@ -242,7 +244,8 @@ Authored and updated by the backend author in the same commit as any endpoint ch
   `document_history` freezes the template key, version string, and resolved signatories into each
   snapshot's `render_context`, so a snapshot reproduces itself without reading this app at all.
 - **Signature image upload.** `signature_image_url` is a link. No upload, no size or type check, no
-  reachability check. Needs `uploaded_files`, which does not exist.
+  reachability check. `uploaded_files` now exists but a `Signatory` is not one of its owner types, so
+  this field was deliberately left alone — repointing it would also change a shipped response shape.
 - **Lookup by key.** Every route takes the UUID `id`. Holding a `documents.template_key` and wanting
   its label means listing the catalogue and matching client-side — cheap at 53 rows, but there is no
   `?key=` filter.

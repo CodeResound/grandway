@@ -1,7 +1,7 @@
 # Security — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -12,6 +12,7 @@ This document is required per project rulebook §19 because `applicants` makes i
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial security documentation |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Noted where a photograph may now be stored and how its access differs |
 
 ---
 
@@ -66,7 +67,7 @@ This app holds the most sensitive data in the system to date: dates of birth, pa
 
 - **Nothing sensitive enters the audit log.** Events record *that* a passport or address changed and the count of rows replaced — never the passport number, never the address text, never a family member's name. `changes` is populated only for scalar identity fields on the applicant itself.
 - **No field-level redaction exists.** Every lead actor who can read an applicant reads the whole record, passport included. Whether passport and date of birth should be Admin-only is an open question in `concepts/applicants.txt`; today they are not.
-- **No photograph is stored**, deliberately (§14) — see `DATA_CONTRACT.md` Deliberate Deviations.
+- **No photograph is stored *by this app***, deliberately (§14) — see `DATA_CONTRACT.md` Deliberate Deviations. A photograph may now be stored **against** an applicant in `uploaded_files`, which owns the whole §14 contract for it (see that app's `docs/SECURITY.md`). Note the access difference: this app's records and that app's files are both readable by any Admin or Lead Manager, but a file's *bytes* leave the system only through an audited download endpoint.
 - **No export endpoint.** There is no bulk download of applicant data, which keeps the exposure surface to one record per request.
 
 ## 7. Input handling
