@@ -1,0 +1,160 @@
+# CLIENTS — Grandway
+
+> **Status: V1 built (2026-07-24).** Client and ClientContactNumber are
+> implemented and documented in `backend/clients/docs/`. All five open questions
+> below are settled; see "Open questions" for what was decided and why.
+>
+> **One flow in this document is not deliverable.** Flow 3, "Attribution
+> support", has no endpoints behind it: nothing records that a lead or applicant
+> came from a client, because that link lives in the `leads` app and was left
+> for its own session. The directory exists; the attribution does not. This is
+> recorded in `concepts/clients_flows.md` and in the app's `INTEGRATION.md` §9.
+>
+> The rest of this document is the original concept, kept as authored. Where
+> the build departed from it, the departure is recorded in
+> `backend/clients/docs/DATA_CONTRACT.md` — "Deliberate Deviations", not by
+> editing the prose here. The flow-binding layer for the frontend is
+> `concepts/clients_flows.md`.
+
+## Purpose
+
+The Clients module keeps the consultancy's B2B client directory in one place.
+
+It exists so Grandway can record the companies, agencies, schools, or partner
+organizations that send or refer applicants, along with the basic contact and
+identity details staff need to work with them consistently.
+
+This is not a sales CRM. It is a compact reference directory for relationship
+management and operational attribution.
+
+## Relationship to other records
+
+A client is a business organization, not an applicant and not a lead.
+
+The client record stores the consultancy's external partner identity. Leads and
+applicants remain person records. If a lead or applicant came through a client,
+that relationship should be represented as a reference, not by copying the
+client's details into the person record.
+
+Clients are especially useful for tracking where referred leads originate,
+which partner office handled a case, and which contact person should receive
+updates.
+
+## Core entities
+
+Client
+
+The business organization being tracked. It should hold the company or agency
+name, current status, spokesperson or primary contact, contact numbers, email,
+address, website, logo, and notes.
+
+Client contact
+
+The named person or people the consultancy communicates with at the client
+organization. In V1 this may be represented directly on the client record as a
+primary spokesperson and contact details rather than as a separate contact
+table.
+
+Availability / status
+
+Whether the client is active, inactive, or otherwise not currently used. A
+client should not be deleted just because the relationship paused or ended.
+
+## Key user flows
+
+1. Maintain client records: An Admin creates or updates a client -> records the
+   company name, spokesperson, contact details, logo, email, address, website,
+   and notes -> marks the client active or inactive as the relationship changes.
+   - If the client is no longer used, it should be retired rather than deleted.
+   - If a detail changes, the previous value should remain traceable through the
+     normal audit history.
+
+2. Find the right partner: A Lead Manager opens the clients directory -> looks
+   up the company or contact person -> uses the record to confirm who to call or
+   email for a referral, status update, or operational follow-up.
+   - If the client is inactive, it should still be visible historically but not
+     treated as a preferred current contact.
+
+3. Attribution support: A lead or applicant originated from a client -> staff
+   reference the client record when recording the source of the relationship ->
+   reporting can later show which organizations are sending work.
+   - The client module does not create or convert leads; it only supplies the
+     reference record used by other workflows.
+
+## UI screens & wireframe notes
+
+Client List
+
+Shows all client organizations in a searchable directory. Columns should show
+company name, primary spokesperson, email or phone, status, and last updated
+date. Primary action: add client.
+
+Client Detail
+
+Shows the full client record: company identity, contact information, logo,
+website, address, notes, and status. Include a visible history or audit trail
+panel if available. Primary actions: edit client, retire or restore client.
+
+New / Edit Client Form
+
+A straightforward form for maintaining the contact directory. Fields should be
+kept intentionally small and practical: company name, spokesperson, contact
+numbers, email, address, website, logo, notes, and status.
+
+## Constraints / Out of scope
+
+* No lead management. Clients may be referenced by leads, but client records do
+  not replace lead records.
+* No applicant management. A client is not a person profile and does not own
+  applicant data.
+* No pipeline, deal, or commission tracking.
+* No task assignment or communication inbox.
+* No document generation or contract workflow.
+* No deletion of historical records. Inactive clients should be retained.
+* No complex multi-contact CRM structure in V1 unless explicitly added later.
+
+## Open questions
+
+Settled in V1 (2026-07-24):
+
+* **One spokesperson or multiple named contacts?** One, inline on the client
+  record — name (Devanagari + English), designation, and the organization's
+  email. Contact *numbers* are a child table, because an agency realistically
+  has a landline and two mobiles while it has exactly one person you ask for.
+  This honours both the concept's "may be represented directly on the client
+  record" and its "no complex multi-contact CRM structure in V1".
+* **Readable by both, writable by Admin only?** Yes — exactly as the question
+  proposed, and exactly what flows 1 and 2 already describe. Every Admin and
+  Lead Manager may read; only an Admin may create, edit, retire, or restore.
+  Superadmin is denied outright. The directory is shared reference data: one
+  careless edit to a spokesperson's number changes who every Lead Manager
+  calls, so the write right is narrower than the read right. Same split as
+  `institutions`, and only the second app in the project to use it.
+* **Referral statistics in V1?** No, and not here. Attribution belongs to the
+  `leads` app, at the moment a lead is created. **It is not built** — see the
+  banner at the top of this file.
+* **Logos as uploaded files or a field?** A `logo_url` link to a logo hosted
+  elsewhere. A real upload needs a §14 file contract and would pre-empt the
+  `uploaded_files` domain, which is exactly what `applicants` (photograph) and
+  `offers` (supporting files) both declined to do. Replaceable additively when
+  that module ships.
+* **Is a status enum enough, or is a paused/archived distinction needed?** Two
+  values are enough: `active` and `inactive`. A third status is only worth
+  having if something branches on it, and nothing does — the only behaviour
+  attached to status is whether the directory offers a partner as a current
+  contact, which is binary. The nuance a "paused" value would have carried is
+  carried better by the mandatory retirement reason, which says *why* in words.
+
+Still open:
+
+* When should `leads.Lead` gain a `client` reference, and should `applicants`
+  get one too or inherit it through the lead?
+* Should a client have a type (agency, school, partner company)? The concept's
+  prose names all three but its field list omits a type, so V1 has none and
+  they cannot be filtered apart.
+* Should the directory warn about a probable duplicate on create? Two clients
+  may currently share a name, email, and phone number with no warning.
+* Is a bulk import needed for the initial directory, or is one-at-a-time entry
+  acceptable?
+* Should a retired client be excluded from pickers automatically, or is that a
+  presentation choice left to each screen? The API returns both by default.

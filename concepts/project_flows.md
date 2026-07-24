@@ -112,6 +112,7 @@ Assembled from each app's flow file. Read it as integration order — an app's d
 - `applicant_journeys` → `applicants` (every journey needs one), `authenticate`, `audit`. **Not** `leads`, and **not** `offers`.
 - `institutions` → `authenticate`, `audit`. Depends on no business app; the catalogue is reference data.
 - `offers` → `applicant_journeys` (every offer needs one), `institutions` (optional — the catalogue entry it was based on), `authenticate`, `audit`.
+- `clients` → `authenticate`, `audit`. **No business-app edge in either direction** — the only app in the project with none.
 
 The one-directional arrangement is deliberate: `leads` owns both links to the applicant cycle, so the applicant cycle never needs to know leads exist. `offers` does the same at the other end — it reaches into both the journey and the catalogue, and neither reaches back.
 
@@ -122,6 +123,7 @@ The one-directional arrangement is deliberate: `leads` owns both links to the ap
 - **No reporting or dashboard journey.** `project_overview.txt` names a `dashboards` domain covering lead funnels, conversion rates, and journey stages. Nothing is built, and the filters that exist today (lead stage, applicant status, journey stage) are the raw material rather than the feature.
 - **No notification journey.** Passport and test expiry, follow-up prompts, and deadline alerts are all anticipated in `project_overview.txt`; the `notifications` domain does not exist. Passport `expiry_date` is stored and indexed in anticipation.
 - **No document, file, or checklist journeys.** Three named domains, none built. `offers` shipped 2026-07-24 and is folded into the main journey above; documents, uploaded files, and checklists are not.
+- **`clients` shipped, but no journey passes through it.** The B2B partner directory exists (`concepts/clients_flows.md`) and is complete on its own terms, yet **no end-to-end journey touches it**, because nothing records which partner referred a lead. `concepts/clients.txt` flow 3 anticipates exactly that; the `leads.Lead.client` reference it needs is not built. Until it is, "Enquiry to study objective" begins with a lead whose origin is a free-text `LeadSource`, and a partner organization cannot be connected to a single person it sent. Building the link would add a step to that journey's stage 1 and give `clients` its first cross-app flow.
 - **An offer has nowhere to put the letter it came from.** `uploaded_files` does not exist, so the PDF that prompted the offer record lives outside the system. This is the most visible gap in the offer flow today.
 - **Offer conditions and `checklists` overlap and nothing reconciles them.** `offers` owns its own condition sub-records because `checklists` is unbuilt. Whether the two should merge when it ships is an open question in `concepts/offers.txt`.
 - **No deadline or expiry alerting.** An offer's `response_deadline` is stored and an `is_response_overdue` flag is computed on read, but nothing polls or notifies — `notifications` does not exist. A lapsed offer is only noticed by someone looking at the list.

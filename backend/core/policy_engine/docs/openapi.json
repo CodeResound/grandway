@@ -2306,6 +2306,346 @@
         ]
       }
     },
+    "/api/v1/clients/": {
+      "get": {
+        "operationId": "clients.client.list",
+        "summary": "List Clients",
+        "description": "Browse the B2B partner directory. Shared — every Admin and Lead Manager may read it.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "clients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "clients.client.list",
+        "x-risk-level": "low",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "clients.client.create",
+        "summary": "Add Client",
+        "description": "Add a partner organization to the directory, with its spokesperson and contact numbers.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "clients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "clients.client.create",
+        "x-risk-level": "medium",
+        "x-operation-type": "create",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/clients/{client_id}/": {
+      "get": {
+        "operationId": "clients.client.read",
+        "summary": "View Client",
+        "description": "Retrieve one client with its full contact details, numbers, and standing.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "clients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "clients.client.read",
+        "x-risk-level": "low",
+        "x-operation-type": "read",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "clients.client.update",
+        "summary": "Edit Client",
+        "description": "Correct a client's name, spokesperson, contact details, or notes. Standing is unaffected.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "clients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "clients.client.update",
+        "x-risk-level": "medium",
+        "x-operation-type": "update",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clients/{client_id}/history/": {
+      "get": {
+        "operationId": "clients.client.list_history",
+        "summary": "View Client History",
+        "description": "List a client's chronological change history from the central audit log.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "clients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "clients.client.list_history",
+        "x-risk-level": "low",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clients/{client_id}/restore/": {
+      "post": {
+        "operationId": "clients.client.restore",
+        "summary": "Restore Client",
+        "description": "Return a retired partner to current use, clearing the retirement state.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "clients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "clients.client.restore",
+        "x-risk-level": "medium",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/clients/{client_id}/retire/": {
+      "post": {
+        "operationId": "clients.client.retire",
+        "summary": "Retire Client",
+        "description": "Withdraw a partner from current use, recording why. Nothing is deleted.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "clients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "clients.client.retire",
+        "x-risk-level": "medium",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/journeys/": {
       "get": {
         "operationId": "applicant_journeys.journey.list",

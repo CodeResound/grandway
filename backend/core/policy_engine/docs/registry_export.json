@@ -19,6 +19,10 @@
       "display_name": "Authenticate"
     },
     {
+      "app_key": "clients",
+      "display_name": "Clients"
+    },
+    {
       "app_key": "institutions",
       "display_name": "Institutions"
     },
@@ -57,6 +61,10 @@
       "display_name": "Catalogue Management"
     },
     {
+      "category_key": "client_management",
+      "display_name": "Client Management"
+    },
+    {
       "category_key": "journey_management",
       "display_name": "Journey Management"
     },
@@ -81,7 +89,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 94,
+  "endpoint_count": 101,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -990,6 +998,181 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Editing requires read access to the account."
+        }
+      ]
+    },
+    {
+      "permission_key": "clients.client.create",
+      "app_key": "clients",
+      "model_key": "client",
+      "endpoint_key": "client-create",
+      "display_name": "Add Client",
+      "description": "Add a partner organization to the directory, with its spokesperson and contact numbers.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/clients/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "client_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "clients.client.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Adding clients requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "clients.client.list",
+      "app_key": "clients",
+      "model_key": "client",
+      "endpoint_key": "client-list",
+      "display_name": "List Clients",
+      "description": "Browse the B2B partner directory. Shared — every Admin and Lead Manager may read it.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/clients/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "client_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "clients.client.list_history",
+      "app_key": "clients",
+      "model_key": "client",
+      "endpoint_key": "client-history",
+      "display_name": "View Client History",
+      "description": "List a client's chronological change history from the central audit log.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/clients/<client_id>/history/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "client_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "clients.client.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The client must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "clients.client.read",
+      "app_key": "clients",
+      "model_key": "client",
+      "endpoint_key": "client-read",
+      "display_name": "View Client",
+      "description": "Retrieve one client with its full contact details, numbers, and standing.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/clients/<client_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "client_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "clients.client.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a client requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "clients.client.restore",
+      "app_key": "clients",
+      "model_key": "client",
+      "endpoint_key": "client-restore",
+      "display_name": "Restore Client",
+      "description": "Return a retired partner to current use, clearing the retirement state.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/clients/<client_id>/restore/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "client_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "clients.client.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The client must be readable before it can be restored."
+        },
+        {
+          "target_permission_key": "clients.client.retire",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Restoring only applies to a client that was retired."
+        }
+      ]
+    },
+    {
+      "permission_key": "clients.client.retire",
+      "app_key": "clients",
+      "model_key": "client",
+      "endpoint_key": "client-retire",
+      "display_name": "Retire Client",
+      "description": "Withdraw a partner from current use, recording why. Nothing is deleted.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/clients/<client_id>/retire/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "client_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "clients.client.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The client must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "clients.client.update",
+      "app_key": "clients",
+      "model_key": "client",
+      "endpoint_key": "client-update",
+      "display_name": "Edit Client",
+      "description": "Correct a client's name, spokesperson, contact details, or notes. Standing is unaffected.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/clients/<client_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "client_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "clients.client.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The client must be readable before it can be acted on."
         }
       ]
     },
