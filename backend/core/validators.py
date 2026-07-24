@@ -20,3 +20,14 @@ validate_contact_number = RegexValidator(
     message="Contact number may contain digits, spaces, and + - ( ) only.",
     code="invalid_contact_number",
 )
+
+# ISO 4217 alpha-3, upper-cased before validation. Used by ``institutions``
+# (catalogue tuition) and ``offers`` (the tuition, scholarship, and deposit
+# figures an institution actually quoted).
+CURRENCY_CODE_PATTERN = r"^[A-Z]{3}$"
+
+validate_currency_code = RegexValidator(
+    regex=CURRENCY_CODE_PATTERN,
+    message="Currency must be a three-letter ISO 4217 code, e.g. AUD.",
+    code="invalid_currency",
+)

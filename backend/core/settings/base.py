@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "applicants",
     "applicant_journeys",
     "institutions",
+    "offers",
 ]
 
 # The authenticate app owns the platform's identity layer with a custom user model.

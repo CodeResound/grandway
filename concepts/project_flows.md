@@ -1,7 +1,7 @@
 # FLOWS — Project (end-to-end, multi-app)
 
 **Owner:** project-level — no single app
-**Updated:** 2026-07-23
+**Updated:** 2026-07-24
 **Purpose:** End-to-end journeys that cross more than one app. Each step here **delegates to a named
 per-app flow** rather than re-listing its endpoint calls (CLAUDE.md §36.1). If you are looking for the
 detail of any single step, follow the reference to that app's flow file.
@@ -36,8 +36,16 @@ authoritative study plan.
 5. **Complete the objective** → `concepts/applicant_journeys_flows.md` → *"Work an objective forward"*
    - The seeded journey is a starting point, not a plan. If the lead named more than one country it has **no** target country at all.
 
-6. **Run the objective to an outcome** → `concepts/applicant_journeys_flows.md` → *"End an objective"*
-   - The journey closes with a recorded outcome. The applicant's status is untouched.
+6. **Record the institutional responses** → `concepts/offers_flows.md` → *"Record an offer against a journey"*, then *"Manage an offer's conditions"*
+   - One offer per institutional response. A journey may collect several and keeps all of them.
+   - **Nothing here advances the journey.** A journey can sit at `planning` with three issued offers on it — offer status and journey stage are separate lifecycles, and no API surface reconciles them. If the UI should move the journey to `offer_stage`, it makes that call itself.
+
+7. **Decide** → `concepts/offers_flows.md` → *"Record the applicant's decision"*, and where there are competing responses, *"Compare competing offers on one journey"*
+   - At most one offer per journey may be `accepted`; the rest are resolved as rejected or withdrawn and stay visible.
+   - **An offer decision is final** — unlike a journey, an offer cannot be reopened. A changed institutional position is a new offer.
+
+8. **Run the objective to an outcome** → `concepts/applicant_journeys_flows.md` → *"End an objective"*
+   - The journey closes with a recorded outcome. The applicant's status is untouched, and so is every offer on it — closing a journey does not resolve its outstanding offers, and an offer can still be recorded against a closed journey.
 
 **What survives the whole journey:** the lead record, its notes, and its full history; the originating Lead Manager's attribution via `Lead.created_by`; and the link in both directions between lead, applicant, and journey.
 
@@ -101,14 +109,21 @@ Assembled from each app's flow file. Read it as integration order — an app's d
 
 - `leads` → `applicants` (conversion creates one), `applicant_journeys` (conversion creates one), `audit`, `authenticate`
 - `applicants` → `authenticate`, `audit`. **Not** `leads` — an applicant works with no lead in the system.
-- `applicant_journeys` → `applicants` (every journey needs one), `authenticate`, `audit`. **Not** `leads`.
+- `applicant_journeys` → `applicants` (every journey needs one), `authenticate`, `audit`. **Not** `leads`, and **not** `offers`.
+- `institutions` → `authenticate`, `audit`. Depends on no business app; the catalogue is reference data.
+- `offers` → `applicant_journeys` (every offer needs one), `institutions` (optional — the catalogue entry it was based on), `authenticate`, `audit`.
 
-The one-directional arrangement is deliberate: `leads` owns both links to the applicant cycle, so the applicant cycle never needs to know leads exist.
+The one-directional arrangement is deliberate: `leads` owns both links to the applicant cycle, so the applicant cycle never needs to know leads exist. `offers` does the same at the other end — it reaches into both the journey and the catalogue, and neither reaches back.
+
+**`offers` is where the catalogue finally connects to the applicant cycle, but the join is partial.** A journey still stores its destination as free text and has no reference into `institutions`; an offer references the catalogue properly. Nothing compares the two, so "the journey names Melbourne Uni" and "the offer points at the catalogue's University of Melbourne" remain unconnected facts. And an offer never reads through to the catalogue at display time — it renders from a snapshot taken when the decision was recorded, which is what lets the catalogue be edited freely without rewriting history.
 
 ## Open questions
 
 - **No reporting or dashboard journey.** `project_overview.txt` names a `dashboards` domain covering lead funnels, conversion rates, and journey stages. Nothing is built, and the filters that exist today (lead stage, applicant status, journey stage) are the raw material rather than the feature.
 - **No notification journey.** Passport and test expiry, follow-up prompts, and deadline alerts are all anticipated in `project_overview.txt`; the `notifications` domain does not exist. Passport `expiry_date` is stored and indexed in anticipation.
-- **No document, file, offer, or checklist journeys.** Four named domains, none built. An applicant file today holds identity and objectives only.
+- **No document, file, or checklist journeys.** Three named domains, none built. `offers` shipped 2026-07-24 and is folded into the main journey above; documents, uploaded files, and checklists are not.
+- **An offer has nowhere to put the letter it came from.** `uploaded_files` does not exist, so the PDF that prompted the offer record lives outside the system. This is the most visible gap in the offer flow today.
+- **Offer conditions and `checklists` overlap and nothing reconciles them.** `offers` owns its own condition sub-records because `checklists` is unbuilt. Whether the two should merge when it ships is an open question in `concepts/offers.txt`.
+- **No deadline or expiry alerting.** An offer's `response_deadline` is stored and an `is_response_overdue` flag is computed on read, but nothing polls or notifies — `notifications` does not exist. A lapsed offer is only noticed by someone looking at the list.
 - **The education and test-score gap is visible mid-journey.** At conversion, `highest_qualification` and `language_test_status` are carried into journey notes as prose because their modules do not exist. When `education` and `test_scores` ship, this journey's step 4 gains a real destination for them and the conversion mapping should be revisited.
 - **Whether a converted lead should remain visible to its originating Lead Manager in the lead list** is undecided. Today it does, at `stage: converted`, which means a Lead Manager's list accumulates terminal records they can no longer act on.

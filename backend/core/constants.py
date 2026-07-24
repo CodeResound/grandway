@@ -51,6 +51,21 @@ class LanguageTestStatus(models.TextChoices):
     NOT_REQUIRED = "not_required", "Not Required"
 
 
+class FeePeriod(models.TextChoices):
+    """What a quoted fee amount actually covers.
+
+    Recorded because "49,824" means nothing without it, and the same program is
+    quoted per-year by one institution and per-program by the next. Owned here
+    rather than by ``institutions`` because ``offers`` records the tuition the
+    institution actually quoted in its decision letter, which is a separate
+    fact from the catalogue's indicative figure and must use one vocabulary.
+    """
+
+    PER_YEAR = "per_year", "Per Year"
+    PER_SEMESTER = "per_semester", "Per Semester"
+    TOTAL_PROGRAM = "total_program", "Total Program"
+
+
 class ContactNumberLabel(models.TextChoices):
     """What kind of number a stored contact entry is.
 

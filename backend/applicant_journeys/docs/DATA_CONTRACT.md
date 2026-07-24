@@ -1,7 +1,7 @@
 # Data Contract — Applicant Journeys
 
 **Owner app:** `applicant_journeys`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns one overseas-study objective pursued by one applicant — destination, level, field, intake, financial preferences, stage, deferment, closure, and outcome. It does **not** own the person (`applicants`), the enquiry that preceded them (`leads`), offers, documents, or institution data. It owns no history table — a journey's history is the central `audit` log filtered to that journey.
@@ -13,6 +13,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial contract — one model, nine-stage lifecycle |
+| 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the inbound `offers.Offer.journey` FK and stated explicitly that the two lifecycles are independent in both directions: offers never move a journey's stage, and a journey's stage never gates what offers may be recorded |
 
 ---
 
@@ -125,6 +126,7 @@
 - `core.constants.StudyLevel` — shared enum, not a duplicate.
 - `audit` — runtime service/selector dependency for history.
 - **Inbound:** `leads.Lead.converted_journey` points here, and `leads` calls `applicant_journeys.services.create_journey` at conversion. This app does **not** reference `leads`.
+- **Inbound:** `offers.Offer.journey` is a `PROTECT` FK pointing here (`related_name="offers"`), and `offers` reads journeys through `applicant_journeys.selectors.get_journey_by_id`. This app does **not** reference `offers`, and the dependency is read-only in both directions that matter: **recording, issuing, or deciding an offer never changes a journey's stage**, and a journey's stage never constrains what offers may be recorded against it — an offer can be added to a journey at any stage, including a closed or completed one. The two lifecycles are deliberately independent (`concepts/project_overview.txt` — "Explicit lifecycle states"). A journey with any offer cannot be removed.
 
 **Security Notes:** Journeys are shared, exactly as applicants are — any Admin or Lead Manager may read and write any journey. Superadmin is denied. Unlike `applicants`, **creation is not Admin-restricted**: adding a second objective for an existing client is ordinary operational work, not an entry decision. See `SECURITY.md` §1.
 

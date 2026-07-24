@@ -4,9 +4,30 @@
 ``applicant_journeys`` and lives in ``core.constants`` (§2/§3). A program's
 qualification level and a journey's study level are the same vocabulary
 deliberately, so "programs matching this objective" stays an equality check.
+
+``FeePeriod`` moved to ``core.constants`` for the same reason when ``offers``
+began recording the tuition an institution actually quoted. It is re-exported
+here so this app's import sites are unchanged.
 """
 
+from core.constants import FeePeriod
 from django.db import models
+
+__all__ = [
+    "AUDIT_APP_LABEL",
+    "AUDIT_ENTITY_CAMPUS",
+    "AUDIT_ENTITY_COUNTRY",
+    "AUDIT_ENTITY_FIELD",
+    "AUDIT_ENTITY_INSTITUTION",
+    "AUDIT_ENTITY_PROGRAM",
+    "NOTE_REQUIRED_STATUSES",
+    "USABLE_STATUSES",
+    "AvailabilityStatus",
+    "CatalogueAuditAction",
+    "ErrorCode",
+    "FeePeriod",
+    "InstitutionType",
+]
 
 
 class AvailabilityStatus(models.TextChoices):
@@ -47,18 +68,6 @@ class InstitutionType(models.TextChoices):
     POLYTECHNIC = "polytechnic", "Polytechnic"
     LANGUAGE_SCHOOL = "language_school", "Language School"
     OTHER = "other", "Other"
-
-
-class FeePeriod(models.TextChoices):
-    """What a tuition amount actually covers.
-
-    Recorded because "49,824" means nothing without it, and the same program
-    is quoted per-year by one institution and per-program by the next.
-    """
-
-    PER_YEAR = "per_year", "Per Year"
-    PER_SEMESTER = "per_semester", "Per Semester"
-    TOTAL_PROGRAM = "total_program", "Total Program"
 
 
 class CatalogueAuditAction:

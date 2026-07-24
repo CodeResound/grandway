@@ -1,0 +1,232 @@
+# OFFERS — Grandway
+
+> **Status: Phase 1 built (2026-07-24).** Offer and OfferCondition are
+> implemented and documented in `backend/offers/docs/`. All five open questions
+> below are settled; see "Open questions" for what was decided and what the
+> project's own state decided for us. Supporting files and any link to a future
+> `checklists` module remain out of scope.
+>
+> The rest of this document is the original concept, kept as authored. Where
+> the build departed from it, the departure is recorded in
+> `backend/offers/docs/DATA_CONTRACT.md` — "Deliberate Deviations", not by
+> editing the prose here. The flow-binding layer for the frontend is
+> `concepts/offers_flows.md`.
+
+## Purpose
+
+The Offers module tracks formal admission decisions tied to an applicant
+journey.
+
+It records what an institution offered, for which program and intake, under
+which conditions, and how the applicant responded. Grandway needs this as a
+separate record because a journey can be in offer stage without the system
+knowing the exact offer details, and an applicant may receive more than one
+offer over time.
+
+## Relationship to the applicant journey
+
+An offer always belongs to one applicant journey.
+
+The journey remains the broader study plan. It holds the person's objective,
+progress, and final outcome. The offer is one concrete institutional response
+within that journey. Journey stage can indicate that offers are being awaited or
+reviewed, but the offer module is the source of truth for the actual decision
+records.
+
+Offer records should also connect back to the institution catalogue entry they
+were based on when possible. That preserves the original reference point even if
+the catalogue later changes tuition, intake, or availability.
+
+## Offer information
+
+A useful offer record should capture:
+
+* The applicant journey it belongs to
+* The institution, campus, and program
+* The intake or term the offer applies to
+* Offer type, such as conditional or unconditional
+* Issue date and any response deadline
+* Conditions attached to the offer
+* Tuition, scholarship, and deposit information relevant to the decision
+* Acceptance, rejection, withdrawal, or deferment details
+* Current offer status
+* Notes and supporting files
+
+The offer should preserve what was true when the institution made the decision.
+Later catalogue edits, applicant updates, or intake changes should not rewrite
+the historical offer record.
+
+## Offer lifecycle
+
+An offer usually moves through these broad states:
+
+1. Draft or recorded
+2. Issued
+3. Awaiting response
+4. Accepted
+5. Rejected
+6. Withdrawn
+7. Deferred
+8. Expired or no longer usable, if the deadline passes
+
+The exact status vocabulary can be refined later, but the module must support
+the common operational questions:
+
+* Has an offer been received?
+* Is it still open?
+* Has the applicant accepted it?
+* Was it rejected or withdrawn?
+* Was it deferred to a later intake?
+
+An offer may be superseded by a later offer for the same journey. The older
+record should remain visible in history.
+
+## Offer conditions
+
+Conditions are the requirements that must be satisfied for an offer to become
+fully usable or unconditional.
+
+Typical conditions may include:
+
+* Final academic results
+* English test results
+* Document submission
+* Deposit payment
+* Interview or verification
+* Passport or identity confirmation
+* Other institution-specific requirements
+
+Conditions should carry their own status so staff can see what is pending,
+fulfilled, waived, or otherwise resolved.
+
+## Key user flows
+
+1. Record an offer: A Lead Manager opens an applicant journey -> creates an
+   offer from the institution/program being pursued -> records issue date,
+   intake, tuition, conditions, and response deadline -> the journey now has a
+   concrete admission decision on file.
+   - If the offer was entered manually, the system should still preserve enough
+     reference detail to identify the institution and program later.
+   - If the source catalogue record no longer exists or has been made inactive,
+     the offer history must still remain readable.
+
+2. Review and decide: A Lead Manager opens the offer detail -> checks the
+   conditions, deposit, and deadline -> records acceptance, rejection,
+   withdrawal, or deferment -> the offer status updates and the decision is
+   logged.
+   - If the applicant accepts, the record should keep any acceptance notes and
+     date.
+   - If the applicant rejects or withdraws, a reason should be captured where
+     appropriate.
+
+3. Manage conditions: A Lead Manager or Admin updates an offer condition ->
+   marks it satisfied, waived, or still pending -> the offer can be reviewed as
+   complete or incomplete at a glance.
+   - If a condition is added or changed later, the previous state should remain
+     traceable in history.
+
+4. Track multiple offers: A journey receives another institution response ->
+   create a second offer without deleting the first -> compare outcomes and
+   keep the full decision trail for the journey.
+   - The journey may end with one accepted offer, several rejected offers, or a
+     deferred decision that is revisited later.
+
+## UI screens & wireframe notes
+
+Offer List
+
+Shows offers across journeys, newest first. Useful filters include applicant,
+journey stage, institution, program, intake, and offer status. Columns should
+show applicant name, institution, program, intake, issue date, deadline, and
+current status.
+
+Journey Detail → Offers panel
+
+The main operational entry point. Shows all offers for that journey, with a
+clear primary action to add a new one. Each row should show the institution,
+program, intake, status, and response deadline.
+
+Offer Detail
+
+Shows the full offer record: linked journey, catalogue reference, conditions,
+tuition, scholarship, deposit, notes, files, and history. Primary actions are
+record decision, edit offer details, and update conditions.
+
+New / Edit Offer Form
+
+Administrative form for entering the institutional decision. Should capture the
+reference to the institution and program, the decision details, the response
+deadline, and any condition list. It must be clear whether the offer was
+created from the catalogue or entered as a manual historical record.
+
+Decision Dialog
+
+A focused dialog for accept, reject, withdraw, or defer. It should require the
+reason or follow-up detail whenever the selected outcome needs explanation.
+
+## Constraints / Out of scope
+
+* No application submission workflow. Offers record the institution's decision;
+  they do not manage how the application was filed.
+* No visa case management. A visa-related consequence of accepting an offer is
+  handled elsewhere.
+* No payments or accounting. Deposit amounts can be recorded, but payment
+  collection is not part of this module.
+* No automated eligibility scoring. The module records offer facts and
+  conditions, but it does not decide whether an applicant qualifies.
+* No silent rewriting of historical offers when the catalogue changes.
+* No deletion of offer history. Replaced or outdated offers should remain
+  visible as part of the journey record.
+
+## Open questions
+
+Settled in Phase 1 (2026-07-24):
+
+* **Multiple active offers per journey?** Yes — unconstrained. Comparing
+  competing institutional responses is the point of keeping offers as separate
+  records, so a journey may hold any number, any number of them open at once.
+  One rule is enforced: **at most one accepted offer per journey at a time**.
+  No constraint is keyed on intake, because intake is still free text.
+* **Exact status vocabulary?** Seven, not the eight listed above.
+  `draft`, `issued`, `accepted`, `rejected`, `withdrawn`, `deferred`,
+  `expired`. "Awaiting response" was collapsed into `issued` — once an offer is
+  issued the consultancy is by definition awaiting a response, and two statuses
+  for one state drift apart as staff forget to advance the second.
+* **Conditions: reusable checklist or dedicated sub-record?** A dedicated
+  `OfferCondition` sub-record, owned by this module. Decided by the project's
+  state rather than by preference: `checklists` is a named future domain with
+  no code behind it, and building a generic checklist inside `offers` would
+  pre-empt it. Worth reopening when `checklists` ships.
+* **Separate expiry date and action?** No. `response_deadline` alone.
+  `expired` is a status a person sets, never the system — nothing in this
+  deployment runs on a schedule (`notifications` does not exist), so an
+  automatic expiry would be a promise the deployment could not keep. A computed
+  `is_response_overdue` surfaces lapsed offers instead.
+* **Lead Manager or Admin authority?** Any Admin or Lead Manager may do
+  everything, read and write alike; Superadmin is denied outright. An offer is
+  journey-scoped work with a blast radius of one applicant, and the Lead Manager
+  running the journey is the person who receives the letter and records the
+  answer. This is deliberately *not* the `institutions` split, where writes are
+  Admin-only because catalogue data is shared infrastructure.
+
+Two decisions were made that the questions above did not anticipate:
+
+* **A decision is final; there is no reopen action.** Unlike an applicant
+  journey, which can be reopened, an offer records what an institution decided
+  at a point in time. An institution that changes its position has issued a new
+  offer, and recording it as one is what keeps the decision trail readable.
+* **Recording an offer never moves the journey's stage.** The two lifecycles
+  stay independent in both directions — an offer can also be recorded against a
+  journey at any stage, including a closed one.
+
+Still open:
+
+* Should offer conditions migrate onto `checklists` when that module ships, or
+  stay owned here?
+* Where should an offer letter PDF live? Nothing can be attached to an offer
+  today; this waits on `uploaded_files`.
+* Should a journey's free-text destination be reconciled against the catalogue
+  reference on its offers? Today both are stored and nothing compares them.
+* Does the offer list need text search across the snapshot institution and
+  program names? Today only the catalogue foreign keys can be filtered, which
+  misses every manually recorded offer.

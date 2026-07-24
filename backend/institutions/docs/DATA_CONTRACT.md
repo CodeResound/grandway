@@ -1,7 +1,7 @@
 # Data Contract — Institutions
 
 **Owner app:** `institutions`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns Grandway's study-opportunity catalogue — the countries, institutions, campuses, and programs the consultancy can offer, together with each record's tuition, entry expectations, and current availability. It is **reference data, not a plan**: it does not own an applicant's intent, progress, or choice history (`applicant_journeys`), the person (`applicants`), the enquiry (`leads`), or offers. It owns no history table — a catalogue record's history is the central `audit` log filtered to that record.
@@ -13,6 +13,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — Phase 1 catalogue spine: Field, Country, Institution, Campus, Program |
+| 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the first inbound dependency (`offers`, three nullable `PROTECT` FKs) and why catalogue edits stay safe under it: offers snapshot the names rather than reading through. Noted the `FeePeriod` promotion to `core.constants` |
 
 ---
 
@@ -28,6 +29,7 @@
 - **Tuition, entry expectations, and scholarship availability are inline fields on `Program`, not related tables.** Phase 1 scope. The concept's open questions — whether tuition varies by campus/intake/year, and whether scholarships attach above the program — must be answered before those become tables. Inline fields promote to related tables additively.
 - **Intake is free text (`intake_pattern`), not a table.** Same reason. This matches the free-text `preferred_intake` already in `leads` and `applicant_journeys`, so nothing regresses.
 - **No history table**, for the same reason as `leads`, `applicants`, and `applicant_journeys`: `audit` already provides an immutable append-only log and §4 forbids duplicating it.
+- **`FeePeriod` and `validate_currency_code` now live in `core`, not here.** Both were declared in this app and were promoted to `core.constants` / `core.validators` when `offers` began recording the tuition an institution actually quoted — a second app needing them makes them shared vocabulary (§2), and copying either would have duplicated an enum and a validator across apps (§3). Both are re-exported from `institutions.constants` and `institutions.validators`, so every import site in this app is unchanged, and the promotion produced **no migration**: Django deconstructs both to inline literals, verified with `makemigrations --check`.
 - **No link to `applicant_journeys` in this phase.** Journeys keep their free-text `target_country` / `target_institution_name` / `target_program_name`. Introducing references changes a shipped app's public response shape (§28 item 8) and needs a backfill decision for existing values; it is its own session.
 
 ---
@@ -172,7 +174,7 @@
 }
 ```
 
-**Cross-App Dependencies:** none. Referenced by nothing outside this app in Phase 1.
+**Cross-App Dependencies:** `offers.Offer.institution` is a nullable `PROTECT` FK pointing here. An institution referenced by any offer cannot be removed; renaming or deactivating it is safe, because the offer holds its own snapshot of the name.
 
 ---
 
@@ -325,9 +327,17 @@
 | `authenticate` | `authenticate.constants.AuthorityType` | The interim access checks in `access.py` (§9). No FK — catalogue records record no owner. |
 | `audit` | `audit.services.record_event` | Every create and update appends one immutable event. Service call only; this app never writes the audit table directly. |
 
-**Referenced by:** nothing, in Phase 1. `applicant_journeys` continues to store its destination as free text; introducing references there is a separate session (see Deliberate Deviations).
+**Referenced by:**
 
-**No app imports this app's `models.py`.** Consumers use `institutions.selectors` and `institutions.services` (§4).
+| App | What | Why |
+|-----|------|-----|
+| `offers` | `offers.Offer.institution`, `.campus`, `.program` — three nullable `PROTECT` FKs; plus `institutions.selectors.get_institution_by_id` / `get_campus_by_id` / `get_program_by_id` | An offer records which catalogue entry it was based on. The FKs are nullable because a manually recorded historical offer has no catalogue record behind it. |
+
+**A referenced catalogue record can still be edited freely, and that is safe.** `offers` copies the institution, campus, program, country, level, and intake into an immutable **snapshot** on the offer at creation, and renders from that — so renaming a program or marking an institution `inactive` changes nothing on offers already recorded against it. The FK survives as the original reference point; it is not read through at display time. This is what makes the catalogue's "edit freely, never delete" posture compatible with the offer module's "never rewrite history" requirement. See `offers/docs/DATA_CONTRACT.md` §1.
+
+**`applicant_journeys` still does not reference this app.** It continues to store its destination as free text; introducing references there is a separate session (see Deliberate Deviations). `offers` is the only inbound edge.
+
+**No app imports this app's `models.py`** except for the FK references above, which §4 permits. Consumers otherwise use `institutions.selectors` and `institutions.services`.
 
 ---
 

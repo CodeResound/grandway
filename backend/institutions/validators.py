@@ -9,7 +9,14 @@ its own rule.
 
 from __future__ import annotations
 
+from core.validators import validate_currency_code
 from django.core.validators import RegexValidator
+
+#: Re-exported so this app's models keep a single import site. The rule itself
+#: moved to ``core.validators`` when ``offers`` began quoting currency amounts
+#: too — a second app needing it makes it shared vocabulary (§2), and copying
+#: the regex would have duplicated a validator across apps (§3).
+__all__ = ["validate_currency_code", "validate_reference_code"]
 
 # Catalogue codes are ASCII system identifiers (§39.7) — never Devanagari.
 # Lowercase letters, digits and _ - only, starting and ending alphanumeric.
@@ -21,13 +28,4 @@ validate_reference_code = RegexValidator(
         "Code must be ASCII: lowercase letters, digits, and _ - only, starting and ending with a letter or digit."
     ),
     code="invalid_code",
-)
-
-# ISO 4217 alpha-3, upper-cased before validation.
-CURRENCY_CODE_PATTERN = r"^[A-Z]{3}$"
-
-validate_currency_code = RegexValidator(
-    regex=CURRENCY_CODE_PATTERN,
-    message="Currency must be a three-letter ISO 4217 code, e.g. AUD.",
-    code="invalid_currency",
 )
