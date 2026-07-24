@@ -18,4 +18,5 @@ urlpatterns: list = [
     path("files/", include("uploaded_files.urls", namespace="files")),
     path("checklists/", include("checklists.urls", namespace="checklists")),
     path("dashboard/", include("dashboards.urls", namespace="dashboards")),
+    path("notifications/", include("notifications.urls", namespace="notifications")),
 ]

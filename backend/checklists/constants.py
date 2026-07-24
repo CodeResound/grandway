@@ -23,6 +23,7 @@ __all__ = [
     "EDITABLE_CHECKLIST_STATUSES",
     "NOTE_REQUIRED_STATUSES",
     "RESOLVED_ITEM_STATUSES",
+    "UNRESOLVED_ITEM_STATUSES",
     "ChecklistAuditAction",
     "ChecklistOrigin",
     "ChecklistStatus",
@@ -112,6 +113,19 @@ RESOLVED_ITEM_STATUSES: tuple[str, ...] = (
     ItemStatus.COMPLETED,
     ItemStatus.WAIVED,
     ItemStatus.NOT_APPLICABLE,
+)
+
+#: The complement of ``RESOLVED_ITEM_STATUSES`` — items that still stand in the
+#: way. Derived from the enum rather than typed out a second time, so adding an
+#: item status forces a decision about which side it falls on instead of silently
+#: defaulting to "resolved".
+#:
+#: Needed as a *positive* list because a queryset cannot express "checklists
+#: holding an unresolved item" by excluding resolved ones: ``.exclude()`` across
+#: a multi-valued relation drops the whole checklist if *any* of its items match,
+#: so one completed requirement would hide every outstanding one beside it.
+UNRESOLVED_ITEM_STATUSES: tuple[str, ...] = tuple(
+    status for status in ItemStatus.values if status not in RESOLVED_ITEM_STATUSES
 )
 
 #: Item statuses that oblige the author to explain themselves in ``status_note``.

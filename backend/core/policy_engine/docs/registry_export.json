@@ -51,6 +51,10 @@
       "display_name": "Leads"
     },
     {
+      "app_key": "notifications",
+      "display_name": "Notifications"
+    },
+    {
       "app_key": "offers",
       "display_name": "Offers"
     },
@@ -113,6 +117,10 @@
       "display_name": "Lead Management"
     },
     {
+      "category_key": "notification_management",
+      "display_name": "Notifications"
+    },
+    {
       "category_key": "offer_management",
       "display_name": "Offer Management"
     },
@@ -129,7 +137,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 162,
+  "endpoint_count": 169,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -3664,6 +3672,230 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Editing a source requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.notification.dismiss",
+      "app_key": "notifications",
+      "model_key": "notification",
+      "endpoint_key": "notification-dismiss",
+      "display_name": "Dismiss Notification",
+      "description": "Record that one of the caller's notifications needs no action. Writes an audit event. Permanent in effect: a dismissed alert keeps its deduplication key, so no later sweep raises the same condition again. Refuses an already dismissed or resolved notification.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/notifications/<id>/dismiss/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "notifications.notification.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The feed is the only place a notification id can be discovered."
+        },
+        {
+          "target_permission_key": "notifications.notification.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The notification must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.notification.list",
+      "app_key": "notifications",
+      "model_key": "notification",
+      "endpoint_key": "notification-list",
+      "display_name": "List Own Notifications",
+      "description": "The caller's own alert feed, newest first. Filter by status, read state, type, priority, source app, source record, or due bucket, and narrow by date or fiscal year. Scoped to the calling user — no authority can read another user's feed through the API.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/notifications/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.notification.mark_all_read",
+      "app_key": "notifications",
+      "model_key": "notification",
+      "endpoint_key": "notification-read-all",
+      "display_name": "Mark All Notifications Read",
+      "description": "Mark every unread notification on the caller's own feed read, and return how many changed. Clears everything unread rather than a priority-scoped subset, so the badge the user asked to clear actually reaches zero. Nothing is dismissed or resolved.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/notifications/read-all/",
+      "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "notifications.notification.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The feed is the only place a notification id can be discovered."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.notification.mark_read",
+      "app_key": "notifications",
+      "model_key": "notification",
+      "endpoint_key": "notification-read",
+      "display_name": "Mark Notification Read",
+      "description": "Mark one of the caller's notifications read. Idempotent — a second call keeps the original timestamp, because the receipt answers when it was first seen. Does not change the notification's status: reading is not deciding.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/notifications/<id>/read/",
+      "operation_type": "update",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "notifications.notification.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The feed is the only place a notification id can be discovered."
+        },
+        {
+          "target_permission_key": "notifications.notification.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The notification must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.notification.mark_unread",
+      "app_key": "notifications",
+      "model_key": "notification",
+      "endpoint_key": "notification-unread",
+      "display_name": "Mark Notification Unread",
+      "description": "Return one of the caller's notifications to unread. Offered because an inbox without it punishes clicking through a list — the user who opens something they cannot deal with now needs a way to put it back.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/notifications/<id>/unread/",
+      "operation_type": "update",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "notifications.notification.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The feed is the only place a notification id can be discovered."
+        },
+        {
+          "target_permission_key": "notifications.notification.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The notification must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.notification.read",
+      "app_key": "notifications",
+      "model_key": "notification",
+      "endpoint_key": "notification-detail",
+      "display_name": "Read Own Notification",
+      "description": "One notification from the caller's own feed. A notification belonging to another user returns 404 rather than 403, so an id cannot be probed for existence on somebody else's feed.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/notifications/<id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "notifications.notification.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The feed is the only place a notification id can be discovered."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.notification.summary",
+      "app_key": "notifications",
+      "model_key": "notification",
+      "endpoint_key": "notification-summary",
+      "display_name": "Read Own Notification Summary",
+      "description": "Unread count plus active totals by priority and by due bucket, for the calling user. Exists so a client rendering a bell badge is not forced to page the whole feed.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/notifications/summary/",
+      "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
         }
       ]
     },

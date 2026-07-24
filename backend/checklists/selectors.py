@@ -25,6 +25,7 @@ from django.utils import timezone
 
 from checklists.constants import (
     RESOLVED_ITEM_STATUSES,
+    UNRESOLVED_ITEM_STATUSES,
     ChecklistStatus,
     ItemStatus,
     ItemType,
@@ -377,6 +378,45 @@ def get_blocked_checklist_items(
     if assignee_id:
         queryset = queryset.filter(assigned_to_id=assignee_id)
     return queryset
+
+
+def get_checklists_with_pending_documents() -> QuerySet[Checklist]:
+    """Live checklists holding unresolved document requirements that carry no due date.
+
+    Added for ``notifications``, and it exists because of a gap the two
+    deadline selectors above structurally cannot see: they are both driven by
+    ``due_at``, so a document requirement nobody put a date on is invisible to
+    every alert this app can raise. That is not a rare case — a template item
+    with no ``default_due_offset_days`` produces exactly it, and "we never asked
+    for the bank statement" is the failure mode the concept file names first.
+
+    Scoped to ``ItemType.DOCUMENT`` on purpose. A stage or a task with no date is
+    ordinary; a *document* with no date is something the applicant was never
+    chased for.
+
+    Annotates ``pending_document_count`` so the caller can say how many without a
+    second query per row (§6, N+1).
+
+    **The whole condition lives in the aggregate's ``filter``, not in a
+    ``.filter()``/``.exclude()`` pair**, and that is not a style preference:
+    ``.exclude(items__status__in=RESOLVED_ITEM_STATUSES)`` across a multi-valued
+    relation drops a checklist because *any* of its items is resolved, so one
+    completed requirement would hide every outstanding one sitting beside it.
+    Counting the matching rows and filtering on the count asks the question that
+    was actually meant.
+    """
+    outstanding_documents = Q(
+        items__item_type=ItemType.DOCUMENT,
+        items__due_at__isnull=True,
+        items__status__in=UNRESOLVED_ITEM_STATUSES,
+    )
+    return (
+        Checklist.objects.select_related("journey", "journey__applicant", "country", "assigned_to")
+        .filter(status__in=_LIVE_CHECKLIST_STATUSES)
+        .annotate(pending_document_count=Count("items", filter=outstanding_documents, distinct=True))
+        .filter(pending_document_count__gt=0)
+        .order_by("-created_at", "-id")
+    )
 
 
 def get_checklist_workload_by_assignee(

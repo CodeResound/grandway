@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "uploaded_files",
     "checklists",
     "dashboards",
+    "notifications",
 ]
 
 # Switch off every app's signal side effects for this process (§11). Set it for

@@ -49,6 +49,25 @@ def get_active_user_by_id(user_id: str) -> User | None:
     return User.objects.filter(pk=user_id, is_active=True).first()
 
 
+def get_active_admins() -> QuerySet[User]:
+    """Every active account holding Admin authority, by username.
+
+    Added for ``notifications``, which needs a recipient for an alert about a
+    record nobody owns — an offer deadline, an expiring passport. Only
+    ``checklists`` and ``leads`` carry ownership today, so most deadline alerts
+    fall through to this fan-out.
+
+    Deactivated accounts are excluded for the same reason
+    ``get_active_user_by_id`` excludes them: writing to a queue nobody can log in
+    to read is not delivery. Superadmins are excluded because they are a platform
+    authority that does not participate in consultancy operations
+    (``concepts/authenticate.txt``) — the one place this module does encode an
+    authority-tier rule, and it does so because "who is an Admin" is this app's
+    question, not the caller's.
+    """
+    return User.objects.filter(authority_type=AuthorityType.ADMIN, is_active=True).order_by("username")
+
+
 def get_active_sessions_for_user(user: User) -> QuerySet[AuthSession]:
     """All currently-active sessions for a user (one per device)."""
     return AuthSession.objects.filter(user=user, is_active=True).order_by("last_used_at")

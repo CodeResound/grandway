@@ -17,10 +17,13 @@ class OfferStatus(models.TextChoices):
     by definition awaiting a response, and two statuses for one state would
     only drift apart as staff forget to advance the second one.
 
-    ``EXPIRED`` is set by a person, never by the system. Nothing in V1 runs on a
-    schedule (the ``notifications`` domain does not exist), so an automatic
-    expiry would be a promise the deployment cannot keep. ``response_deadline``
-    plus the computed ``is_response_overdue`` is what surfaces a lapsed offer.
+    ``EXPIRED`` is set by a person, never by the system, and that stayed true
+    when ``notifications`` shipped on 2026-07-24. That module's nightly sweep now
+    *alerts* on a lapsed ``response_deadline`` — but it owns no business state
+    and moves no status here. An institution's offer expiring is a fact about the
+    institution's position, not about a job having run, and inferring it from a
+    date would record a decision nobody made. ``response_deadline`` plus the
+    computed ``is_response_overdue`` is still what surfaces a lapsed offer.
     """
 
     DRAFT = "draft", "Draft"
