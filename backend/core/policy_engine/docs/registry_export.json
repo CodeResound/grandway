@@ -27,6 +27,10 @@
       "display_name": "Document History"
     },
     {
+      "app_key": "document_templates",
+      "display_name": "Document Templates"
+    },
+    {
       "app_key": "documents",
       "display_name": "Documents"
     },
@@ -101,7 +105,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 116,
+  "endpoint_count": 126,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -1336,6 +1340,246 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Recovery writes the frozen body into the working document through the documents app."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.signatory.change_status",
+      "app_key": "document_templates",
+      "model_key": "signatory",
+      "endpoint_key": "signatory-change-status",
+      "display_name": "Change Signatory Status",
+      "description": "Move a signatory between draft, active, and inactive. Nothing is deleted.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/document-templates/signatories/<signatory_id>/status/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_templates.signatory.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The signatory must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.signatory.create",
+      "app_key": "document_templates",
+      "model_key": "signatory",
+      "endpoint_key": "signatory-create",
+      "display_name": "Create Signatory",
+      "description": "Add a person and signature image to the library. Created as draft.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/document-templates/signatories/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_templates.signatory.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating signatories requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.signatory.list",
+      "app_key": "document_templates",
+      "model_key": "signatory",
+      "endpoint_key": "signatory-list",
+      "display_name": "List Signatories",
+      "description": "List signatory records. Filter with ?status=active for the certificate signer picker.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/document-templates/signatories/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.signatory.read",
+      "app_key": "document_templates",
+      "model_key": "signatory",
+      "endpoint_key": "signatory-read",
+      "display_name": "View Signatory",
+      "description": "Retrieve one signatory record, including its signature image link.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/document-templates/signatories/<signatory_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_templates.signatory.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a signatory requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.signatory.update",
+      "app_key": "document_templates",
+      "model_key": "signatory",
+      "endpoint_key": "signatory-update",
+      "display_name": "Edit Signatory",
+      "description": "Correct a signatory's names, title, role, or signature link. Status is unaffected.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/document-templates/signatories/<signatory_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_templates.signatory.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The signatory must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.template.change_status",
+      "app_key": "document_templates",
+      "model_key": "template",
+      "endpoint_key": "template-change-status",
+      "display_name": "Change Document Template Status",
+      "description": "Move a template between draft, active, and inactive. Existing documents are unaffected.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/document-templates/templates/<template_id>/status/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_templates.template.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The template must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.template.create",
+      "app_key": "document_templates",
+      "model_key": "template",
+      "endpoint_key": "template-create",
+      "display_name": "Register Document Template",
+      "description": "Register a template slug against a family. The key is immutable once created.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/document-templates/templates/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_templates.template.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating templates requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.template.list",
+      "app_key": "document_templates",
+      "model_key": "template",
+      "endpoint_key": "template-list",
+      "display_name": "List Document Templates",
+      "description": "List template catalogue rows. Filter by family and status to build the document picker.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/document-templates/templates/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.template.read",
+      "app_key": "document_templates",
+      "model_key": "template",
+      "endpoint_key": "template-read",
+      "display_name": "View Document Template",
+      "description": "Retrieve one template catalogue row.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/document-templates/templates/<template_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_templates.template.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a template requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_templates.template.update",
+      "app_key": "document_templates",
+      "model_key": "template",
+      "endpoint_key": "template-update",
+      "display_name": "Edit Document Template",
+      "description": "Edit a template's label, description, family, or display order. The key is refused.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/document-templates/templates/<template_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_templates.template.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The template must be readable before it can be acted on."
         }
       ]
     },

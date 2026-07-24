@@ -8,9 +8,14 @@ of the document, not the rendered instance" — describes exactly this split, an
 its final open question asks for it outright.
 
 The practical consequence: onboarding a new bank partner adds a row, not a
-migration. When ``document_templates`` ships it takes ownership of the slug
-registry, and that is an additive change rather than a breaking one to a shipped
-42-value enum.
+migration. ``document_templates`` has since shipped and taken ownership of the
+slug registry, and it cost nothing here — no migration, no enum change, no code
+change in this app at all, which is what the split was for.
+
+``DocumentFamily`` is **imported** by that app rather than redeclared (§4 — no
+duplicated enums), so this remains the single definition of the six families.
+Adding a seventh here propagates to the catalogue automatically; it is still a
+migration in this app, because the value lives in the database as a choice.
 """
 
 from django.db import models
@@ -19,7 +24,7 @@ from django.db import models
 class DocumentFamily(models.TextChoices):
     """The stable class a document belongs to.
 
-    Six values covering the frontend's 42 slugs. Bank documents split into two
+    Six values covering the frontend's 53 slugs. Bank documents split into two
     families rather than one because a statement and a certificate have
     different content shapes, different derived values, and different screens —
     treating them as one family would make ``family`` useless for the one thing

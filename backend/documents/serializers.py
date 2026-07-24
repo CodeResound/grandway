@@ -6,7 +6,7 @@ in ``services.py``.
 
 **``content`` is passed through untouched.** It is declared as a bare
 ``JSONField`` with no nested serializer, no field list, and no coercion, because
-the 42 template shapes are open (`Record<string, unknown> &`) and every one of
+the 53 template shapes are open (`Record<string, unknown> &`) and every one of
 them may carry keys this backend has never heard of. A serializer that named
 fields would silently drop them. Shape validation belongs to the frontend that
 renders the template; the backend checks only that the body is an object and

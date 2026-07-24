@@ -1,7 +1,7 @@
 # Security — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial security notes — Admin-only access, audit redaction of the document body |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No behaviour change. Recorded that `document_history` inherits this access model and redacts two fields |
+| 1.0.2 | 2026-07-24 | AI (Claude) | No behaviour change. Corrected the shape count from 42 to 53 |
 
 ---
 
@@ -128,7 +129,7 @@ There is **no `DELETE` method on any endpoint**, and no delete service. Withdraw
 - **`content` is not validated, sanitized, or escaped.** It is stored as received and returned as
   stored. A client that posts script content into a text field will get it back verbatim, and the
   frontend is responsible for escaping on render. The backend cannot sanitize what it does not
-  parse — and parsing 42 open shapes is exactly what this app refuses to do.
+  parse — and parsing 53 open shapes is exactly what this app refuses to do.
 - **Signature references are unverified.** `content.instructorId` / `content.directorId` point at a
   table that does not exist yet; a document may name a signatory that never did.
 - **A client-supplied derived value is stored, not rejected.** Posting `statement_debit_total` gets

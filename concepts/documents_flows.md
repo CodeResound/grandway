@@ -20,8 +20,9 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 > 3. **`content` replaces, it does not merge.** Every save sends the complete body. A partial
 >    `content` payload silently discards every key it omits. This is the single most likely
 >    integration mistake in this module.
-> 4. **There is no delete, and no print.** The delete button becomes "Archive" (with a mandatory
->    reason). The print button has **no endpoint at all** — see the unbacked flow below.
+> 4. **There is no delete.** The delete button becomes "Archive" (with a mandatory reason).
+>    **Printing lives in a different module** — `document_history`, at a different base path. There is
+>    no print endpoint under `/api/v1/documents/` and there will not be one.
 > 5. **An archived document is frozen.** The workspace must go read-only; any save returns 409.
 
 ---
@@ -53,6 +54,13 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Send `family` and `template_key` together, from one picker.** They are cross-validated: a
      `bank-vyas-statement` slug under family `lor` is refused. Deriving the family from the slug
      client-side is the reliable way to keep them in step.
+   - **Populate that picker from
+     `GET /api/v1/document-templates/templates/?status=active`**
+     (`document_templates.template.list`) **(cross-app: `document_templates`)** — each row carries
+     both `key` and `family`, already grouped and ordered, so sending them from one row keeps them in
+     step by construction.
+   - **This app does not check the catalogue.** A slug absent from it, or present but retired, is
+     still accepted here. **The picker is the only guard** — there is no server-side one.
    - *Failure — `DOCUMENTS_TEMPLATE_KEY_INVALID`:* the two came from different pickers. A UI bug,
      not user error.
    - *Failure — `VALIDATION_ERROR` on `template_key`:* the slug is malformed — uppercase, spaces, or
@@ -93,7 +101,11 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - Accepts `draft` and `ready` **only**. Sending `archived` fails serializer validation — archiving
      is its own action because it demands a reason.
 
-6. **Print** — **no endpoint exists.** See the unbacked flow below.
+6. **Print** — save first, then
+   `POST /api/v1/document-history/documents/<document_id>/snapshots/`
+   (`document_history.snapshot.capture`) **(cross-app: `document_history`)**. Capture reads the
+   *committed* row, so step 4 must have completed. Full sequence in
+   `concepts/document_history_flows.md` → "Capture a print snapshot".
 
 ---
 
@@ -215,19 +227,25 @@ What a client of *this* module needs to know about it:
   `label` and `content` into the working record and surfaces here as an ordinary `document_updated`
   history event. Refetch the workspace after one rather than trusting a cached copy.
 
-Two related gaps still travel with it, both unchanged:
+One related gap is now backed, and one still is not:
 
-- **Signatory selection is unbacked.** Certificate templates read `content.instructorId` and
-  `content.directorId`, which reference a Signature table owned by the unbuilt
-  `document_templates`. There is no endpoint to populate those dropdowns, and the ids round-trip as
-  **unvalidated opaque strings** — a document may name a signatory that never existed.
+- **Signatory selection is backed** —
+  `GET /api/v1/document-templates/signatories/?status=active`
+  (`document_templates.signatory.list`) **(cross-app: `document_templates`)**. Populate the
+  instructor and director dropdowns from it and put the chosen record's `id` into
+  `content.instructorId` / `content.directorId`. See
+  `concepts/document_templates_flows.md` → "Fill the instructor and director selects".
+  - **The ids are still unvalidated on save.** This app stores `content` as an opaque body and does
+    not look inside it, so a typo, a stale id, or the id of a `draft` signatory are all accepted
+    silently. **Your dropdown is the only guard.**
 - **Supporting files are unbacked.** Flow 2's "attaches supporting files when needed" needs
   `uploaded_files`, which does not exist. Nothing can be attached to a document, and **no generated
-  PDF can be stored anywhere** — a snapshot has no file field either.
+  PDF can be stored anywhere** — a snapshot has no file field, and a signature is a link to a host
+  this project knows nothing about.
 
-**Do not ship UI that implies either of those works** — no signatory dropdown backed by hardcoded
-data, no file-attach control, no "download the saved PDF" link on a history row. Each would need an
-API that is not there.
+**Do not ship a file-attach control or a "download the saved PDF" link on a history row** — each
+would need an API that is not there. The signatory dropdown, by contrast, must now be backed by the
+real endpoint rather than hardcoded data.
 
 ---
 
@@ -267,10 +285,14 @@ API that is not there.
   `documents.document.restore` on the 409 path. That app also **writes** to this one: its
   `document_history.snapshot.recover` endpoint pushes a frozen `label` and `content` into a document
   through this app's own update service.
-- **Blocked on (not yet existing):** `document_templates` (templates and signatories),
-  `uploaded_files` (supporting files, and any generated PDF). Both are named domains in
-  `concepts/project_overview.txt` and neither has a concept file. `document_history` is no longer on
-  this list — it shipped, and its flow file is the third leg of the frontend handoff for printing.
+- **This app also references (outbound, new):** `document_templates.template.list` for the New
+  Document type picker and `document_templates.signatory.list` for the instructor and director
+  dropdowns. Both are **advisory** — this app validates neither the `template_key` nor the signatory
+  ids against them. See `concepts/document_templates_flows.md`.
+- **Blocked on (not yet existing):** `uploaded_files` (supporting files, and any generated PDF) —
+  a named domain in `concepts/project_overview.txt` with no concept file. Neither
+  `document_history` nor `document_templates` is on this list any more: both shipped, and their flow
+  files complete the frontend handoff for printing and for the template and signatory pickers.
 
 **Note the access asymmetry with `applicants`.** An applicant is readable by any Admin or Lead
 Manager, but their documents are Admin-only. A Lead Manager's applicant file view is legitimately

@@ -164,7 +164,7 @@ def assert_content_storable(content: Any) -> None:
     """The body must be a JSON object within the size cap.
 
     These are the only two things the backend checks about ``content``. It does
-    **not** validate the shape against the template: there are 42 of them, every
+    **not** validate the shape against the template: there are 53 of them, every
     one is an open shape required to preserve unknown keys, and the authoritative
     per-template contract lives with the frontend that renders it. Enforcing a
     guessed shape here would reject valid documents.

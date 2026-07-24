@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "clients",
     "documents",
     "document_history",
+    "document_templates",
 ]
 
 # The authenticate app owns the platform's identity layer with a custom user model.

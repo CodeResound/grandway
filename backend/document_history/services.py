@@ -111,7 +111,7 @@ def assert_render_context_storable(render_context: Any) -> None:
 
     These are the only two things the backend checks about it. It does **not**
     validate the shape: the render context is whatever the frontend needed to
-    reproduce one of 42 templates, its keys differ per template family, and the
+    reproduce one of 53 templates, its keys differ per template family, and the
     authoritative per-template contract lives with the renderer. Enforcing a
     guessed shape here would reject valid prints — the same call ``documents``
     made about ``content``.

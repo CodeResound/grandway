@@ -240,8 +240,14 @@ Authored and updated by the backend author in the same commit as any endpoint ch
   **Do not ship a "download the saved PDF" control** — there is nothing behind it.
 - **Any cross-document view** — "everything printed this month", "all snapshots of family
   `bank_statement`". Both list endpoints require a document id.
-- **A signatory picker.** The ids you freeze into `render_context.signatories` reference the unbuilt
-  `document_templates` and resolve to nothing.
+- **A signatory picker** is not this app's to provide, but one now exists —
+  `GET /api/v1/document-templates/signatories/?status=active`
+  (`document_templates.signatory.list`) **(cross-app: `document_templates`)**. The ids you freeze
+  into `render_context.signatories` resolve against it, and a retired signatory stays retrievable
+  forever precisely so old snapshots keep working.
+  - **Keep freezing the name and role alongside the id.** This app validates nothing inside
+    `render_context`, and an id alone would leave a snapshot dependent on a lookup that may return a
+    since-renamed record — which is exactly what freezing exists to prevent.
 
 ## Cross-app dependencies
 

@@ -35,9 +35,15 @@ class Document(BaseModel):
     *editable business object*: identity, ownership, status, template
     association, and the entered source data. The immutable copy captured at
     print time belongs to ``document_history``, which now exists and holds
-    ``PROTECT`` foreign keys to this model; the template definition and its
-    signatories to ``document_templates``; supporting files to
-    ``uploaded_files``. The latter two do not exist yet.
+    ``PROTECT`` foreign keys to this model; the signatory library and the
+    template catalogue to ``document_templates``, which now exists and imports
+    this app's family enum and key-validation rule; supporting files to
+    ``uploaded_files``, which does not exist.
+
+    Note what ``document_templates`` existing does **not** change here:
+    ``template_key`` is still not checked against that catalogue, and
+    ``content.instructorId`` / ``content.directorId`` are still unvalidated
+    strings. This app consults neither table.
 
     The ``archived_*`` fields are denormalized *current state*, mirroring the
     pattern in ``leads``, ``applicant_journeys``, ``offers``, and ``clients``
@@ -70,10 +76,10 @@ class Document(BaseModel):
     # --- Type --------------------------------------------------------------
     #
     # The stable class lives in the database as an enum; the concrete template
-    # slug is a validated string. Onboarding a new bank partner is a row, not a
-    # migration — and when ``document_templates`` ships and takes over the slug
-    # registry, that is additive rather than a breaking change to a shipped
-    # 42-value enum. See ``constants.py``.
+    # slug is a validated string. That call paid off: ``document_templates``
+    # now holds the slug catalogue as rows, and onboarding a bank partner
+    # needed no migration here at all. ``family`` stayed the enum, and that app
+    # imports it rather than declaring a second copy. See ``constants.py``.
     family = models.CharField(max_length=20, choices=DocumentFamily.choices, db_index=True)
     template_key = models.CharField(
         max_length=100,

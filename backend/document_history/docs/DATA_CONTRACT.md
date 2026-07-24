@@ -1,10 +1,10 @@
 # Data Contract — Document History
 
 **Owner app:** `document_history`
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Status:** Active
 **Created:** 2026-07-24
-**Purpose:** Owns the immutable print snapshots of a document and the print events that produced them. It does **not** own the editable working record (`documents`), the template definition or its signatories (`document_templates`), generated files (`uploaded_files`), or the person (`applicants`). The middle two do not exist yet.
+**Purpose:** Owns the immutable print snapshots of a document and the print events that produced them. It does **not** own the editable working record (`documents`), the template catalogue or its signatories (`document_templates`), generated files (`uploaded_files`), or the person (`applicants`). Only `uploaded_files` does not exist.
 
 ---
 
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — two models, `DocumentSnapshot` and `PrintEvent` |
 | 1.0.1 | 2026-07-24 | AI (Claude) | Added the `-id` ordering tiebreaker on `PrintEvent` so a paginated timeline cannot skip or duplicate a row |
+| 1.0.2 | 2026-07-24 | AI (Claude) | No schema change. `document_templates` shipped, so the signatory table the render context references now exists; corrected the template count to 53 |
 
 ---
 
@@ -32,7 +33,7 @@ A second rule follows from it: **the backend copies the document body, it never 
 `concepts/document_history.txt` leaves five questions open. Four were settled with the project owner before implementation; the fifth was settled by the project's own state. Each departure from the concept or from `CLAUDE.md` is recorded here.
 
 - **The snapshot stores source data plus render context, not rendered markup.** The concept's first open question asks which. Storing the full rendered HTML would reproduce the visual output exactly, but it is unbounded in size, duplicates data already held twice, and would be an injection liability the moment anything served it back. `render_context` carries what markup cannot be reconstructed from — the frontend-computed values (running balances, closing balance, amount-in-words), the template version, and the signatory metadata — which is what the concept actually requires: "If the document contains frontend-computed values, those values are frozen as part of the snapshot rather than recomputed later."
-- **`render_context` is an unvalidated JSON object.** §5 requires a contract for every data object, and this one cannot have a *server-enforced* one, for the reason `documents.content` cannot: the shape differs across 42 templates and the authoritative version lives with the renderer. The two things checked are that it is an object and that it fits under 256 KiB. A serializer that named fields would silently drop the keys a template it has never heard of depends on.
+- **`render_context` is an unvalidated JSON object.** §5 requires a contract for every data object, and this one cannot have a *server-enforced* one, for the reason `documents.content` cannot: the shape differs across 53 templates and the authoritative version lives with the renderer. The two things checked are that it is an object and that it fits under 256 KiB. A serializer that named fields would silently drop the keys a template it has never heard of depends on.
 - **Generated file references are deferred entirely.** The concept names "Generated file reference" as a core entity and its second open question asks whether PDFs should be retained. There is **no field for it**, because `uploaded_files` does not exist: any reference stored today would be an opaque string nothing can resolve, verify, or clean up. This is the same call `documents` made when it omitted a `printed` status — "a status no code writes is a lie in the schema". Adding the FK later is additive. The concept already permits this: "No assumption that a generated PDF must exist; the snapshot is the record, the file is optional."
 - **The timeline is per-document only.** The concept's third open question asks whether a wider document-family view is needed for Admin review. It is not built (§32). Both list endpoints require a document id in the path; there is no cross-document snapshot or print-event query. Additive later.
 - **`document_history` exposes a direct recover endpoint, not a recovery payload.** The concept's fifth open question asks which. A payload-only design makes recovery two client calls that can fail between, and the resulting write is not attributable to a recovery at all. The endpoint calls `documents.services.update_document` in one transaction, so the write goes through the owning app's own rules — and both apps' audit logs record it.

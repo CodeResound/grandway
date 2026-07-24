@@ -7,7 +7,7 @@ in ``services.py``.
 **``render_context`` is passed through untouched.** It is declared as a bare
 ``JSONField`` with no nested serializer, no field list, and no coercion, for the
 same reason ``documents`` declares ``content`` that way: it holds whatever the
-frontend needed to reproduce one of 42 templates, and a serializer that named
+frontend needed to reproduce one of 53 templates, and a serializer that named
 fields would silently drop the keys a template it has never heard of depends on.
 
 **There is no write serializer for a snapshot body.** ``content`` is read off

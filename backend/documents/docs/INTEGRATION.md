@@ -1,7 +1,7 @@
 # Integration — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 9 endpoints, one resource |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. `document_history` moved from "missing" to a documented consumer; print/recover gaps closed |
+| 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint change. `document_templates` moved from "missing" to a documented consumer. Restated the signatory and template-registry gaps precisely — both libraries now exist and **this module still validates neither** — and corrected the slug count to 53 |
 
 ---
 
@@ -34,20 +35,24 @@
 
 **This module writes to nothing outside itself.** Creating, editing, or archiving a document does not touch the applicant's status or any other record.
 
-**Two apps this module deliberately does not contain, and which do not exist yet:**
+**One app this module deliberately does not contain, and which does not exist yet:**
 
 | Missing app | What it would own | What you cannot do today |
 |---|---|---|
-| `document_templates` | Template definitions, versions, signatory records + signature images | Fetch the signatory list, or validate `content.instructorId` / `content.directorId` |
 | `uploaded_files` | File storage, verification, versioning | Attach a supporting file to a document, or store a generated PDF anywhere |
 
-**One app this module deliberately does not contain, and which now exists:** `document_history`
-(`/api/v1/document-history/`) owns immutable print snapshots and print events. It **consumes** this
-module — it holds `PROTECT` foreign keys to `Document` and performs a recovery through this module's
-own update service rather than writing directly — and this module depends on it for nothing.
-Printing, print history,
-reprinting, and recovering a previous body all live there; none of it is reachable from a
-`/api/v1/documents/` route.
+**Two apps this module deliberately does not contain, and which now exist:**
+
+- **`document_history`** (`/api/v1/document-history/`) owns immutable print snapshots and print
+  events. It **consumes** this module — it holds `PROTECT` foreign keys to `Document` and performs a
+  recovery through this module's own update service rather than writing directly — and this module
+  depends on it for nothing. Printing, print history, reprinting, and recovering a previous body all
+  live there; none of it is reachable from a `/api/v1/documents/` route.
+- **`document_templates`** (`/api/v1/document-templates/`) owns the signatory library and the
+  template-slug catalogue. The relationship runs the **opposite** way to `document_history` and is
+  weaker in both directions: that module imports this one's `family` enum, slug validator, and
+  key/family rule at the Python level, and holds **no foreign key to `Document`** at all. This module
+  imports nothing from it and does not consult it.
 
 **Consequences for a client of *this* module:**
 
@@ -57,8 +62,16 @@ reprinting, and recovering a previous body all live there; none of it is reachab
   writing its `label` and `content`. It appears in this module's history endpoint as an ordinary
   `document_updated` event, indistinguishable from a manual edit except by its timing next to the
   recovery. Refetch after a recovery rather than trusting a cached copy.
-- **`PROTECT` now runs both ways.** A document with print history cannot be deleted — which changes
-  nothing today, since this module has no delete at all.
+- **`PROTECT` now runs both ways with `document_history`.** A document with print history cannot be
+  deleted — which changes nothing today, since this module has no delete at all.
+- **The template catalogue is advisory and this module does not enforce it.** A `template_key` absent
+  from `document_templates`, or present but retired, is still accepted by `POST /documents/`. Nothing
+  changed about this module's validation when that one shipped. **Populate your picker from the
+  catalogue and treat it as the only guard** — see §9.
+- **A signatory picker now exists**, at
+  `GET /api/v1/document-templates/signatories/?status=active`. Put the chosen record's `id` into
+  `content.instructorId` / `content.directorId`. **This module still does not validate those ids** —
+  see §9.
 
 ## 3. Conventions
 
@@ -234,7 +247,7 @@ reprinting, and recovering a previous body all live there; none of it is reachab
 ## 5. Enums
 
 - `Document.family`: `student` | `woda` | `lor` | `moi` | `bank_statement` | `bank_certificate`
-  - **This is the backend's type vocabulary — not the 42 slugs.** The slug lives in `template_key` and is a validated string, not an enum, so a new bank partner needs no backend deploy.
+  - **This is the backend's type vocabulary — not the 53 slugs.** The slug lives in `template_key` and is a validated string, not an enum, so a new bank partner needs no backend deploy.
   - Bank documents are **two** families, not one: a statement and a certificate have different content shapes and different screens.
 - `Document.status`: `draft` | `ready` | `archived`
   - **There is no `printed`, and there will not be one.** Print snapshots exist (`document_history`), but capturing one deliberately does not touch this field — "has been printed" is derivable from the version chain, and a second denormalized answer here could drift from it. Ask `GET /api/v1/document-history/documents/<document_id>/snapshots/` instead.
@@ -448,13 +461,14 @@ reprinting, and recovering a previous body all live there; none of it is reachab
 
 ### Blocking — features the concept describes that have no endpoints
 
-- **No signatory list, and signature references are unvalidated.** `content.instructorId` / `content.directorId` on certificate templates point at a Signature table owned by the unbuilt `document_templates`. They round-trip as opaque strings; a document may name a signatory that never existed.
+- **Signature references are still unvalidated, even though the signatory table now exists.** `content.instructorId` / `content.directorId` on certificate templates name records in `document_templates`, and you can now fetch the real list from `GET /api/v1/document-templates/signatories/?status=active`. But this module stores `content` as an opaque JSON body and does not look inside it: a typo, a stale id, or the id of a `draft` signatory are all accepted silently. **A document may still name a signatory that never existed** — what changed is that a correct client has a list to pick from, not that an incorrect one is caught.
+- **The template catalogue is advisory; `template_key` is still not checked against it.** `document_templates` holds a catalogue of registered slugs, and this module does not consult it. A well-formed slug matching its family prefix is accepted whether or not it is registered, and whether or not it is retired. See the next item — the two gaps compound.
 - **No supporting files.** `uploaded_files` does not exist, so nothing can be attached to a document.
-- **No template registry.** `template_key` is format-checked and family-checked but not checked against a list of real templates. A typo that happens to match the family prefix — `bank-vyass-statement` — is accepted.
+- **A template registry exists, and this module does not use it.** `template_key` is format-checked and family-checked but **not** checked against `document_templates`' catalogue. A typo that happens to match the family prefix — `bank-vyass-statement` — is still accepted. Enforcing the catalogue would narrow this endpoint's accepted input, which is a breaking change and a separate decision; until it is made, your picker is the only thing standing between a typo and a document nobody can render.
 
 ### Behavioural — things that will surprise a client
 
-- **A client-supplied derived value is stored, not stripped.** Posting `statement_debit_total` gets it persisted and returned. The backend cannot strip it without knowing all 42 shapes, and stripping would break "preserve any extra keys". **Never read a derived value back from the API as truth** — recompute from the inputs.
+- **A client-supplied derived value is stored, not stripped.** Posting `statement_debit_total` gets it persisted and returned. The backend cannot strip it without knowing all 53 shapes, and stripping would break "preserve any extra keys". **Never read a derived value back from the API as truth** — recompute from the inputs.
 - **`content` is replaced wholesale on `PATCH`, not merged.** Sending `{"content": {"a": 1}}` on a document whose body had ten keys leaves it with one. Send the complete body.
 - **A previous body is recoverable only if somebody printed it.** This module has no field history, no versioning, and its audit log redacts the body. `document_history` snapshots are the only record of a previous body — so editing a document that was never printed still loses its previous contents irrecoverably. It is a print log, not an autosave.
 - **`content` is not sanitized or escaped.** It is returned exactly as stored; escaping on render is the frontend's responsibility.
@@ -481,7 +495,7 @@ The uploaded `frontend_api-used.md` and `frontend_data-contract.md` describe a *
 | `GET /documents/workspaces` | `GET /api/v1/documents/workspaces/` — note the trailing slash |
 | `DocumentWorkspaceSummary.studentId` / `.studentName` | `applicant_id` / `applicant_name` |
 | `GET /documents/:id/print-logs`, `POST` the same | Built, in a **different module and at a different path**: `GET /api/v1/document-history/documents/<document_id>/timeline/` and `POST /api/v1/document-history/documents/<document_id>/snapshots/` |
-| `GET /signatures?active=true` | **Not built** — needs `document_templates` |
+| `GET /signatures?active=true` | Built, in a **different module and at a different path**: `GET /api/v1/document-templates/signatories/?status=active`. The resource is `Signatory`, and its name fields are the §39.1 bilingual triple (`name_np` / `name_en` / `name_romanized`) rather than a single `name` |
 | Any authenticated user reaches these screens | **Admin only.** A Lead Manager gets 403 on every route, reads included |
 
 **What the frontend gets right and must keep:** `content` carries input fields only; derived values are computed at render and never persisted. That is exactly this backend's contract, and the one thing in the uploaded docs that needed no reconciliation at all.

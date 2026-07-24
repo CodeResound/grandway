@@ -46,7 +46,7 @@ def search_documents(queryset: QuerySet[Document], query: str) -> QuerySet[Docum
 
     ``icontains`` over ``label`` only, carried by its GIN trigram index.
     ``content`` is **not** searched: it is an opaque JSON body whose shape
-    varies across 42 templates, and full-text search over personal financial
+    varies across 53 templates, and full-text search over personal financial
     data is a feature that needs its own decision, not an accident of a search
     box.
     """

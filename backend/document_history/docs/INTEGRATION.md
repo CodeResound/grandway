@@ -1,7 +1,7 @@
 # Integration — Document History
 
 **Owner app:** `document_history`
-**Version:** 1.0.2
+**Version:** 1.0.3
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 6 endpoints, two resources |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Defects found by the §19.5 consumer-comprehension test: added success status codes, the recovery response shape, the 403 to every `Errors` list, the Bikram Sambat `fiscal_year` warning, corrected the query-parameter rule, and recorded three new gaps |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint change. Second §19.5 review round: declared the recovery `Document` field set complete, defined `is_editable`, disambiguated the `-id` tiebreaker, removed a stale claim that the 403 was absent from §7's error lists, and documented capture-note propagation, empty-body capture, nullable BS objects, response size, and the unenforced permission keys |
+| 1.0.3 | 2026-07-24 | AI (Claude) | No endpoint change. Recorded that the signatory ids frozen into `render_context` now resolve against `document_templates` — while this module still validates nothing inside `render_context` — and that it gained no dependency on that module in either direction |
 
 ---
 
@@ -37,12 +38,18 @@
 
 **This module writes to exactly one thing outside itself, and only on one endpoint.** `POST /snapshots/<id>/recover/` writes `label` and `content` into the working `Document` through `documents.services.update_document`. Every other endpoint here is inert with respect to the rest of the system: capturing, listing, reading, and reprinting change nothing outside this module's own two tables. In particular, **capturing a snapshot does not change the document's `status`** — there is no `printed` status in `documents`, deliberately.
 
-**Two apps this module deliberately does not contain, and which do not exist yet:**
+**One app this module deliberately does not contain, and which does not exist yet:**
 
 | Missing app | What it would own | What you cannot do today |
 |---|---|---|
-| `document_templates` | Template definitions, versions, signatory records + signature images | Resolve the signatory ids you froze into `render_context`, or validate that a template version ever existed |
 | `uploaded_files` | File storage, verification, versioning | Attach or reference a generated PDF. **A snapshot has no file field at all** — see §9 |
+
+**One app this module deliberately does not contain, and which now exists:** `document_templates`
+(`/api/v1/document-templates/`) owns the signatory library whose ids you freeze into
+`render_context.signatories`. This module holds **no dependency on it in either direction** — no
+foreign key, no import, no call. It stores whatever `render_context` you send and does not resolve,
+validate, or look inside it. What changed when that module shipped is that those ids now *resolve*
+to something when a client looks them up; nothing about this module's behaviour changed at all.
 
 ## 3. Conventions
 
@@ -459,7 +466,7 @@ own contract §4 is authoritative.** Fields this recovery overwrote are marked.
 - **No cross-document view.** Both list endpoints require a document id. You cannot ask "everything printed this month", "every snapshot of family `bank_statement`", or "everything user X printed". The `audit` module's event list (`GET /api/v1/audit/events/?app=document_history`) is the nearest available substitute and returns audit events, not snapshots.
 - **`render_context` is completely unvalidated.** The backend checks only that it is a JSON object under 256 KiB. It does not know what a template version is, cannot tell a real signatory id from a typo, and will return whatever you stored forever. **If your client stops sending a computed value, older snapshots keep theirs and newer ones simply lack it** — with no error and no migration. Version your own `render_context` shape; `template_version` is the conventional place, but nothing enforces it.
 - **Nothing stops a computed value being placed in `content` instead of `render_context`.** `content` is copied wholesale from the document, and `documents` does not strip derived values either. A snapshot whose `content` carries a stale `statement_closing_balance` is possible and the API will not flag it. Treat `content` as inputs and `render_context.computed` as outputs by convention — it is not enforced anywhere.
-- **Signatory ids inside `render_context` reference nothing.** They are intended to name records in the unbuilt `document_templates` module. They round-trip as opaque strings; a snapshot may name a signatory that never existed.
+- **Signatory ids inside `render_context` are resolvable but still unvalidated.** They name records in `document_templates`, which now exists — `GET /api/v1/document-templates/signatories/<id>/` will resolve one, and a retired signatory stays retrievable forever precisely so old snapshots keep working. But **this module validates nothing inside `render_context`**: it stores whatever you send. A snapshot may still name a signatory that never existed. **Freeze the signatory's name and role alongside the id**, as the §4 worked example does — an id alone leaves a snapshot dependent on a lookup that may return a since-renamed record, which defeats the point of freezing it.
 - **Capturing does not mark the document as printed.** `documents.Document.status` has no `printed` value and this module does not set one. To show "has been printed" you must call the snapshot list (or timeline) yourself; there is no count or flag on the document resource.
 - **No `updated_at` on either resource.** Both models carry one internally, but neither is exposed, because a row that can never be updated has nothing to report there. Use `created_at`. (The `Document` returned by a recovery *does* carry one — it belongs to the other module.)
 - **401 bodies are not enumerated here.** This contract states *that* a missing, expired, or revoked-session token returns 401 with the `authenticate` module's codes, but not what those codes are — so you cannot distinguish "refresh the token silently" from "redirect to login" without reading that module's contract. That is a real dependency this file does not remove.

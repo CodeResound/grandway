@@ -1,0 +1,225 @@
+# DOCUMENT TEMPLATES — Grandway
+
+## Purpose
+
+The Document Templates module owns the controlled template definitions that the
+documents workspace and history layer depend on.
+
+It keeps the library of template keys, families, versions, signatory records,
+and activation state that describe how a document should be presented. This is
+the configuration layer above the editable `documents` app and the immutable
+`document_history` app. It does not store document bodies; it stores the rules
+and assets that tell the frontend how to render them.
+
+The module exists so Grandway can keep template-driven documents consistent
+without hardcoding every form, letter, or bank layout into the frontend.
+
+## Relationship to other records
+
+A template is not a document, and it is not a snapshot.
+
+`documents` stores the current editable record and the chosen template key.
+`document_history` freezes the exact template context that was used when a
+snapshot was created. `document_templates` owns the canonical template
+definitions, versioning, and signatory metadata that both apps rely on.
+
+The frontend still renders the final document. This app supplies the template
+metadata that the frontend consumes: family, slug, version, labels, signature
+slots, activation state, and any other template-specific presentation hints.
+
+## Core entities
+
+Template family
+
+The broad document class a template belongs to. The current project uses six
+families:
+
+* `student`
+* `woda`
+* `lor`
+* `moi`
+* `bank_statement`
+* `bank_certificate`
+
+Template key
+
+The concrete template identifier used by the frontend and by `documents`. The
+current registry is slug-based and concrete, e.g. `student-cv-extended`,
+`woda-address`, `lor-kcmit`, `moi-vinayak`, `bank-vyas-statement`.
+
+Template definition
+
+The structured metadata for one template key and version. It should describe
+the template's family, label, version, status, field hints, section order,
+signature slots, and any render-specific metadata needed by the frontend.
+
+Template version
+
+An immutable published revision of a template definition. Once a version has
+been used by a document or history snapshot, it should remain available for
+historical reproduction even if a newer version is later published.
+
+Signatory record
+
+A stored person-and-signature record that may be referenced by templates. A
+signatory is not a system user and does not imply login access. It exists so
+certificate-style documents can point at an approved name, title, and signature
+image.
+
+Signature asset
+
+The image or image reference used for a signatory. In V1 this can be a stored
+path or URL-like value; the important thing is that it is stable enough for the
+frontend and history snapshot to reference later.
+
+Activation state
+
+Whether a template or signatory is draft, active, or inactive. Active entries
+may be used by the document workspace; inactive ones remain visible for history
+and old snapshots but should not be offered for new work.
+
+## Key user flows
+
+1. Author a template: An Admin creates a new template key -> chooses the family
+   -> adds the label, sections, signature slots, and any render hints -> saves
+   a draft definition.
+   - The template key should stay stable across the life of the template family.
+   - A new bank or document variant should be added as a row, not a migration,
+     when possible.
+
+2. Publish a version: An Admin reviews a draft template -> publishes it as an
+   active version -> the document workspace can now use it for new documents.
+   - Publishing should not mutate historical versions already used in documents
+     or snapshots.
+   - If a template must change materially, create a new version rather than
+     editing the published one in place.
+
+3. Maintain signatories: An Admin adds or updates a signatory -> uploads or
+   updates the signature asset -> marks the signatory active or inactive -> the
+   certificate templates can point at the correct signer.
+   - A signatory may be kept inactive but still visible for old snapshots and
+     historical records.
+
+4. Retire a template: A template is no longer used for new documents -> an
+   Admin marks it inactive -> the template remains available for old document
+   history, but it is no longer offered in new pickers.
+   - Retirement must not break old document records that already point at the
+     template key.
+
+## UI screens & wireframe notes
+
+Template Catalog
+
+The main management list. Shows template family, key, label, version, and
+activation state. Filters should allow narrowing by family and active/inactive
+status. Primary action: create template.
+
+Template Detail / Version History
+
+Shows one template key with its version chain, activation history, and
+associated signatory slots. This is where an Admin can inspect which version is
+active and which older versions remain available for historical reproduction.
+
+Template Editor
+
+A structured form for editing template metadata. It should expose the pieces
+the frontend needs to render documents consistently: section order, labels,
+field hints, signature slots, and any family-specific notes.
+
+Signatory Library
+
+The management screen for signatory records. Shows the signer's name, role,
+title, signature asset, and active state. Primary action: add or update signer.
+
+Template Preview
+
+A read-only preview of how the template is expected to render in the frontend.
+This is not the document body itself; it is a visual check on the template
+configuration.
+
+## Constraints / Out of scope
+
+* No editable document body or per-document source data.
+* No immutable print snapshot storage. That belongs in `document_history`.
+* No file storage or attachment workflow. That belongs elsewhere.
+* No document workflow state such as draft/ready/archived for a concrete
+  document record.
+* No signatory as a system actor. A signatory is just a stored person/signature
+  record.
+* No backend-side rendering engine for the final document layout.
+* No deletion of published template history. Inactive versions should remain
+  available for old records.
+* No Lead Manager maintenance access in V1 if the rest of the document stack is
+  Admin-only, which is the current direction.
+
+## Open questions
+
+The module was built on 2026-07-24, and the answers below were settled by
+examining what the frontend actually consumes. The resolutions are recorded
+inline; the reasoning for each is in
+backend/document_templates/docs/DATA_CONTRACT.md under "Deliberate Deviations".
+The concept text above is left as originally written.
+
+* Should published template versions be immutable rows, or can a draft be
+  promoted in place once it is approved?
+  -> RESOLVED (neither): there is no version chain at all. See the correction
+     note below.
+
+* Should the 42 frontend document slugs remain the backend canonical registry,
+  or should the backend normalize some of them into broader template families
+  with the slug as a label?
+  -> RESOLVED: both, as they already were. The six families stay a backend enum
+     (owned by the documents app and imported here); the slug stays a validated
+     string and is now catalogued as a row. Note the count: that list contains
+     53 slugs, not 42 — see the correction note below.
+
+* Should template previews be stored or generated on demand?
+  -> RESOLVED (neither): no preview is built. A preview would have to render a
+     template, and the templates are frontend code.
+
+* Should signature images be stored as path/URL references, or as file records
+  once the file layer exists?
+  -> RESOLVED: a URL reference, exactly as this document's "Signature asset"
+     section permits. uploaded_files does not exist, and a file record needs a
+     full CLAUDE.md §14 contract. Additively replaceable later. Fourth deferral
+     of this kind in the project, after the applicant photograph, offer
+     attachments, and the client logo.
+
+* Should one template key have multiple active versions during a migration, or
+  only one active version at a time?
+  -> MOOT: there are no versions. A template key is one row with one status.
+
+## Correction notes
+
+* **The version chain, section metadata, field hints, signature slots, and
+  preview were deliberately not built.** The frontend's own contract
+  (frontend_data-contract.md, frontend_api-used.md) makes exactly one call into
+  this domain — GET /signatures?active=true — and carries no template-definition
+  model at all. Its 53 slugs are a hardcoded TypeScript union and its content
+  shapes are compiled-in types. Building the rest would mean inventing a schema
+  no consumer reads, which CLAUDE.md §32 forbids and which would drift from the
+  templates that actually render.
+
+  The consequence for this document: the **Template Editor**, **Template Detail
+  / Version History**, and **Template Preview** screens under "UI screens &
+  wireframe notes" have no backing endpoints, and the "Template definition" and
+  "Template version" core entities are not modelled. What was built is the
+  **Signatory record** and **Signature asset** entities in full, plus a thin
+  template catalogue carrying key, family, label, display order, and activation
+  state.
+
+* **The concept's historical-reproduction requirement is already met without a
+  version chain.** "Once a version has been used by a document or history
+  snapshot, it should remain available for historical reproduction" — the
+  document_history app freezes the template key, version string, and resolved
+  signatories into every snapshot's render_context, so a snapshot reproduces
+  itself without reading this module at all.
+
+* **The catalogue is advisory.** The documents app does not consult it: a
+  template key absent from the catalogue, or present but retired, is still
+  accepted when creating a document. Enforcing it would narrow a shipped
+  endpoint's accepted input and needs its own decision.
+
+* **Access is Admin only, reads included** — as the Constraints section
+  anticipated. Note this module holds no applicant data at all; the rule is
+  inherited from its consumer, not from the sensitivity of what it stores.
