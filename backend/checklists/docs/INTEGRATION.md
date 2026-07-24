@@ -60,9 +60,9 @@ Worked success envelope, `GET /api/v1/checklists/?applicant=<id>`:
     {
       "id": "7c3e9a11-4b2d-4f0e-8a55-1d9c7b3e2f10",
       "journey": "5e2b8a71-3c4d-4e5f-8a91-2b3c4d5e6f70",
-      "applicant": { "id": "8a1c2d3e-4f50-4617-a283-94a5b6c7d8e9", "full_name_np": "राम बहादुर", "full_name_en": "Ram Bahadur", "status": "active" },
+      "applicant": { "id": "8a1c2d3e-4f50-4617-a283-94a5b6c7d8e9", "full_name": "Ram Bahadur", "status": "active" },
       "source_template": "9b1f3c22-8d4a-4e1b-9c77-2f0a6b5d1e33",
-      "country": { "id": "3a7c1d90-5b2e-4f81-9a03-6c4d8e2b7f15", "code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया" },
+      "country": { "id": "3a7c1d90-5b2e-4f81-9a03-6c4d8e2b7f15", "code": "au", "name": "Australia" },
       "title": "Australia — Student Visa",
       "description": "",
       "origin": "auto",
@@ -125,8 +125,8 @@ Worked error envelope, `POST /api/v1/checklists/<id>/complete/` with work outsta
 **JourneyAwaitingChecklist** — `{ id, applicant:ApplicantBrief, target_country_ref?:CountryBrief, stage, created_at }`
 - Returned **only** by `GET /?journey_missing_checklist=true`. `id` is the **journey's** id, not a checklist's.
 
-**CountryBrief** — `{ id, code, name_en, name_np }`
-**ApplicantBrief** — `{ id, full_name_np, full_name_en, status }`
+**CountryBrief** — `{ id, code, name }`
+**ApplicantBrief** — `{ id, full_name, status }`
 **UserBrief** — `{ id, username, display_name }`
 
 ### Worked examples
@@ -141,7 +141,7 @@ Each payload below is the value of `data` inside the standard envelope from §3 
   "key": "australia-student",
   "label": "Australia — Student Visa",
   "description": "Documents and stages required for an Australian student visa application.",
-  "country": { "id": "3a7c1d90-5b2e-4f81-9a03-6c4d8e2b7f15", "code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया" },
+  "country": { "id": "3a7c1d90-5b2e-4f81-9a03-6c4d8e2b7f15", "code": "au", "name": "Australia" },
   "is_default": true,
   "is_inheritable": true,
   "status": "active",
@@ -174,9 +174,9 @@ Each payload below is the value of `data` inside the standard envelope from §3 
 {
   "id": "7c3e9a11-4b2d-4f0e-8a55-1d9c7b3e2f10",
   "journey": "5e2b8a71-3c4d-4e5f-8a91-2b3c4d5e6f70",
-  "applicant": { "id": "8a1c2d3e-4f50-4617-a283-94a5b6c7d8e9", "full_name_np": "राम बहादुर", "full_name_en": "Ram Bahadur", "status": "active" },
+  "applicant": { "id": "8a1c2d3e-4f50-4617-a283-94a5b6c7d8e9", "full_name": "Ram Bahadur", "status": "active" },
   "source_template": "9b1f3c22-8d4a-4e1b-9c77-2f0a6b5d1e33",
-  "country": { "id": "3a7c1d90-5b2e-4f81-9a03-6c4d8e2b7f15", "code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया" },
+  "country": { "id": "3a7c1d90-5b2e-4f81-9a03-6c4d8e2b7f15", "code": "au", "name": "Australia" },
   "title": "Australia — Student Visa",
   "description": "",
   "origin": "auto",
@@ -201,11 +201,11 @@ Each payload below is the value of `data` inside the standard envelope from §3 
       "is_resolved": true,
       "assigned_to": null,
       "due_at": "2026-08-07T09:20:03.771Z",
-      "due_at_bs": { "year": 2083, "month": 4, "day": 23, "month_name_en": "Shrawan", "month_name_np": "श्रावण", "display_en": "2083 Shrawan 23", "display_np": "२०८३ श्रावण २३" },
+      "due_at_bs": { "year": 2083, "month": 4, "day": 23, "month_name": "Shrawan", "display": "2083 Shrawan 23" },
       "evidence_file": "6f708192-a3b4-45c6-8d7e-8f9021324354",
       "evidence_note": "Scan received 2026-07-24",
       "completed_at": "2026-07-24T10:02:11.004Z",
-      "completed_at_bs": { "year": 2083, "month": 4, "day": 9, "month_name_en": "Shrawan", "month_name_np": "श्रावण", "display_en": "2083 Shrawan 9", "display_np": "२०८३ श्रावण ९" },
+      "completed_at_bs": { "year": 2083, "month": 4, "day": 9, "month_name": "Shrawan", "display": "2083 Shrawan 9" },
       "completed_by": { "id": "2e3d4c5b-6a79-4880-9162-53445362f1a2", "username": "leadmgr", "display_name": "Leadmgr" },
       "created_at": "2026-07-24T09:20:03.771Z",
       "updated_at": "2026-07-24T10:02:11.004Z"
@@ -546,8 +546,8 @@ Ordered by how much they cost a real integration.
 - **There is no bulk item-status endpoint.** Completing a twelve-item checklist is twelve requests, each returning the item without refreshed progress.
 - **No concurrency control.** No `ETag`, no `If-Match`, no `updated_at` precondition on any write. Two staff working one checklist is last-write-wins, silently.
 - **No ordering parameter** on either list. Templates always sort by `display_order` then `label`; checklists always newest first. Any other order is client-side.
-- **Titles and labels are single strings, unlike the nested briefs.** `CountryBrief` and `ApplicantBrief` carry `_np`/`_en` pairs; `Checklist.title`, `ChecklistTemplate.label`, and every `description`, `status_note`, and `notes` do not. A bilingual UI will show a monolingual checklist panel beside bilingual applicant and country chips, and there is no field to localise.
+- **Titles, labels, and names are all single English strings.** `Checklist.title`, `ChecklistTemplate.label`, the nested `CountryBrief.name` and `ApplicantBrief.full_name`, and every `description`, `status_note`, and `notes` are one field each.
 - **`assigned_to` accepts any active user id**, including a Superadmin — who is then refused on every route in this module. Nothing prevents assigning work to someone who cannot open it, and there is no user-list endpoint here to source a correct picker from.
 - **`due_at` write format is not pinned down** beyond ISO 8601. Whether a date-only value is accepted, and whether an omitted timezone is read as UTC, is untested by this contract. The `_bs` sibling objects are read-only; never send one.
-- **The `_bs` object's full field set is documented here from an observed payload** (`year`, `month`, `day`, `month_name_en`, `month_name_np`, `display_en`, `display_np`). Its authoritative shape belongs to the project's Nepali calendar layer, not to this module.
+- **The `_bs` object's full field set is documented here from an observed payload** (`year`, `month`, `day`, `month_name`, `month_name`, `display`, `display`). Its authoritative shape belongs to the project's Nepali calendar layer, not to this module.
 - **`meta` is `{}` on every non-paginated response.** Whether that is guaranteed project-wide is a `core` question.

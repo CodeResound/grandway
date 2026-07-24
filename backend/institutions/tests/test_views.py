@@ -68,7 +68,7 @@ class TestAccessSplit(CatalogueApiTestCase):
         self.assertEqual(self.client.get(self.programs_url).status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_unauthenticated_write_is_401(self) -> None:
-        resp = self.client.post(self.countries_url, {"code": "ca", "name_en": "Canada"}, format="json")
+        resp = self.client.post(self.countries_url, {"code": "ca", "name": "Canada"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_lead_manager_may_read(self) -> None:
@@ -78,7 +78,7 @@ class TestAccessSplit(CatalogueApiTestCase):
 
     def test_lead_manager_may_not_create(self) -> None:
         self.auth(self.manager)
-        resp = self.client.post(self.countries_url, {"code": "ca", "name_en": "Canada"}, format="json")
+        resp = self.client.post(self.countries_url, {"code": "ca", "name": "Canada"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(resp.data["error"]["code"], ErrorCode.ACTOR_FORBIDDEN)
 
@@ -97,7 +97,7 @@ class TestAccessSplit(CatalogueApiTestCase):
 
     def test_admin_may_write(self) -> None:
         self.auth(self.admin)
-        resp = self.client.post(self.countries_url, {"code": "ca", "name_en": "Canada"}, format="json")
+        resp = self.client.post(self.countries_url, {"code": "ca", "name": "Canada"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
 
@@ -144,7 +144,7 @@ class TestFieldEndpoints(CatalogueApiTestCase):
         self.auth(self.admin)
 
     def test_create_and_list(self) -> None:
-        resp = self.client.post(self.fields_url, {"code": "nursing", "name_en": "Nursing"}, format="json")
+        resp = self.client.post(self.fields_url, {"code": "nursing", "name": "Nursing"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["data"]["code"], "nursing")
 
@@ -154,7 +154,7 @@ class TestFieldEndpoints(CatalogueApiTestCase):
     def test_duplicate_code_is_409(self) -> None:
         resp = self.client.post(
             self.fields_url,
-            {"code": self.field.code, "name_en": "Duplicate"},
+            {"code": self.field.code, "name": "Duplicate"},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
@@ -162,18 +162,18 @@ class TestFieldEndpoints(CatalogueApiTestCase):
 
     def test_devanagari_code_is_rejected(self) -> None:
         """Codes are ASCII system identifiers (§39.7)."""
-        resp = self.client.post(self.fields_url, {"code": "सूचना", "name_en": "IT"}, format="json")
+        resp = self.client.post(self.fields_url, {"code": "सूचना", "name": "IT"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_code_is_immutable(self) -> None:
         url = reverse("v1:catalogue:field-detail", args=[self.field.id])
-        resp = self.client.patch(url, {"code": "changed", "name_en": "Renamed"}, format="json")
+        resp = self.client.patch(url, {"code": "changed", "name": "Renamed"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["data"]["code"], self.field.code)
-        self.assertEqual(resp.data["data"]["name_en"], "Renamed")
+        self.assertEqual(resp.data["data"]["name"], "Renamed")
 
     def test_filter_by_active(self) -> None:
-        make_field(self.admin, code="dormant", name_en="Dormant", is_active=False)
+        make_field(self.admin, code="dormant", name="Dormant", is_active=False)
         resp = self.client.get(self.fields_url, {"is_active": "true"})
         self.assertEqual(resp.data["meta"]["count"], 1)
 
@@ -209,21 +209,11 @@ class TestCountryEndpoints(CatalogueApiTestCase):
     def test_duplicate_code_is_409(self) -> None:
         resp = self.client.post(
             self.countries_url,
-            {"code": self.country.code, "name_en": "Duplicate"},
+            {"code": self.country.code, "name": "Duplicate"},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(resp.data["error"]["code"], ErrorCode.CODE_DUPLICATE)
-
-    def test_optional_devanagari_name_is_accepted(self) -> None:
-        """name_np is optional here — the inverse of §39.1, by documented deviation."""
-        resp = self.client.post(
-            self.countries_url,
-            {"code": "jp", "name_en": "Japan", "name_np": "जापान"},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resp.data["data"]["name_np"], "जापान")
 
     def test_english_name_is_required(self) -> None:
         resp = self.client.post(self.countries_url, {"code": "kr"}, format="json")
@@ -238,45 +228,45 @@ class TestCampusEndpoints(CatalogueApiTestCase):
     def test_create_under_institution(self) -> None:
         resp = self.client.post(
             self.campuses_url(self.institution),
-            {"name_en": "Parkville", "city": "Melbourne"},
+            {"name": "Parkville", "city": "Melbourne"},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["data"]["institution"]["id"], str(self.institution.id))
 
     def test_duplicate_name_within_institution_is_409(self) -> None:
-        make_campus(self.admin, self.institution, name_en="Parkville")
+        make_campus(self.admin, self.institution, name="Parkville")
         resp = self.client.post(
             self.campuses_url(self.institution),
-            {"name_en": "Parkville"},
+            {"name": "Parkville"},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(resp.data["error"]["code"], ErrorCode.CAMPUS_DUPLICATE)
 
     def test_same_name_under_a_different_institution_is_fine(self) -> None:
-        make_campus(self.admin, self.institution, name_en="City")
-        other = make_institution(self.admin, self.country, name_en="RMIT University")
-        resp = self.client.post(self.campuses_url(other), {"name_en": "City"}, format="json")
+        make_campus(self.admin, self.institution, name="City")
+        other = make_institution(self.admin, self.country, name="RMIT University")
+        resp = self.client.post(self.campuses_url(other), {"name": "City"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
     def test_create_under_missing_institution_is_404(self) -> None:
         resp = self.client.post(
             reverse("v1:catalogue:campus-list", args=[MISSING_UUID]),
-            {"name_en": "Ghost"},
+            {"name": "Ghost"},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(resp.data["error"]["code"], ErrorCode.INSTITUTION_NOT_FOUND)
 
     def test_list_is_scoped_to_the_institution(self) -> None:
-        make_campus(self.admin, self.institution, name_en="Parkville")
-        other = make_institution(self.admin, self.country, name_en="Deakin University")
-        make_campus(self.admin, other, name_en="Burwood")
+        make_campus(self.admin, self.institution, name="Parkville")
+        other = make_institution(self.admin, self.country, name="Deakin University")
+        make_campus(self.admin, other, name="Burwood")
 
         resp = self.client.get(self.campuses_url(self.institution))
         self.assertEqual(resp.data["meta"]["count"], 1)
-        self.assertEqual(resp.data["data"][0]["name_en"], "Parkville")
+        self.assertEqual(resp.data["data"][0]["name"], "Parkville")
 
 
 class TestProgramWrites(CatalogueApiTestCase):
@@ -337,8 +327,8 @@ class TestProgramWrites(CatalogueApiTestCase):
         self.assertEqual(resp.data["data"]["tuition_currency"], "AUD")
 
     def test_campus_of_another_institution_is_400(self) -> None:
-        other = make_institution(self.admin, self.country, name_en="Monash University")
-        foreign_campus = make_campus(self.admin, other, name_en="Clayton")
+        other = make_institution(self.admin, self.country, name="Monash University")
+        foreign_campus = make_campus(self.admin, other, name="Clayton")
         resp = self.client.post(
             self.programs_url,
             self._payload(campus=str(foreign_campus.id)),
@@ -349,7 +339,7 @@ class TestProgramWrites(CatalogueApiTestCase):
 
     def test_institution_is_immutable(self) -> None:
         program = make_program(self.admin, self.institution, self.field)
-        other = make_institution(self.admin, self.country, name_en="Griffith University")
+        other = make_institution(self.admin, self.country, name="Griffith University")
         url = reverse("v1:catalogue:program-detail", args=[program.id])
 
         resp = self.client.patch(url, {"institution": str(other.id)}, format="json")
@@ -377,7 +367,7 @@ class TestProgramSearch(CatalogueApiTestCase):
         super().setUp()
         self.auth(self.manager)
 
-        self.nursing = make_field(self.admin, code="nursing", name_en="Nursing")
+        self.nursing = make_field(self.admin, code="nursing", name="Nursing")
         self.active = make_program(self.admin, self.institution, self.field, **priced("40000.00"))
         self.paused = make_program(
             self.admin,
@@ -498,7 +488,7 @@ class TestProgramListQueryCount(CatalogueApiTestCase):
     """The program list must not scale its query count with the number of rows."""
 
     def _make_programs(self, count: int, offset: int = 0) -> None:
-        campus = make_campus(self.admin, self.institution, name_en=f"Campus {offset}")
+        campus = make_campus(self.admin, self.institution, name=f"Campus {offset}")
         for index in range(count):
             make_program(
                 self.admin,
@@ -538,9 +528,9 @@ class TestProgramListQueryCount(CatalogueApiTestCase):
         self._make_programs(1)
 
         row = self.client.get(self.programs_url).data["data"][0]
-        self.assertEqual(row["institution"]["name_en"], self.institution.name_en)
-        self.assertEqual(row["country"]["name_en"], self.country.name_en)
+        self.assertEqual(row["institution"]["name"], self.institution.name)
+        self.assertEqual(row["country"]["name"], self.country.name)
         self.assertEqual(row["field"]["code"], self.field.code)
-        self.assertEqual(row["campus"]["name_en"], "Campus 0")
+        self.assertEqual(row["campus"]["name"], "Campus 0")
         # DecimalField renders as a string, so money never passes through a float.
         self.assertEqual(row["tuition_amount"], "49824.00")

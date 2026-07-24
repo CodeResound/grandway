@@ -69,7 +69,7 @@
    - *Note:* render the five groups **separately, by cause**. They call for five different people to act, and a single list sorted by urgency would obscure which is which.
 
 2. **Blockers → "journeys without a checklist"** — the user reads a row →
-   no call; the row carries `country_id`, `country_name_en`, `applicant_id`, and `journey_id`.
+   no call; the row carries `country_id`, `country_name`, `applicant_id`, and `journey_id`.
    - **Requires state:** none.
    - **Side effects:** none.
    - *Note:* this group is the safety net behind automatic checklist inheritance. The journey named a destination, nobody had authored that country's requirements, so **no checklist was created and no error was raised**. This panel is the only place that silence is visible. An empty group is the healthy state, not a missing feature.

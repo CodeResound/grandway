@@ -94,20 +94,10 @@ class Signatory(BaseModel, LifecycleMixin):
     # person whose name is printed on a Nepali legal document. That is exactly
     # §39.1's premise: the Devanagari and Roman forms are two equally canonical
     # identities, not translations of each other.
-    name_np = models.CharField(max_length=255)
-    name_en = models.CharField(max_length=255, blank=True)
-    name_romanized = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text="Auto-derived from name_np by the service layer (§39.3). Never hand-entered.",
-    )
+    name = models.CharField(max_length=255)
 
     # --- Standing ----------------------------------------------------------
-    #
-    # No ``_romanized`` sibling: §39.6 scopes romanized fields to search, and
-    # search here is over names only. Nobody looks up a signatory by job title.
-    title_np = models.CharField(max_length=255, blank=True)
-    title_en = models.CharField(max_length=255, blank=True)
+    title = models.CharField(max_length=255, blank=True)
 
     # Free text, not an enum. The frontend picks signatories into
     # ``instructorId`` and ``directorId`` slots, and ``document_history``'s
@@ -144,26 +134,20 @@ class Signatory(BaseModel, LifecycleMixin):
         db_table = "document_templates_signatory"
         verbose_name = "Signatory"
         verbose_name_plural = "Signatories"
-        # Alphabetical by Devanagari name — this is a reference library read as
-        # a picker, not a worklist, so recency means nothing here. Same call
-        # ``clients`` made.
-        ordering = ["name_np"]
+        # Alphabetical by name — this is a reference library read as a picker,
+        # not a worklist, so recency means nothing here. Same call ``clients``
+        # made.
+        ordering = ["name"]
         indexes = [
             # The frontend's only call: the active-signatory picker.
-            models.Index(fields=["status", "name_np"], name="signatory_status_name_idx"),
-            # ?search= across all three name forms (§39.6). pg_trgm already
-            # exists — leads migration 0002.
-            GinIndex(fields=["name_np"], name="signatory_name_np_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(fields=["name_en"], name="signatory_name_en_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(
-                fields=["name_romanized"],
-                name="signatory_name_rom_trgm_idx",
-                opclasses=["gin_trgm_ops"],
-            ),
+            models.Index(fields=["status", "name"], name="signatory_status_name_idx"),
+            # ?search= over the name (§39.6). pg_trgm already exists — leads
+            # migration 0002.
+            GinIndex(fields=["name"], name="signatory_name_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:
-        return f"{self.name_en or self.name_np} ({self.status})"
+        return f"{self.name} ({self.status})"
 
 
 class DocumentTemplate(BaseModel, LifecycleMixin):

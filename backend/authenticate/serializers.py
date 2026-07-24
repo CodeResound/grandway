@@ -59,8 +59,7 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             "username",
             "authority_type",
             "display_name",
-            "full_name_np",
-            "full_name_en",
+            "full_name",
             "email",
             "phone",
             "is_active",
@@ -94,8 +93,7 @@ class AccountCreateSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     authority_type = serializers.ChoiceField(choices=AuthorityType.choices)
     display_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
-    full_name_np = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
-    full_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
     email = serializers.EmailField(required=False, allow_blank=True, default="")
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
     password = serializers.CharField(
@@ -105,27 +103,20 @@ class AccountCreateSerializer(serializers.Serializer):
     def validate_display_name(self, value: str) -> str:
         return _norm(value) or ""
 
-    def validate_full_name_np(self, value: str) -> str:
-        return _norm(value) or ""
-
-    def validate_full_name_en(self, value: str) -> str:
+    def validate_full_name(self, value: str) -> str:
         return _norm(value) or ""
 
 
 class AccountUpdateSerializer(serializers.Serializer):
     display_name = serializers.CharField(max_length=255, required=False)
-    full_name_np = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    full_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
 
     def validate_display_name(self, value: str) -> str:
         return normalize_unicode(value)
 
-    def validate_full_name_np(self, value: str) -> str:
-        return _norm(value) or ""
-
-    def validate_full_name_en(self, value: str) -> str:
+    def validate_full_name(self, value: str) -> str:
         return _norm(value) or ""
 
 

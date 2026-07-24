@@ -156,11 +156,11 @@ class TestTuitionRules(CatalogueServiceTestCase):
 class TestCampusPlacement(CatalogueServiceTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.other_institution = make_institution(self.admin, self.country, name_en="Monash University")
+        self.other_institution = make_institution(self.admin, self.country, name="Monash University")
 
     def test_campus_of_another_institution_is_rejected(self) -> None:
         """Both FKs resolve individually — only this check catches the mismatch."""
-        foreign_campus = make_campus(self.admin, self.other_institution, name_en="Clayton")
+        foreign_campus = make_campus(self.admin, self.other_institution, name="Clayton")
         with self.assertRaises(CampusInstitutionMismatchError):
             make_program(self.admin, self.institution, self.field, campus=foreign_campus)
 
@@ -175,7 +175,7 @@ class TestCampusPlacement(CatalogueServiceTestCase):
 
     def test_moving_a_program_to_a_foreign_campus_is_rejected(self) -> None:
         program = make_program(self.admin, self.institution, self.field)
-        foreign_campus = make_campus(self.admin, self.other_institution, name_en="Caulfield")
+        foreign_campus = make_campus(self.admin, self.other_institution, name="Caulfield")
         with self.assertRaises(CampusInstitutionMismatchError):
             services.update_program(actor=self.admin, program=program, fields={"campus": foreign_campus})
 

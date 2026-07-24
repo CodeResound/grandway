@@ -1,7 +1,7 @@
 # Integration — Document Templates
 
 **Owner app:** `document_templates`
-**Version:** 1.0.2
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -12,8 +12,9 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 10 endpoints, two resources |
-| 1.0.1 | 2026-07-24 | AI (Claude) | Defects found by the §19.5 consumer-comprehension test. **`DOCUMENT_TEMPLATES_STATUS_INVALID_TRANSITION` renamed to `..._STATUS_IMMUTABLE` for the `PATCH` guard** — no transition in this app is ever invalid, so the old name described a rule that does not exist. Documented that a rename re-derives `name_romanized`, that omitting `status` returns everything, the create-error precedence, a worked query-parameter error body, the real pagination cost of mirroring the catalogue, and four new gaps |
+| 1.0.1 | 2026-07-24 | AI (Claude) | Defects found by the §19.5 consumer-comprehension test. **`DOCUMENT_TEMPLATES_STATUS_INVALID_TRANSITION` renamed to `..._STATUS_IMMUTABLE` for the `PATCH` guard** — no transition in this app is ever invalid, so the old name described a rule that does not exist. Documented that a rename re-derives `name`, that omitting `status` returns everything, the create-error precedence, a worked query-parameter error body, the real pagination cost of mirroring the catalogue, and four new gaps |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Same, for `signature_image_url` |
+| 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (Signatory `name`/`title`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -57,7 +58,7 @@ Both stored those ids against a table that did not exist until this module shipp
 {
   "success": true,
   "message": "Signatory created.",
-  "data": { "id": "9f8e7d6c-5b4a-4392-8172-6f5e4d3c2b1a", "name_en": "Sunita Shrestha", "status": "draft" },
+  "data": { "id": "9f8e7d6c-5b4a-4392-8172-6f5e4d3c2b1a", "name": "Sunita Shrestha", "status": "draft" },
   "meta": {}
 }
 ```
@@ -125,18 +126,15 @@ Both stored those ids against a table that did not exist until this module shipp
 - **Request encoding:** `application/json`.
 - **Pagination:** page-number based, and the **default page size is 20** — so the 53-row template catalogue is three requests, not one. Pass `?page_size=100` to mirror it locally in a single call, and re-check that when the catalogue passes 100 rows, because the maximum clamps silently. `page` and `page_size` (default 20, max 100). `data` is the **bare array of rows — not nested under a `results` key**. `meta` carries `count`, `page`, `page_size`, `next`, `previous`; `count` is the **total across all pages**, not the rows in `data`. `next`/`previous` are absolute URLs (scheme + host) or `null`. Applied to both list endpoints.
 - **IDs:** UUID strings, unquoted and unmarked in the shapes below — a field with no type marker is a string. A template's `key` is a human-readable slug and is unique, but **it is not an address**: every endpoint here takes the UUID `id` in its path. There is no lookup-by-key endpoint — see §9.
-- **Ordering** is fixed and **not client-controllable** — there is no `sort` or `ordering` parameter. Signatories are ordered by `name_np` (Devanagari, alphabetical). Templates by `family`, then `display_order`, then `label`.
+- **Ordering** is fixed and **not client-controllable** — there is no `sort` or `ordering` parameter. Signatories are ordered by `name` (alphabetical). Templates by `family`, then `display_order`, then `label`.
 - **Times.** `created_at` and `updated_at` are ISO 8601 UTC. **Neither carries a Bikram Sambat sibling anywhere in this module** — unlike `documents` and `document_history`, which expose `archived_at_bs` and `created_at_bs`. §39.4 requires BS representation for *user-facing temporal data*; both timestamps here are system-internal bookkeeping on a reference library, and there is no business date on either resource. There is also **no `?fiscal_year=` filter** on either list, for the same reason.
 - **Empty text fields are `""`, never `null`.** **No field on either resource is nullable.**
 
 ## 4. Models
 
-**Signatory** — `{ id, name_np, name_en, name_romanized, title_np, title_en, role, signature_image_url, status:[enum], is_active, status_note, created_by_username, created_at, updated_at }`
+**Signatory** — `{ id, name, title, role, signature_image_url, status:[enum], is_active, status_note, created_by_username, created_at, updated_at }`
 
 - **One shape for list and detail** — there is no large column to withhold from a list, so a second shape would exist only to drift from this one.
-- **`name_np` and `name_en` are two independent identities, not translations** (§39.1). A signer's Devanagari name and Roman name are both canonical; render whichever your screen needs, and expect both to be filled for a real person.
-- **`name_romanized` is a search aid — never display it.** It is auto-derived from `name_np` and exists so a Roman-script query finds a Devanagari-primary record.
-- **Renaming re-derives it.** A `PATCH` that changes `name_np` **and omits `name_romanized`** re-derives the romanization, so `?search=` keeps working after a rename. A `PATCH` that supplies `name_romanized` keeps the supplied value, on create and on update alike — that is how you pin a hand-corrected transliteration ("Griha" over a generated "grha"). **The transliteration scheme itself is not part of this contract**: do not try to predict the output, and do not send a value you computed yourself expecting it to match.
 - **`is_active` is `status == "active"`.** A `draft` signatory is *not* active. This is the boolean to gate a picker on.
 - **`role` is free text, not an enum** — see §5.
 - **`signature_image_url` may be `""`.** A signatory can exist without a signature image, and one in `draft` usually does.
@@ -154,11 +152,8 @@ Both stored those ids against a table that did not exist until this module shipp
 ```json
 {
   "id": "9f8e7d6c-5b4a-4392-8172-6f5e4d3c2b1a",
-  "name_np": "सुनिता श्रेष्ठ",
-  "name_en": "Sunita Shrestha",
-  "name_romanized": "sunita shrestha",
-  "title_np": "निर्देशक",
-  "title_en": "Director",
+  "name": "Sunita Shrestha",
+  "title": "Director",
   "role": "director",
   "signature_image_url": "https://files.example/signatures/sunita.png",
   "status": "active",
@@ -227,14 +222,14 @@ Both stored those ids against a table that did not exist until this module shipp
 
 **Send (create):**
 
-- `name_np` — string, **required**, max 255. Devanagari name.
-- `name_en` — string, optional, max 255.
-- `name_romanized` — string, optional. Derived from `name_np` when omitted; a supplied value is kept.
-- `title_np`, `title_en` — string, optional, max 255.
+- `name` — string, **required**, max 255.
+- `name` — string, optional, max 255.
+- `name` — string, optional. Derived from `name` when omitted; a supplied value is kept.
+- `title`, `title` — string, optional, max 255.
 - `role` — string, optional, max 100.
 - `signature_image_url` — URL, optional, max 500.
 
-**Send (update):** any subset of the same fields. `name_np` is optional here.
+**Send (update):** any subset of the same fields. `name` is optional here.
 
 **Returns:** `Signatory` from create — **201** — and from retrieve and update — **200**; `list[Signatory]` from the library — **200**.
 
@@ -258,7 +253,7 @@ Both stored those ids against a table that did not exist until this module shipp
 - `DOCUMENT_TEMPLATES_ACTOR_FORBIDDEN` (403) — the caller is not an Admin. Applies to every method in this block, `GET` included
 - `DOCUMENT_TEMPLATES_SIGNATORY_NOT_FOUND` (404) — no signatory with that id
 - `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE` (400) — a `PATCH` carried `status` or `status_note`
-- `VALIDATION_ERROR` (400) — missing `name_np`, a malformed `signature_image_url`, an over-long field, or an unrecognised `status` in the query string
+- `VALIDATION_ERROR` (400) — missing `name`, a malformed `signature_image_url`, an over-long field, or an unrecognised `status` in the query string
 
 ### Signatory status — `POST /signatories/<signatory_id>/status/`
 
@@ -365,8 +360,8 @@ Both stored those ids against a table that did not exist until this module shipp
 
 **Add a certificate signer**
 
-1. `POST /api/v1/document-templates/signatories/` with `name_np`, `name_en`, `title_en`, `role`, and `signature_image_url` → `Signatory`, `status: "draft"`.
-   - *Failure — `VALIDATION_ERROR` on `name_np`:* the Devanagari name is required; the Roman one is not.
+1. `POST /api/v1/document-templates/signatories/` with `name`, `name`, `title`, `role`, and `signature_image_url` → `Signatory`, `status: "draft"`.
+   - *Failure — `VALIDATION_ERROR` on `name`:* the name is required.
    - *Failure — `VALIDATION_ERROR` on `signature_image_url`:* it must be a well-formed URL. Host the image yourself first — there is no upload endpoint.
 2. `POST /api/v1/document-templates/signatories/<id>/status/` with `{"status": "active"}` → now `is_active: true`.
 3. `GET /api/v1/document-templates/signatories/?status=active` → the signer now appears in the picker.

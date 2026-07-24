@@ -18,7 +18,7 @@ from typing import Any
 
 from audit.constants import ActorType
 from audit.services import record_event
-from core.nepal.text import normalize_unicode, romanize_devanagari
+from core.nepal.text import normalize_unicode
 from django.db import transaction
 from django.utils import timezone
 
@@ -38,13 +38,9 @@ from clients.models import Client, ClientContactNumber
 
 _ACTOR_TYPES = {ActorType.SUPERADMIN, ActorType.ADMIN, ActorType.LEAD_MANAGER}
 
-#: The Devanagari-primary name fields and where each derives its search form.
-#: Declared once so the organization name and the spokesperson name can never
-#: drift into being handled differently.
-_ROMANIZED_PAIRS: tuple[tuple[str, str], ...] = (
-    ("name_np", "name_romanized"),
-    ("spokesperson_name_np", "spokesperson_name_romanized"),
-)
+#: The client's two name fields. Declared once so the organization name and the
+#: spokesperson name can never drift into being handled differently.
+_NAME_FIELDS: tuple[str, ...] = ("name", "spokesperson_name")
 
 
 def _actor_type(actor: Any) -> str:
@@ -97,17 +93,14 @@ def _diff(instance: Any, fields: dict[str, Any]) -> dict[str, Any]:
 
 
 def _apply_name_fields(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalize each Devanagari name and derive its romanized form (§39.1/§39.3).
+    """Normalize both of the client's names (§39.2).
 
-    Computed in the service layer — never in a model or signal — and only when
-    the caller has not supplied one, so a hand-corrected transliteration
-    ("Griha" over the generated "grha") survives a later edit.
+    Applied in the service layer as well as the serializer so a direct service
+    caller — a management command, a test, a future import — cannot bypass it.
     """
-    for source, target in _ROMANIZED_PAIRS:
-        if data.get(source):
-            data[source] = normalize_unicode(data[source])
-            if not data.get(target):
-                data[target] = romanize_devanagari(data[source])
+    for field in _NAME_FIELDS:
+        if data.get(field):
+            data[field] = normalize_unicode(data[field])
     return data
 
 
@@ -154,7 +147,7 @@ def create_client(
         action=ClientAuditAction.CLIENT_CREATED,
         actor=actor,
         client=client,
-        summary=f"Client '{client.name_np}' added to the directory.",
+        summary=f"Client '{client.name}' added to the directory.",
         metadata={"contact_number_count": len(contact_numbers or [])},
         ip_address=ip_address,
     )
@@ -236,7 +229,7 @@ def retire_client(
         action=ClientAuditAction.CLIENT_RETIRED,
         actor=actor,
         client=client,
-        summary=f"Client '{client.name_np}' retired.",
+        summary=f"Client '{client.name}' retired.",
         reason=reason,
         changes={"status": {"from": ClientStatus.ACTIVE, "to": ClientStatus.INACTIVE}},
         ip_address=ip_address,
@@ -270,7 +263,7 @@ def restore_client(
         action=ClientAuditAction.CLIENT_RESTORED,
         actor=actor,
         client=client,
-        summary=f"Client '{client.name_np}' restored to active use.",
+        summary=f"Client '{client.name}' restored to active use.",
         changes={"status": {"from": ClientStatus.INACTIVE, "to": ClientStatus.ACTIVE}},
         ip_address=ip_address,
     )

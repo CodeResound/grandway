@@ -90,7 +90,7 @@ The history endpoint reads through the same owner-scoped resolution as every oth
 
 - Every user-entered text field is Unicode-normalized (NFC) in a serializer `validate_<field>()` before it reaches a service (§39.2). Un-normalized Devanagari produces byte-different strings that look identical, which breaks both equality checks and search.
 - `code` fields on both reference tables are ASCII-only by validator (§39.7) and lowercased on write. Devanagari in a system identifier would leak into permission keys, log lines, and URLs.
-- `full_name_romanized` and `name_romanized` are **never** accepted from a client on create — they are derived in the service layer from the Devanagari name. A client-supplied romanized value is honoured only where explicitly passed to the service (not reachable through the API today), so the search field cannot be poisoned to make a lead unfindable or to make it match unrelated queries.
+- `full_name` (on a lead) and `name` (on a source or loss reason) are Unicode-normalized in the service layer as well as the serializer (§39.2), so a direct service caller cannot store an un-normalized name that would be unfindable by search.
 - Contact numbers are validated against a permissive but bounded pattern (digits, spaces, `+ - ( )`, 5–32 chars). The permissiveness is intentional — Nepali landlines, mobiles, and international forms all differ — but it still refuses free text.
 
 ---

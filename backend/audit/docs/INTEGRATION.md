@@ -66,7 +66,7 @@
 - **Nullable / empty:** `actor_id` is null and `actor_label` may be empty for `system`/`ai`/unknown actors; `entity_id` is null (and `entity_type` empty) when the action is not scoped to a single record; `ip_address` is null when not applicable; `reason`/`source`/`summary` may be empty strings. `summary` is a best-effort human label and is often empty — do not rely on it as the sole row text, and note that `?search=` therefore cannot find events whose `summary` is blank.
 - **`changes`** is a compact before/after map `{ "<field>": { "from": <any-json>, "to": <any-json> } }` — `from`/`to` are arbitrary JSON (string, number, bool, null, object); default `{}`. Not every field of the changed record appears — only the ones the emitting app judged meaningful.
 - **`metadata`** is an open, non-secret bag (default `{}`); for `actor_type=ai` it carries AI provenance (e.g. `model`, `prompt_version` per §38) — its keys are not a fixed schema.
-- **`created_at_bs`** is `{ year:int, month:int, day:int, month_name_en:string, month_name_np:string, display_en:string, display_np:string }`, derived from `created_at`. Never null on a stored event.
+- **`created_at_bs`** is `{ year:int, month:int, day:int, month_name:string, month_name:string, display:string, display:string }`, derived from `created_at`. Never null on a stored event.
 - **`entity_type`** and **`source`** look structured (`app.model`, `app.module.function`) but that shape is a convention, not a guaranteed contract — do not parse them. In practice most apps emit a bare `entity_type` (`lead`, `applicant`, `offer`) while `authenticate` emits a dotted one (`authenticate.user`); treat the value as opaque and read the live set from the filter-values endpoint.
 
 **AuditEventHistoryEntry** — `{ id:uuid, action:string, actor_type:string[enum], actor_id:uuid|null, actor_label:string, summary:string, reason:string, changes:json, metadata:json, created_at:string, created_at_bs:json }`
@@ -102,8 +102,8 @@
   "created_at": "2026-07-22T10:15:00Z",
   "created_at_bs": {
     "year": 2082, "month": 4, "day": 6,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2082 Shrawan 6", "display_np": "२०८२ श्रावण ६"
+    "month_name": "Shrawan",
+    "display": "2082 Shrawan 6"
   }
 }
 ```

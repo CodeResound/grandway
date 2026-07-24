@@ -1,7 +1,7 @@
 # Data Contract — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Status:** Active
 **Created:** 2026-07-22
 **Purpose:** Owns platform identity: the login account (`User`), its non-identity security state (`UserSecurityState`), revocable device-bound refresh sessions (`AuthSession`), and an append-only authentication audit log (`AuthEvent`). It establishes *who* is calling and *which authority level* applies. It does NOT own authorization decisions (which leads/applicants/documents a user may touch — those stay with operational apps), the failed-login counter (owned by `django-axes`), or MFA device secrets (owned by `django-otp`, MFA phase).
@@ -15,6 +15,7 @@
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial contract — Phase 1 foundation (User, UserSecurityState, AuthSession, AuthEvent) |
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — external `TOTPDevice`, `mfa_change` revocation reason, 4 MFA event types, derived MFA state |
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account/session management: 3 new event types, block metadata usage, account create/reset payloads (no new tables) |
+| 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (User `full_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -31,7 +32,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 ## 1. User
 
-**Purpose:** The permanent login account and its authority level. Username is the immutable login identifier; bilingual display names follow §39.1.
+**Purpose:** The permanent login account and its authority level. Username is the immutable login identifier; the account carries a single English `full_name` and a required `display_name` (§39.1).
 **Table:** `authenticate_user`
 **`authority_type` choices:** `superadmin`, `admin`, `lead_manager`
 
@@ -40,10 +41,8 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 | id | UUID | — | No | Yes | Public primary key |
 | username | CharField(150) | Yes | No | No | Unique, ASCII-only, normalized; immutable after creation |
 | authority_type | CharField(20) | Yes | No | No | Platform authority level (choices above) |
-| display_name | CharField(255) | Yes | No | No | Required human-facing label (§39.1 legacy required) |
-| full_name_np | CharField(255) | No | No | No | Devanagari official name (blank allowed) |
-| full_name_en | CharField(255) | No | No | No | Roman-script name (blank allowed) |
-| full_name_romanized | CharField(255) | No | No | Yes | Auto-populated ASCII of `full_name_np` for trigram search; never hand-entered |
+| display_name | CharField(255) | Yes | No | No | Required human-facing label |
+| full_name | CharField(255) | No | No | No | Roman-script name (blank allowed) |
 | email | EmailField | No | No | No | Optional contact email (blank allowed); not a login field |
 | phone | CharField(32) | No | No | No | Optional contact phone (blank allowed) |
 | is_active | Boolean | — | No | No | `False` == blocked; blocking never deletes |
@@ -55,11 +54,11 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Validation Rules:**
 - `username`: ASCII-only (no Devanagari), normalized (case-folded, trimmed) before uniqueness check; immutable — write serializers reject changes.
-- `full_name_np` / `full_name_en` / `display_name`: `normalize_unicode` applied on write (§39.2).
-- `full_name_romanized`: auto-populated from `full_name_np` in the service layer; never required in write serializers (§39.3).
+- `full_name` / `full_name` / `display_name`: `normalize_unicode` applied on write (§39.2).
+- `full_name`: a single optional English field, Unicode-normalized on write (§39.2).
 - `authority_type`: must be one of the three choices; only a higher authority may create a lower one (enforced in service, later phases).
 
-**Indexes:** `username` (unique); `authority_type` (filtering); trigram GIN on `full_name_np`/`full_name_en`/`full_name_romanized` deferred to the search phase.
+**Indexes:** `username` (unique); `authority_type` (filtering); trigram GIN on `full_name`/`full_name`/`full_name` deferred to the search phase.
 
 **Soft Delete:** N/A — accounts are never deleted; blocking sets `is_active=False` (see `UserSecurityState` block metadata). Historical attribution is preserved.
 
@@ -70,8 +69,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
   "username": "ramesh.admin",
   "authority_type": "admin",
   "display_name": "Ramesh Shrestha",
-  "full_name_np": "रमेश श्रेष्ठ",
-  "full_name_en": "Ramesh Shrestha",
+  "full_name": "Ramesh Shrestha",
   "email": "ramesh@example.com",
   "is_active": true,
   "created_at": "2026-07-22T09:15:00Z"
@@ -252,7 +250,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 - **Depends on `django-axes`** (framework): the sole failed-login counter; the login service routes credential checks through `django.contrib.auth.authenticate()` so axes observes them. Axes' own tables (`AccessAttempt`/`AccessLog`/`AccessFailureLog`) are owned by axes, not modeled here.
 - **Depends on `django-otp`** (framework): `otp_totp.TOTPDevice` stores the TOTP secret and verifies codes for the MFA endpoints and the login MFA step. No custom MFA model is defined; MFA state is derived from `TOTPDevice.confirmed`.
 - **Depends on `audit`** (service call): `record_auth_event` also calls `audit.services.record_event` to federate each auth event into the central audit log. Best-effort — a failure is logged, never raised; `AuthEvent` remains this app's authoritative log. No model coupling (actor/subject are passed to audit as UUID values). Documented in `audit/docs/DATA_CONTRACT.md` and `INTEGRATION.md` §2.
-- **Depends on `core`** (framework): `core.models.BaseModel` (UUID+timestamps) for `UserSecurityState`/`AuthSession`/`AuthEvent`; `core.nepal.text` for name normalization/romanization.
+- **Depends on `core`** (framework): `core.models.BaseModel` (UUID+timestamps) for `UserSecurityState`/`AuthSession`/`AuthEvent`; `core.nepal.text` for name normalization.
 - **Referenced by:** no other app yet. Future apps reference `authenticate.User` by FK for ownership/attribution and call `authenticate.selectors`/`services` (to be documented in both apps' contracts and this app's `INTEGRATION.md` §2 when that coupling is added).
 
 ## Soft Delete

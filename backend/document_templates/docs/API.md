@@ -1,7 +1,7 @@
 # API — Document Templates
 
 **Owner app:** `document_templates`
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/document-templates/`
@@ -16,7 +16,8 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 10 endpoints across two resources |
-| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Renamed the `PATCH` status guard's code to `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE` and recorded that `..._STATUS_INVALID_TRANSITION` is unreachable over HTTP; documented that a rename re-derives `name_romanized` |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Renamed the `PATCH` status guard's code to `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE` and recorded that `..._STATUS_INVALID_TRANSITION` is unreachable over HTTP; documented that a rename re-derives `name` |
+| 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (Signatory `name`/`title`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -71,9 +72,9 @@ The signature library. This is the record `documents`' `content.instructorId` an
 - **Permission key:** `document_templates.signatory.list`
 - **Auth:** required. Admin only.
 - **Query parameters:** `status` (`draft` | `active` | `inactive`), `role`, `search`, `page`, `page_size`.
-- **Response:** paginated list of `Signatory` — `DATA_CONTRACT.md` §1. Alphabetical by `name_np`.
+- **Response:** paginated list of `Signatory` — `DATA_CONTRACT.md` §1. Alphabetical by `name`.
 - **Business rules:** omitting `status` returns draft and inactive signatories too. **The frontend's picker calls this with `?status=active`** — a draft signatory is excluded alongside a retired one, because being unfinished and being retired are different reasons for the same answer.
-- **Query access pattern:** `selectors.filter_signatories` over `get_signatories()` — one query, `select_related("created_by")`, served by `signatory_status_name_idx`. `?search=` runs `icontains` across all three name forms with OR semantics, each carried by its own GIN trigram index (§39.6). `title` is deliberately **not** searched: it has no romanized sibling, so a title search would work in one script and silently fail in the other.
+- **Query access pattern:** `selectors.filter_signatories` over `get_signatories()` — one query, `select_related("created_by")`, served by `signatory_status_name_idx`. `?search=` runs `icontains` on `name`, carried by its GIN trigram index (§39.6). `title` is deliberately **not** searched — nobody looks up a signatory by job title.
 - **Errors:** `DOCUMENT_TEMPLATES_ACTOR_FORBIDDEN` (403), `VALIDATION_ERROR` (400) on an unrecognised `status`.
 - **AI debugging notes:** if the picker is empty after seeding signatories, check `status` — they are created `draft` and must be activated explicitly.
 
@@ -86,18 +87,16 @@ The signature library. This is the record `documents`' `content.instructorId` an
 
 ```json
 {
-  "name_np": "सुनिता श्रेष्ठ",
-  "name_en": "Sunita Shrestha",
-  "title_np": "निर्देशक",
-  "title_en": "Director",
+  "name": "Sunita Shrestha",
+  "title": "Director",
   "role": "director",
   "signature_image_url": "https://files.example/signatures/sunita.png"
 }
 ```
 
-  Only `name_np` is required. **There is no `status` field** — a new signatory is always `draft`.
-- **Response:** `201` with the full `Signatory`, including the derived `name_romanized`.
-- **Validation rules:** `name_np` required, max 255; `role` max 100; `signature_image_url` must be a well-formed URL; every text field Unicode-normalized (§39.2). `name_romanized` is accepted but not required — the service derives it from `name_np` when absent and keeps a hand-corrected value when present (§39.3).
+  Only `name` is required. **There is no `status` field** — a new signatory is always `draft`.
+- **Response:** `201` with the full `Signatory`, including the derived `name`.
+- **Validation rules:** `name` required, max 255; `role` max 100; `signature_image_url` must be a well-formed URL; every text field Unicode-normalized (§39.2).
 - **Business rules:** created as `draft`. A signatory with no signature image yet is not one a certificate should be able to name, so activation is a separate, recorded decision.
 - **Errors:** `DOCUMENT_TEMPLATES_ACTOR_FORBIDDEN` (403), `VALIDATION_ERROR` (400).
 
@@ -113,9 +112,9 @@ The signature library. This is the record `documents`' `content.instructorId` an
 
 - **URI:** `PATCH /api/v1/document-templates/signatories/<signatory_id>/`
 - **Permission key:** `document_templates.signatory.update`
-- **Request:** any subset of `name_np`, `name_en`, `name_romanized`, `title_np`, `title_en`, `role`, `signature_image_url`.
+- **Request:** any subset of `name`, `name`, `name`, `title`, `title`, `role`, `signature_image_url`.
 - **Response:** the updated `Signatory`.
-- **Business rules:** changing `name_np` **re-derives** `name_romanized` unless one is supplied in the same request — without that, a rename would leave a stale romanization and silently break Roman-script search for that record. Covered by `tests/test_services.py::SignatoryLocalizationTests`. A no-op PATCH writes no audit event.
+- **Business rules:** a no-op PATCH writes no audit event.
 - **Errors:** `DOCUMENT_TEMPLATES_ACTOR_FORBIDDEN` (403), `DOCUMENT_TEMPLATES_SIGNATORY_NOT_FOUND` (404), `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE` (400) if the body carries `status` or `status_note`, `VALIDATION_ERROR` (400).
 - **AI debugging notes:** `status` is rejected here rather than dropped, matching `documents`/`offers`/`clients` — a client that sent it and got 200 back would believe the signatory had been activated.
 

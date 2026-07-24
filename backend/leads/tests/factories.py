@@ -43,8 +43,7 @@ def token_for(user: Any) -> str:
 def make_source(code: str = "walk_in", *, requires_detail: bool = False, is_active: bool = True) -> LeadSource:
     return LeadSource.objects.create(
         code=code,
-        name_np="वाक-इन",
-        name_en="Walk-in",
+        name="Walk-in",
         requires_detail=requires_detail,
         is_active=is_active,
     )
@@ -58,19 +57,18 @@ def make_loss_reason(
 ) -> LossReason:
     return LossReason.objects.create(
         code=code,
-        name_np="कुनै जवाफ छैन",
-        name_en="No response",
+        name="No response",
         requires_detail=requires_detail,
         is_active=is_active,
     )
 
 
-def make_lead(owner: Any, source: LeadSource, *, name_np: str = "राम श्रेष्ठ") -> Lead:
+def make_lead(owner: Any, source: LeadSource, *, name: str = "Ram Shrestha") -> Lead:
     """Create a lead directly through the service so derived fields are set."""
     from leads import services
 
     return services.create_lead(
         actor=owner,
-        data={"full_name_np": name_np, "source": source},
+        data={"full_name": name, "source": source},
         contact_numbers=[{"number": "9800000000", "label": "mobile", "is_primary": True}],
     )

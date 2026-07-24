@@ -56,9 +56,7 @@ class ReferenceEntrySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "code",
-            "name_np",
-            "name_en",
-            "name_romanized",
+            "name",
             "requires_detail",
             "is_active",
             "display_order",
@@ -81,12 +79,11 @@ class LossReasonSerializer(ReferenceEntrySerializer):
 class ReferenceEntryWriteSerializer(serializers.Serializer):
     """Create/update input for either reference table.
 
-    ``name_romanized`` is deliberately absent: the service derives it (§39.3).
+    The service normalizes the name on write as well (§39.2).
     """
 
     code = serializers.CharField(max_length=50)
-    name_np = serializers.CharField(max_length=150)
-    name_en = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     requires_detail = serializers.BooleanField(required=False)
     is_active = serializers.BooleanField(required=False)
     display_order = serializers.IntegerField(required=False, min_value=0)
@@ -94,10 +91,7 @@ class ReferenceEntryWriteSerializer(serializers.Serializer):
     def validate_code(self, value: str) -> str:
         return value.strip().lower()
 
-    def validate_name_np(self, value: str) -> str:
-        return normalize_unicode(value)
-
-    def validate_name_en(self, value: str) -> str:
+    def validate_name(self, value: str) -> str:
         return normalize_unicode(value)
 
 
@@ -105,7 +99,6 @@ class ReferenceEntryUpdateSerializer(ReferenceEntryWriteSerializer):
     """Update input — every field optional, and ``code`` is immutable."""
 
     code = None
-    name_np = serializers.CharField(max_length=150, required=False)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -206,9 +199,7 @@ class LeadListSerializer(serializers.ModelSerializer):
         model = Lead
         fields = [
             "id",
-            "full_name_np",
-            "full_name_en",
-            "full_name_romanized",
+            "full_name",
             "email",
             "address",
             "source",
@@ -280,8 +271,7 @@ class LeadDetailSerializer(LeadListSerializer):
 class LeadCreateSerializer(serializers.Serializer):
     """Create input. ``stage`` is not accepted — a new lead always starts at ``new``."""
 
-    full_name_np = serializers.CharField(max_length=255)
-    full_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    full_name = serializers.CharField(max_length=255)
     email = serializers.EmailField(required=False, allow_blank=True)
     address = serializers.CharField(required=False, allow_blank=True)
     source = serializers.PrimaryKeyRelatedField(queryset=LeadSource.objects.all())
@@ -290,10 +280,7 @@ class LeadCreateSerializer(serializers.Serializer):
     contact_numbers = LeadContactNumberWriteSerializer(many=True, allow_empty=False)
     study_interest = LeadStudyInterestWriteSerializer(required=False)
 
-    def validate_full_name_np(self, value: str) -> str:
-        return normalize_unicode(value)
-
-    def validate_full_name_en(self, value: str) -> str:
+    def validate_full_name(self, value: str) -> str:
         return normalize_unicode(value)
 
     def validate_address(self, value: str) -> str:
@@ -306,7 +293,7 @@ class LeadCreateSerializer(serializers.Serializer):
 class LeadUpdateSerializer(LeadCreateSerializer):
     """Update input — every field optional; contact numbers replace wholesale."""
 
-    full_name_np = serializers.CharField(max_length=255, required=False)
+    full_name = serializers.CharField(max_length=255, required=False)
     source = serializers.PrimaryKeyRelatedField(queryset=LeadSource.objects.all(), required=False)
     contact_numbers = LeadContactNumberWriteSerializer(many=True, allow_empty=False, required=False)
 

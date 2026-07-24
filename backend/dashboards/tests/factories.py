@@ -51,13 +51,13 @@ from offers.constants import OfferStatus
 
 
 def make_source(code: str = "walk_in") -> LeadSource:
-    return LeadSource.objects.create(code=code, name_np="वाक-इन", name_en="Walk-in")
+    return LeadSource.objects.create(code=code, name="Walk-in")
 
 
-def make_lead(owner: Any, source: LeadSource, *, name_np: str = "राम श्रेष्ठ", **overrides: Any) -> Any:
+def make_lead(owner: Any, source: LeadSource, *, name: str = "Ram Shrestha", **overrides: Any) -> Any:
     return lead_services.create_lead(
         actor=owner,
-        data={"full_name_np": name_np, "source": source, **overrides},
+        data={"full_name": name, "source": source, **overrides},
         contact_numbers=[{"number": "9800000000", "label": "mobile", "is_primary": True}],
     )
 

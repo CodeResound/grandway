@@ -153,8 +153,7 @@ class SourceConversionRowSerializer(serializers.Serializer):
 
     source_id = serializers.CharField()
     source_code = serializers.CharField()
-    source_name_np = serializers.CharField(allow_blank=True)
-    source_name_en = serializers.CharField(allow_blank=True)
+    source_name = serializers.CharField(allow_blank=True)
     total = serializers.IntegerField()
     converted = serializers.IntegerField()
     lost = serializers.IntegerField()
@@ -183,7 +182,7 @@ class ChecklistItemRowSerializer(serializers.Serializer):
     journey_id = serializers.UUIDField(source="checklist.journey_id")
     applicant_id = serializers.UUIDField(source="checklist.journey.applicant_id")
     applicant_name = serializers.SerializerMethodField()
-    country_name_en = serializers.SerializerMethodField()
+    country_name = serializers.SerializerMethodField()
 
     assigned_to = serializers.SerializerMethodField()
 
@@ -192,11 +191,11 @@ class ChecklistItemRowSerializer(serializers.Serializer):
 
     def get_applicant_name(self, obj: Any) -> str:
         applicant = obj.checklist.journey.applicant
-        return applicant.full_name_en or applicant.full_name_np
+        return applicant.full_name
 
-    def get_country_name_en(self, obj: Any) -> str:
+    def get_country_name(self, obj: Any) -> str:
         country = obj.checklist.country
-        return country.name_en if country else ""
+        return country.name if country else ""
 
     def get_assigned_to(self, obj: Any) -> dict[str, Any] | None:
         user = obj.assigned_to
@@ -210,7 +209,7 @@ class OfferRowSerializer(serializers.Serializer):
 
     id = serializers.UUIDField()
     status = serializers.CharField()
-    institution_name_en = serializers.CharField()
+    institution_name = serializers.CharField()
     program_title = serializers.CharField()
     intake_label = serializers.CharField(allow_blank=True)
     response_deadline = serializers.DateField(allow_null=True)
@@ -226,7 +225,7 @@ class OfferRowSerializer(serializers.Serializer):
 
     def get_applicant_name(self, obj: Any) -> str:
         applicant = obj.journey.applicant
-        return applicant.full_name_en or applicant.full_name_np
+        return applicant.full_name
 
 
 class FileRowSerializer(serializers.Serializer):
@@ -269,7 +268,7 @@ class DocumentRowSerializer(serializers.Serializer):
         applicant = obj.applicant
         if applicant is None:
             return ""
-        return applicant.full_name_en or applicant.full_name_np
+        return applicant.full_name
 
 
 class PassportRowSerializer(serializers.Serializer):
@@ -283,7 +282,7 @@ class PassportRowSerializer(serializers.Serializer):
     has_expired = serializers.SerializerMethodField()
 
     def get_applicant_name(self, obj: Any) -> str:
-        return obj.applicant.full_name_en or obj.applicant.full_name_np
+        return obj.applicant.full_name
 
     def get_expiry_date_bs(self, obj: Any) -> dict[str, Any] | None:
         return _bs(obj.expiry_date)
@@ -299,8 +298,7 @@ class LeadRowSerializer(serializers.Serializer):
     """One live lead nobody has followed up."""
 
     id = serializers.UUIDField()
-    full_name_np = serializers.CharField()
-    full_name_en = serializers.CharField(allow_blank=True)
+    full_name = serializers.CharField(allow_blank=True)
     stage = serializers.CharField()
     last_followed_up_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
@@ -315,17 +313,17 @@ class JourneyRowSerializer(serializers.Serializer):
     applicant_id = serializers.UUIDField()
     applicant_name = serializers.SerializerMethodField()
     country_id = serializers.SerializerMethodField()
-    country_name_en = serializers.SerializerMethodField()
+    country_name = serializers.SerializerMethodField()
 
     def get_applicant_name(self, obj: Any) -> str:
-        return obj.applicant.full_name_en or obj.applicant.full_name_np
+        return obj.applicant.full_name
 
     def get_country_id(self, obj: Any) -> str | None:
         return str(obj.target_country_ref_id) if obj.target_country_ref_id else None
 
-    def get_country_name_en(self, obj: Any) -> str:
+    def get_country_name(self, obj: Any) -> str:
         country = obj.target_country_ref
-        return country.name_en if country else obj.target_country
+        return country.name if country else obj.target_country
 
 
 class ActivityRowSerializer(serializers.Serializer):

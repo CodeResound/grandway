@@ -118,7 +118,7 @@ numbers, email, address, website, logo, notes, and status.
 Settled in V1 (2026-07-24):
 
 * **One spokesperson or multiple named contacts?** One, inline on the client
-  record — name (Devanagari + English), designation, and the organization's
+  record — name, designation, and the organization's
   email. Contact *numbers* are a child table, because an agency realistically
   has a landline and two mobiles while it has exactly one person you ask for.
   This honours both the concept's "may be represented directly on the client

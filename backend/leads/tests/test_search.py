@@ -36,14 +36,13 @@ class TestLeadMultiFieldSearch(LeadSearchTestCase):
         self.target = services.create_lead(
             actor=self.admin,
             data={
-                "full_name_np": "राम श्रेष्ठ",
-                "full_name_en": "Ram Shrestha",
+                "full_name": "Ram Shrestha",
                 "source": self.source,
                 "email": "ram.shrestha@example.com",
             },
             contact_numbers=[{"number": "9841000111", "label": "mobile", "is_primary": True}],
         )
-        self.other = make_lead(self.admin, self.source, name_np="सीता गुरुङ")
+        self.other = make_lead(self.admin, self.source, name="Sita Gurung")
 
     def test_search_matches_email(self) -> None:
         resp = self.client.get(self.list_url, {"search": "ram.shrestha@example.com"})
@@ -55,8 +54,8 @@ class TestLeadMultiFieldSearch(LeadSearchTestCase):
         self.assertEqual(resp.data["meta"]["count"], 1)
         self.assertEqual(resp.data["data"][0]["id"], str(self.target.id))
 
-    def test_search_still_matches_devanagari_name(self) -> None:
-        resp = self.client.get(self.list_url, {"search": "सीता"})
+    def test_search_matches_the_other_lead_by_name(self) -> None:
+        resp = self.client.get(self.list_url, {"search": "Sita"})
         self.assertEqual(resp.data["meta"]["count"], 1)
         self.assertEqual(resp.data["data"][0]["id"], str(self.other.id))
 
@@ -79,12 +78,12 @@ class TestLeadSearchRanking(LeadSearchTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.exact = make_lead(self.admin, self.source, name_np="राम")
-        self.prefix = make_lead(self.admin, self.source, name_np="राम बहादुर")
-        self.contains = make_lead(self.admin, self.source, name_np="श्री राम श्रेष्ठ")
+        self.exact = make_lead(self.admin, self.source, name="Ram")
+        self.prefix = make_lead(self.admin, self.source, name="Ram Bahadur")
+        self.contains = make_lead(self.admin, self.source, name="Shree Ram Shrestha")
 
     def test_exact_beats_prefix_beats_contains(self) -> None:
-        resp = self.client.get(self.list_url, {"search": "राम"})
+        resp = self.client.get(self.list_url, {"search": "Ram"})
         self.assertEqual(
             self.ids(resp),
             [str(self.exact.id), str(self.prefix.id), str(self.contains.id)],
@@ -105,14 +104,14 @@ class TestSearchRespectsOwnerScoping(LeadSearchTestCase):
         super().setUp()
         self.mine = make_lead_manager("mgr_one")
         self.theirs = make_lead_manager("mgr_two")
-        self.my_lead = make_lead(self.mine, self.source, name_np="राम")
-        self.their_lead = make_lead(self.theirs, self.source, name_np="राम")
+        self.my_lead = make_lead(self.mine, self.source, name="Ram Karki")
+        self.their_lead = make_lead(self.theirs, self.source, name="Ram Thapa")
 
     def test_lead_manager_search_returns_only_own_leads(self) -> None:
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_for(self.mine)}")
-        resp = self.client.get(self.list_url, {"search": "राम"})
+        resp = self.client.get(self.list_url, {"search": "Ram"})
         self.assertEqual(self.ids(resp), [str(self.my_lead.id)])
 
     def test_admin_search_returns_both(self) -> None:
-        resp = self.client.get(self.list_url, {"search": "राम"})
+        resp = self.client.get(self.list_url, {"search": "Ram"})
         self.assertEqual(resp.data["meta"]["count"], 2)

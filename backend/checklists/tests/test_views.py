@@ -163,7 +163,7 @@ class TemplateEndpointTests(ChecklistsAPITestCase):
     def test_create_returns_201_and_the_template(self) -> None:
         from institutions import services as catalogue_services
 
-        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name_en": "Canada"})
+        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name": "Canada"})
         response = self.client.post(
             TEMPLATES,
             {
@@ -178,7 +178,7 @@ class TemplateEndpointTests(ChecklistsAPITestCase):
         self.assertEqual(response.status_code, 201)
         data = self.assert_success_envelope(response)["data"]
         self.assertEqual(data["key"], "canada-student")
-        self.assertEqual(data["country"]["name_en"], "Canada")
+        self.assertEqual(data["country"]["name"], "Canada")
         self.assertTrue(data["is_inheritable"])
 
     def test_a_duplicate_key_is_a_validation_error(self) -> None:
@@ -428,7 +428,7 @@ class ChecklistItemEndpointTests(ChecklistsAPITestCase):
         self.assert_error_envelope(response, ErrorCode.STATUS_NOTE_REQUIRED)
 
     def test_another_applicants_file_cannot_be_cited_as_evidence(self) -> None:
-        stranger = f.make_applicant(self.admin, name_np="अर्को व्यक्ति", full_name_en="Someone Else")
+        stranger = f.make_applicant(self.admin, full_name="Someone Else")
         theirs = f.upload_for_applicant(self.admin, stranger)
 
         response = self.client.post(
@@ -453,7 +453,7 @@ class ChecklistItemEndpointTests(ChecklistsAPITestCase):
         """Item routes are scoped to their checklist — a stray id reaches nobody."""
         other_journey = f.make_journey(
             self.admin,
-            f.make_applicant(self.admin, name_np="अर्को", full_name_en="Other"),
+            f.make_applicant(self.admin, full_name="Other"),
         )
         from checklists import services
 
@@ -504,12 +504,12 @@ class SafetyNetTests(ChecklistsAPITestCase):
 
         nowhere = catalogue_services.create_country(
             actor=self.admin,
-            data={"code": "nz", "name_en": "New Zealand"},
+            data={"code": "nz", "name": "New Zealand"},
         )
         with self.captureOnCommitCallbacks(execute=True):
             stranded = f.make_journey(
                 self.admin,
-                f.make_applicant(self.admin, name_np="गीता शर्मा", full_name_en="Gita"),
+                f.make_applicant(self.admin, full_name="Gita"),
                 target_country_ref=nowhere,
             )
 
@@ -538,7 +538,7 @@ class QueryBudgetTests(ChecklistsAPITestCase):
         for index in range(4):
             journey = f.make_journey(
                 self.admin,
-                f.make_applicant(self.admin, name_np=f"व्यक्ति {index}", full_name_en=f"Person {index}"),
+                f.make_applicant(self.admin, full_name=f"Person {index}"),
             )
             services.instantiate_checklist(journey=journey, template=self.template, actor=self.admin)
 

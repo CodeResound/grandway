@@ -8,10 +8,9 @@ Two conventions run through every model here and are deliberate:
   a delete endpoint. A record that is no longer offered becomes
   ``inactive`` (``concepts/institutions.txt`` — "No deletion of historical
   catalogue records"), so a journey or offer that referenced it still resolves.
-* **``name_en`` is required and ``name_np`` is optional** — the inverse of
-  §39.1 and of ``leads.ReferenceEntry``. These are foreign proper nouns with no
-  authoritative Devanagari identity; requiring one would produce invented
-  transliterations. See ``docs/DATA_CONTRACT.md`` — "Deliberate Deviations".
+* **Every catalogue record carries one ``name``.** Names are English throughout
+  the system; a catalogue of foreign universities is the clearest case for it,
+  since these are proper nouns with no second authoritative form.
 """
 
 from __future__ import annotations
@@ -75,12 +74,11 @@ class Field(BaseModel):
 
     Shaped like ``leads.ReferenceEntry`` but declared independently: §4 forbids
     importing another app's models, and this table carries no ``requires_detail``
-    flag or ``name_romanized`` column.
+    flag.
     """
 
     code = models.CharField(max_length=50, unique=True, validators=[validate_reference_code])
-    name_en = models.CharField(max_length=150)
-    name_np = models.CharField(max_length=150, blank=True)
+    name = models.CharField(max_length=150)
 
     is_active = models.BooleanField(default=True, db_index=True)
     display_order = models.PositiveIntegerField(default=0)
@@ -89,32 +87,27 @@ class Field(BaseModel):
         db_table = "institutions_field"
         verbose_name = "Study Field"
         verbose_name_plural = "Study Fields"
-        ordering = ["display_order", "name_en"]
+        ordering = ["display_order", "name"]
 
     def __str__(self) -> str:
-        return f"{self.name_en} ({self.code})"
+        return f"{self.name} ({self.code})"
 
 
 class Country(BaseModel, AvailabilityMixin):
     """The top-level geographic container, and the first filter in every search."""
 
     code = models.CharField(max_length=10, unique=True, validators=[validate_reference_code])
-    name_en = models.CharField(max_length=150)
-    name_np = models.CharField(
-        max_length=150,
-        blank=True,
-        help_text="Optional. Destinations are one of the few catalogue names staff do write in Nepali.",
-    )
+    name = models.CharField(max_length=150)
     display_order = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "institutions_country"
         verbose_name = "Country"
         verbose_name_plural = "Countries"
-        ordering = ["display_order", "name_en"]
+        ordering = ["display_order", "name"]
 
     def __str__(self) -> str:
-        return f"{self.name_en} ({self.code})"
+        return f"{self.name} ({self.code})"
 
 
 class Institution(BaseModel, AvailabilityMixin):
@@ -125,8 +118,7 @@ class Institution(BaseModel, AvailabilityMixin):
         on_delete=models.PROTECT,
         related_name="institutions",
     )
-    name_en = models.CharField(max_length=255)
-    name_np = models.CharField(max_length=255, blank=True)
+    name = models.CharField(max_length=255)
     common_name = models.CharField(
         max_length=150,
         blank=True,
@@ -142,17 +134,16 @@ class Institution(BaseModel, AvailabilityMixin):
         db_table = "institutions_institution"
         verbose_name = "Institution"
         verbose_name_plural = "Institutions"
-        ordering = ["name_en"]
+        ordering = ["name"]
         indexes = [
             # The country-detail screen: providers in one country, usable first.
             models.Index(fields=["country", "availability_status"], name="institution_country_status_idx"),
             # The ?q= search across provider names.
-            GinIndex(fields=["name_en"], name="institution_name_en_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(fields=["name_np"], name="institution_name_np_trgm_idx", opclasses=["gin_trgm_ops"]),
+            GinIndex(fields=["name"], name="institution_name_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:
-        return self.name_en
+        return self.name
 
 
 class Campus(BaseModel, AvailabilityMixin):
@@ -167,19 +158,19 @@ class Campus(BaseModel, AvailabilityMixin):
         on_delete=models.PROTECT,
         related_name="campuses",
     )
-    name_en = models.CharField(max_length=255)
+    name = models.CharField(max_length=255)
     city = models.CharField(max_length=150, blank=True)
 
     class Meta:
         db_table = "institutions_campus"
         verbose_name = "Campus"
         verbose_name_plural = "Campuses"
-        ordering = ["name_en"]
+        ordering = ["name"]
         constraints = [
             # One provider genuinely cannot have two campuses of the same name;
             # here a duplicate is always an error, unlike two same-named
             # institutions in one country, which can both be real.
-            models.UniqueConstraint(fields=["institution", "name_en"], name="campus_institution_name_uniq"),
+            models.UniqueConstraint(fields=["institution", "name"], name="campus_institution_name_uniq"),
         ]
         indexes = [
             # The institution-detail screen's campus list.
@@ -187,7 +178,7 @@ class Campus(BaseModel, AvailabilityMixin):
         ]
 
     def __str__(self) -> str:
-        return f"{self.institution.name_en} — {self.name_en}"
+        return f"{self.institution.name} — {self.name}"
 
 
 class Program(BaseModel, AvailabilityMixin):
@@ -280,7 +271,7 @@ class Program(BaseModel, AvailabilityMixin):
         ]
 
     def __str__(self) -> str:
-        return f"{self.title} — {self.institution.name_en}"
+        return f"{self.title} — {self.institution.name}"
 
     @property
     def has_tuition(self) -> bool:

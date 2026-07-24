@@ -19,10 +19,8 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 >    decision the API deliberately leaves to the UI** — the concept asks that retired partners stay
 >    "visible historically but not treated as a preferred current contact", which is a rendering rule,
 >    not a filtering one.
-> 4. **The romanized name fields are never displayed.** `name_romanized` and
->    `spokesperson_name_romanized` are auto-derived ASCII search keys — `"हिमाल एजुकेशन"` becomes
->    `"himala ejukesana"`. They exist so a Roman-keyboard search finds a Devanagari record. Render
->    `name_en` if present, else `name_np`.
+> 4. **Names are single English fields.** Render `name` for the organization and `spokesperson_name`
+>    for the contact person. There are no language variants.
 
 ---
 
@@ -40,7 +38,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** nothing. This is the only screen in the project that works against a
      completely empty database with no prerequisite record anywhere.
    - **Side effects:** none.
-   - Ordered **alphabetically by `name_np`**, not newest-first — the opposite of every other list in
+   - Ordered **alphabetically by `name`**, not newest-first — the opposite of every other list in
      the project. Do not add a "recently added" default sort; there is no `ordering` parameter.
    - Rows carry `primary_contact_number` and `email`, so the directory's phone-and-email columns need
      no per-row detail fetch.
@@ -50,15 +48,14 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** nothing.
    - **Side effects:** appends `client_created` to the audit log. Nothing outside this app changes —
      nothing outside this app references a client.
-   - **Only `name_np` is required.** Everything else, including the spokesperson and any phone
+   - **Only `name` is required.** Everything else, including the spokesperson and any phone
      number, is optional: a partner may be an organization you deal with before you know who to ask
      for. Do not mark the spokesperson fields required in the form.
-   - *Failure — `VALIDATION_ERROR` on `name_np`:* inline error. The form's one mandatory field.
+   - *Failure — `VALIDATION_ERROR` on `name`:* inline error. The form's one mandatory field.
    - *Failure — `CLIENTS_CONTACT_NUMBER_DUPLICATE`:* the same number was entered twice in the numbers
      repeater. Highlight the duplicate rows, not the whole form.
    - *Failure — `CLIENTS_ACTOR_FORBIDDEN`:* a Lead Manager reached this form. The button should not
      have been there.
-   - **Do not send `name_romanized`** unless the user has explicitly overridden a bad transliteration.
      It is derived server-side, and a supplied value is never overwritten — including on later edits.
 
 3. **Edit Client Form** — correct details →
@@ -110,9 +107,8 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    `GET /api/v1/clients/?status=active&search=<query>` (`clients.client.list`)
    - **Requires state:** nothing.
    - **Side effects:** none.
-   - **One search box covers six fields** — the organization's Devanagari, English, and romanized
-     names, **and** the spokesperson's three. The concept's "look up the company or contact person"
-     is one input, not two.
+   - **One search box covers the organization and spokesperson names.** The concept's "look up the
+     company or contact person" is one input, not two.
    - **Pass `status=active` for this flow.** Omitting it returns retired partners too, which is right
      for the maintenance directory and wrong for "who do I call".
    - *Failure — `VALIDATION_ERROR` on `status`:* the value is `inactive`, not `retired` or `archived`.
@@ -166,7 +162,7 @@ this means changing the shipped `leads` app and is a separate session.
 | `permission_key` | `METHOD /path` | Used by flow(s) | Notes |
 |------------------|----------------|-----------------|-------|
 | `clients.client.list` | `GET /api/v1/clients/` | Maintain the directory (step 1); Find the right partner (step 1) | The **Client List** screen. Alphabetical, not newest-first |
-| `clients.client.create` | `POST /api/v1/clients/` | Maintain the directory (step 2) | Admin only. Only `name_np` is required |
+| `clients.client.create` | `POST /api/v1/clients/` | Maintain the directory (step 2) | Admin only. Only `name` is required |
 | `clients.client.read` | `GET /api/v1/clients/<client_id>/` | Find the right partner (step 2) | The **Client Detail** screen |
 | `clients.client.update` | `PATCH /api/v1/clients/<client_id>/` | Maintain the directory (step 3) | Admin only. Rejects `status` — send only changed fields |
 | `clients.client.retire` | `POST /api/v1/clients/<client_id>/retire/` | Maintain the directory (step 4) | Admin only. Reason mandatory |

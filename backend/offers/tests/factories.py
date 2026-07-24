@@ -60,10 +60,10 @@ def token_for(user: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def make_applicant(actor: Any, *, name_np: str = "राम बहादुर", **overrides: Any) -> Any:
+def make_applicant(actor: Any, *, name: str = "Ram Bahadur", **overrides: Any) -> Any:
     return applicant_services.create_applicant(
         actor=actor,
-        data={"full_name_np": name_np, "full_name_en": "Ram Bahadur", **overrides},
+        data={"full_name": name, **overrides},
         contact_numbers=[{"number": "9800000000", "label": "mobile", "is_primary": True}],
     )
 
@@ -83,14 +83,14 @@ def make_journey(actor: Any, applicant: Any, **overrides: Any) -> Any:
 
 def make_catalogue(actor: Any) -> dict[str, Any]:
     """A complete country → institution → campus → program chain."""
-    country = catalogue_services.create_country(actor=actor, data={"code": "au", "name_en": "Australia"})
+    country = catalogue_services.create_country(actor=actor, data={"code": "au", "name": "Australia"})
     field = catalogue_services.create_field(
-        actor=actor, data={"code": "information_technology", "name_en": "Information Technology"}
+        actor=actor, data={"code": "information_technology", "name": "Information Technology"}
     )
     institution = catalogue_services.create_institution(
-        actor=actor, data={"country": country, "name_en": "University of Melbourne"}
+        actor=actor, data={"country": country, "name": "University of Melbourne"}
     )
-    campus = catalogue_services.create_campus(actor=actor, institution=institution, data={"name_en": "Parkville"})
+    campus = catalogue_services.create_campus(actor=actor, institution=institution, data={"name": "Parkville"})
     program = catalogue_services.create_program(
         actor=actor,
         data={
@@ -132,7 +132,7 @@ def make_offer(actor: Any, journey: Any, *, program: Any = None, **overrides: An
 def make_manual_offer(actor: Any, journey: Any, **overrides: Any) -> Any:
     """An offer with no catalogue record behind it — a historical entry."""
     data: dict[str, Any] = {
-        "institution_name_en": "Ancient Polytechnic",
+        "institution_name": "Ancient Polytechnic",
         "program_title": "Diploma in Hospitality",
         "intake_label": "Sep 2019",
         **overrides,

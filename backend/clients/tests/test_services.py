@@ -29,26 +29,6 @@ class ClientCreationTests(TestCase):
     def setUpTestData(cls) -> None:
         cls.admin = f.make_admin()
 
-    def test_create_derives_the_romanized_name(self) -> None:
-        client = f.make_client(self.admin, name_np="हिमाल एजुकेशन")
-
-        self.assertTrue(client.name_romanized)
-        self.assertNotIn("हिमाल", client.name_romanized)
-        self.assertEqual(client.name_romanized, client.name_romanized.lower())
-
-    def test_create_derives_the_spokesperson_romanized_name(self) -> None:
-        """Both Devanagari pairs are handled, not just the organization's."""
-        client = f.make_client(self.admin, spokesperson_name_np="सुनिता श्रेष्ठ")
-
-        self.assertTrue(client.spokesperson_name_romanized)
-        self.assertNotIn("सुनिता", client.spokesperson_name_romanized)
-
-    def test_a_supplied_romanized_form_is_not_overwritten(self) -> None:
-        """A hand-corrected transliteration survives — §39.3."""
-        client = f.make_client(self.admin, name_romanized="himal education group")
-
-        self.assertEqual(client.name_romanized, "himal education group")
-
     def test_create_starts_active(self) -> None:
         client = f.make_client(self.admin)
 
@@ -72,8 +52,8 @@ class ClientCreationTests(TestCase):
 
     def test_two_clients_may_share_a_number(self) -> None:
         """Uniqueness is per client — two agencies can share a switchboard."""
-        f.make_client(self.admin, name_np="पहिलो", contact_numbers=[f.number("014567890")])
-        second = f.make_client(self.admin, name_np="दोस्रो", contact_numbers=[f.number("014567890")])
+        f.make_client(self.admin, contact_numbers=[f.number("014567890")])
+        second = f.make_client(self.admin, contact_numbers=[f.number("014567890")])
 
         self.assertEqual(second.contact_numbers.count(), 1)
 
@@ -102,16 +82,15 @@ class ClientUpdateTests(TestCase):
         self.assertEqual(event.changes["spokesperson_designation"]["to"], "Managing Director")
 
     def test_a_no_op_update_writes_no_event(self) -> None:
-        services.update_client(actor=self.admin, client=self.client_record, fields={"name_en": "Himal Education"})
+        services.update_client(actor=self.admin, client=self.client_record, fields={"name": "Himal Education"})
 
         self.assertFalse(AuditEvent.objects.filter(action=ClientAuditAction.CLIENT_UPDATED).exists())
 
-    def test_renaming_rederives_the_romanized_form(self) -> None:
-        before = self.client_record.name_romanized
-        services.update_client(actor=self.admin, client=self.client_record, fields={"name_np": "सगरमाथा कन्सल्ट"})
+    def test_renaming_updates_the_stored_name(self) -> None:
+        services.update_client(actor=self.admin, client=self.client_record, fields={"name": "Sagarmatha Consult"})
 
         self.client_record.refresh_from_db()
-        self.assertNotEqual(self.client_record.name_romanized, before)
+        self.assertEqual(self.client_record.name, "Sagarmatha Consult")
 
     def test_contact_numbers_are_replaced_not_merged(self) -> None:
         services.update_client(
@@ -201,28 +180,22 @@ class ClientSearchTests(TestCase):
         cls.admin = f.make_admin()
         cls.himal = f.make_client(
             cls.admin,
-            name_np="हिमाल एजुकेशन",
-            name_en="Himal Education",
-            spokesperson_name_np="सुनिता श्रेष्ठ",
+            name="Himal Education",
+            spokesperson_name="Sunita Shrestha",
         )
-        cls.other = f.make_client(cls.admin, name_np="सगरमाथा कन्सल्ट", name_en="Sagarmatha Consult")
+        cls.other = f.make_client(cls.admin, name="Sagarmatha Consult")
 
-    def test_search_by_english_name(self) -> None:
+    def test_search_by_name(self) -> None:
         found = search_clients(get_clients(), "Himal")
         self.assertEqual([c.id for c in found], [self.himal.id])
 
-    def test_search_by_devanagari_name(self) -> None:
-        found = search_clients(get_clients(), "सगरमाथा")
+    def test_search_is_case_insensitive(self) -> None:
+        found = search_clients(get_clients(), "sagarmatha")
         self.assertEqual([c.id for c in found], [self.other.id])
-
-    def test_search_by_romanized_form_finds_a_devanagari_record(self) -> None:
-        """The whole point of the romanized field — §39.6."""
-        found = search_clients(get_clients(), self.himal.name_romanized[:5])
-        self.assertIn(self.himal.id, [c.id for c in found])
 
     def test_search_covers_the_spokesperson(self) -> None:
         """The concept's flow says staff look up "the company or contact person"."""
-        found = search_clients(get_clients(), "सुनिता")
+        found = search_clients(get_clients(), "Sunita")
         self.assertEqual([c.id for c in found], [self.himal.id])
 
     def test_filter_by_status(self) -> None:
@@ -242,7 +215,7 @@ class ClientSearchTests(TestCase):
 
     def test_directory_is_ordered_alphabetically(self) -> None:
         """A directory reads by name, not by when rows were added."""
-        names = list(get_clients().values_list("name_np", flat=True))
+        names = list(get_clients().values_list("name", flat=True))
         self.assertEqual(names, sorted(names))
 
 

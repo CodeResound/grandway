@@ -320,7 +320,7 @@ class EvidenceTests(BaseChecklistTest):
         self.assertEqual(updated.evidence_file_id, evidence.id)
 
     def test_another_applicants_file_is_refused(self) -> None:
-        stranger = make_applicant(self.admin, name_np="अर्को व्यक्ति", full_name_en="Someone Else")
+        stranger = make_applicant(self.admin, full_name="Someone Else")
         theirs = upload_for_applicant(self.admin, stranger)
 
         with self.assertRaises(EvidenceNotAllowedError):

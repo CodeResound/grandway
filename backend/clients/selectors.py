@@ -43,29 +43,21 @@ def get_client_by_id(client_id: str) -> Client | None:
 def search_clients(queryset: QuerySet[Client], query: str) -> QuerySet[Client]:
     """Narrow clients by organization **or** spokesperson name (§39.6).
 
-    OR semantics with ``icontains``; never ``__exact`` on a Devanagari name.
-    The concept's "Find the right partner" flow says staff "look up the company
-    or contact person", so both are searched from the one box.
+    OR semantics with ``icontains``. The concept's "Find the right partner" flow
+    says staff "look up the company or contact person", so both are searched from
+    the one box.
 
-    **Only the three organization-name fields are trigram-indexed.** The
-    spokesperson fields are not, deliberately: the directory is a bounded table
-    of partner organizations — tens to hundreds of rows — unlike ``leads``,
-    which grows without limit. Indexing six columns on a table this size costs
-    more in write overhead and disk than it saves. If the directory ever reaches
-    a few thousand rows, add the three spokesperson indexes; the query is
-    already written to use them.
+    **Only the organization name is trigram-indexed.** The spokesperson name is
+    not, deliberately: the directory is a bounded table of partner organizations
+    — tens to hundreds of rows — unlike ``leads``, which grows without limit.
+    Indexing both columns on a table this size costs more in write overhead and
+    disk than it saves. If the directory ever reaches a few thousand rows, add
+    the spokesperson index; the query is already written to use it.
     """
     query = (query or "").strip()
     if not query:
         return queryset
-    return queryset.filter(
-        Q(name_np__icontains=query)
-        | Q(name_en__icontains=query)
-        | Q(name_romanized__icontains=query)
-        | Q(spokesperson_name_np__icontains=query)
-        | Q(spokesperson_name_en__icontains=query)
-        | Q(spokesperson_name_romanized__icontains=query)
-    )
+    return queryset.filter(Q(name__icontains=query) | Q(spokesperson_name__icontains=query))
 
 
 def filter_clients(queryset: QuerySet[Client], filters: dict[str, Any] | None = None) -> QuerySet[Client]:

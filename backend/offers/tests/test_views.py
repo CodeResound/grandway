@@ -88,7 +88,7 @@ class OfferListCreateTests(OfferAPITestCase):
 
     def test_filter_by_journey(self) -> None:
         f.make_offer(self.admin, self.journey, program=self.catalogue["program"])
-        other_journey = f.make_journey(self.admin, f.make_applicant(self.admin, name_np="सीता"))
+        other_journey = f.make_journey(self.admin, f.make_applicant(self.admin))
         f.make_manual_offer(self.admin, other_journey)
         self.auth(self.admin)
 
@@ -145,7 +145,7 @@ class OfferListCreateTests(OfferAPITestCase):
         self.auth(self.admin)
         payload = {
             "journey": str(self.journey.id),
-            "institution_name_en": "Ancient Polytechnic",
+            "institution_name": "Ancient Polytechnic",
             "program_title": "Diploma in Hospitality",
             "intake_label": "Sep 2019",
         }
@@ -196,7 +196,7 @@ class OfferDetailTests(OfferAPITestCase):
         data = self.client.get(self.url).json()["data"]
 
         self.assertIsNotNone(data["response_deadline_bs"])
-        self.assertIn("display_np", data["response_deadline_bs"])
+        self.assertIn("display", data["response_deadline_bs"])
 
     def test_patch_corrects_decision_details(self) -> None:
         self.auth(self.lead_manager)
@@ -217,7 +217,7 @@ class OfferDetailTests(OfferAPITestCase):
         self.assertEqual(self.offer.program_title, "Master of Information Technology")
 
     def test_patch_cannot_move_the_offer_to_another_journey(self) -> None:
-        other_journey = f.make_journey(self.admin, f.make_applicant(self.admin, name_np="सीता"))
+        other_journey = f.make_journey(self.admin, f.make_applicant(self.admin))
         self.auth(self.admin)
         response = self.client.patch(self.url, {"journey": str(other_journey.id)}, format="json")
 

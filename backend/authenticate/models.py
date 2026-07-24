@@ -30,9 +30,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     authority_type = models.CharField(max_length=20, choices=AuthorityType.choices, db_index=True)
 
     display_name = models.CharField(max_length=255)
-    full_name_np = models.CharField(max_length=255, blank=True)
-    full_name_en = models.CharField(max_length=255, blank=True)
-    full_name_romanized = models.CharField(max_length=255, blank=True)
+    full_name = models.CharField(max_length=255, blank=True)
 
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=32, blank=True)

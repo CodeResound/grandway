@@ -28,9 +28,7 @@ class ReferenceEntry(BaseModel):
     """
 
     code = models.CharField(max_length=50, unique=True, validators=[validate_reference_code])
-    name_np = models.CharField(max_length=150)
-    name_en = models.CharField(max_length=150, blank=True)
-    name_romanized = models.CharField(max_length=150, blank=True)
+    name = models.CharField(max_length=150)
 
     requires_detail = models.BooleanField(
         default=False,
@@ -41,10 +39,10 @@ class ReferenceEntry(BaseModel):
 
     class Meta:
         abstract = True
-        ordering = ["display_order", "name_np"]
+        ordering = ["display_order", "name"]
 
     def __str__(self) -> str:
-        return f"{self.name_en or self.name_np} ({self.code})"
+        return f"{self.name} ({self.code})"
 
 
 class LeadSource(ReferenceEntry):
@@ -81,10 +79,8 @@ class Lead(BaseModel):
     append-only audit log remains the authoritative event history.
     """
 
-    # --- Identity (§39.1 bilingual identity) -------------------------------
-    full_name_np = models.CharField(max_length=255)
-    full_name_en = models.CharField(max_length=255, blank=True)
-    full_name_romanized = models.CharField(max_length=255, blank=True)
+    # --- Identity ----------------------------------------------------------
+    full_name = models.CharField(max_length=255)
     email = models.EmailField(blank=True)
     address = models.TextField(blank=True)
 
@@ -179,23 +175,16 @@ class Lead(BaseModel):
             # Funnel and stage filters, scoped or unscoped.
             models.Index(fields=["stage", "-created_at"], name="lead_stage_recent_idx"),
             # Name search (§39.6). ``search_leads`` runs a leading-wildcard
-            # icontains across all three representations, which a B-tree index
-            # cannot serve — hence GIN trigram, one per field. Created in
-            # migration 0002, which also enables the pg_trgm extension.
-            GinIndex(fields=["full_name_np"], name="lead_name_np_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(fields=["full_name_en"], name="lead_name_en_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(
-                fields=["full_name_romanized"],
-                name="lead_name_rom_trgm_idx",
-                opclasses=["gin_trgm_ops"],
-            ),
+            # icontains, which a B-tree index cannot serve — hence GIN trigram.
+            # One index now rather than three: there is one name to search.
+            GinIndex(fields=["full_name"], name="lead_name_trgm_idx", opclasses=["gin_trgm_ops"]),
             # ``search_leads`` also matches the email with a leading wildcard,
             # so the same reasoning as the name fields applies.
             GinIndex(fields=["email"], name="lead_email_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:
-        return f"{self.full_name_en or self.full_name_np} ({self.stage})"
+        return f"{self.full_name} ({self.stage})"
 
     @property
     def is_lost(self) -> bool:

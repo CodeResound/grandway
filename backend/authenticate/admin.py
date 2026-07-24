@@ -15,8 +15,8 @@ from authenticate.models import AuthEvent, AuthSession, User, UserSecurityState
 class UserAdmin(admin.ModelAdmin):
     list_display = ("username", "authority_type", "display_name", "is_active", "is_staff", "created_at")
     list_filter = ("authority_type", "is_active", "is_staff")
-    search_fields = ("username", "display_name", "full_name_np", "full_name_en", "full_name_romanized", "email")
-    readonly_fields = ("id", "password", "last_login", "created_at", "updated_at", "full_name_romanized")
+    search_fields = ("username", "display_name", "full_name", "email")
+    readonly_fields = ("id", "password", "last_login", "created_at", "updated_at")
     ordering = ("username",)
 
 

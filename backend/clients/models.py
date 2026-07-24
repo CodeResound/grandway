@@ -9,12 +9,8 @@ Two conventions run through this app and are deliberate:
   ``inactive`` with a note saying why (``concepts/clients.txt`` — "No deletion
   of historical records. Inactive clients should be retained."), so a lead that
   came through them years ago still resolves to a readable organization.
-* **§39.1 applies here as written, unlike ``institutions``.** ``name_np`` is
-  required, ``name_en`` optional, ``name_romanized`` auto-populated. The
-  catalogue inverted the rule because foreign universities have no
-  authoritative Devanagari identity; a Nepal consultancy's referral partners are
-  predominantly domestic organizations that genuinely do. Same shape as
-  ``leads.ReferenceEntry`` and ``applicants.Applicant``.
+* **``name`` is the one required identity field**, as everywhere else. Same
+  shape as ``leads.ReferenceEntry`` and ``applicants.Applicant``.
 """
 
 from __future__ import annotations
@@ -47,14 +43,8 @@ class Client(BaseModel):
     the authoritative event history.
     """
 
-    # --- Identity (§39.1 bilingual identity) -------------------------------
-    name_np = models.CharField(max_length=255)
-    name_en = models.CharField(max_length=255, blank=True)
-    name_romanized = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text="Auto-populated from name_np by the service layer. A search aid, not a display field.",
-    )
+    # --- Identity ----------------------------------------------------------
+    name = models.CharField(max_length=255)
 
     # --- Spokesperson (inline, one person) ---------------------------------
     #
@@ -62,9 +52,7 @@ class Client(BaseModel):
     # staff actually need — "who do I call at this agency" — and every field is
     # optional, because a partner may be an organization you deal with before
     # you know who to ask for.
-    spokesperson_name_np = models.CharField(max_length=255, blank=True)
-    spokesperson_name_en = models.CharField(max_length=255, blank=True)
-    spokesperson_name_romanized = models.CharField(max_length=255, blank=True)
+    spokesperson_name = models.CharField(max_length=255, blank=True)
     spokesperson_designation = models.CharField(
         max_length=150,
         blank=True,
@@ -118,19 +106,17 @@ class Client(BaseModel):
         # A directory reads alphabetically, not newest-first — the opposite of
         # every operational list in this project, because nobody looks up a
         # partner by when it was added.
-        ordering = ["name_np"]
+        ordering = ["name"]
         indexes = [
             # The directory filtered to current partners, in name order.
-            models.Index(fields=["status", "name_np"], name="client_status_name_idx"),
-            # The ?search= lookup across the three name representations (§39.6).
-            # The pg_trgm extension already exists — leads migration 0002.
-            GinIndex(fields=["name_np"], name="client_name_np_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(fields=["name_en"], name="client_name_en_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(fields=["name_romanized"], name="client_name_rom_trgm_idx", opclasses=["gin_trgm_ops"]),
+            models.Index(fields=["status", "name"], name="client_status_name_idx"),
+            # The ?search= lookup over the organization and spokesperson names
+            # (§39.6). The pg_trgm extension already exists — leads migration 0002.
+            GinIndex(fields=["name"], name="client_name_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:
-        return self.name_en or self.name_np
+        return self.name
 
     @property
     def is_active(self) -> bool:

@@ -50,7 +50,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    `POST /api/v1/offers/` (`offers.offer.create`)
    - **Requires state:** an existing journey. **The journey's stage is not checked** — an offer may be recorded against a journey at any stage, including a closed one.
    - **Side effects:** appends `offer_created` to the audit log. Conditions sent in the same request are created atomically with the offer. **Nothing outside this module changes.**
-   - **The form has two branches and must make clear which one the user is in** (`concepts/offers.txt` — "It must be clear whether the offer was created from the catalogue or entered as a manual historical record"). Send `program` for the catalogue branch, or `institution_name_en` + `program_title` for the manual branch. The response's `reference_source` confirms which was recorded.
+   - **The form has two branches and must make clear which one the user is in** (`concepts/offers.txt` — "It must be clear whether the offer was created from the catalogue or entered as a manual historical record"). Send `program` for the catalogue branch, or `institution_name` + `program_title` for the manual branch. The response's `reference_source` confirms which was recorded.
    - *Failure — `OFFERS_PROGRAM_REFERENCE_REQUIRED`:* neither branch was completed. Show it against the program field, not as a form-level error.
    - *Failure — `OFFERS_CATALOGUE_REFERENCE_INVALID`:* the campus or program picker was not filtered to the chosen institution — a UI bug, not user error. Reset and refilter.
    - *Failure — `OFFERS_AMOUNT_INCOMPLETE`:* highlight the amount and its currency together. Treat each of tuition, scholarship, and deposit as one composite control that is filled or empty as a unit.

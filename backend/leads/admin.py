@@ -21,10 +21,10 @@ from leads.models import (
 class ReferenceEntryAdmin(admin.ModelAdmin):
     """Shared admin for the two configurable reference tables."""
 
-    list_display = ("code", "name_np", "name_en", "requires_detail", "is_active", "display_order")
+    list_display = ("code", "name", "requires_detail", "is_active", "display_order")
     list_filter = ("is_active", "requires_detail")
-    search_fields = ("code", "name_np", "name_en", "name_romanized")
-    readonly_fields = ("id", "name_romanized", "created_at", "updated_at")
+    search_fields = ("code", "name")
+    readonly_fields = ("id", "created_at", "updated_at")
     ordering = ("display_order", "code")
 
 
@@ -52,12 +52,11 @@ class LeadStudyInterestInline(admin.StackedInline):
 
 @admin.register(Lead)
 class LeadAdmin(admin.ModelAdmin):
-    list_display = ("full_name_np", "full_name_en", "stage", "source", "created_by", "last_followed_up_at")
+    list_display = ("full_name", "stage", "source", "created_by", "last_followed_up_at")
     list_filter = ("stage", "source", "lost_reason")
-    search_fields = ("full_name_np", "full_name_en", "full_name_romanized", "email")
+    search_fields = ("full_name", "email")
     readonly_fields = (
         "id",
-        "full_name_romanized",
         "created_by",
         "last_followed_up_at",
         "last_followed_up_by",
@@ -78,7 +77,7 @@ class LeadNoteAdmin(admin.ModelAdmin):
     """Notes are append-only; everything on an existing note is read-only."""
 
     list_display = ("lead", "author", "created_at")
-    search_fields = ("lead__full_name_np", "lead__full_name_en", "body")
+    search_fields = ("lead__full_name", "body")
     readonly_fields = ("id", "lead", "body", "author", "created_at", "updated_at")
 
     def has_delete_permission(self, request: object, obj: object | None = None) -> bool:

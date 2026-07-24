@@ -19,14 +19,11 @@ class ClientContactNumberInline(admin.TabularInline):
 
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
-    list_display = ("name_np", "name_en", "spokesperson_name_np", "email", "status", "updated_at")
+    list_display = ("name", "email", "status", "updated_at")
     list_filter = ("status",)
     search_fields = (
-        "name_np",
-        "name_en",
-        "name_romanized",
-        "spokesperson_name_np",
-        "spokesperson_name_en",
+        "name",
+        "spokesperson_name",
         "email",
     )
     readonly_fields = (
@@ -34,8 +31,6 @@ class ClientAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
         "created_by",
-        "name_romanized",
-        "spokesperson_name_romanized",
         "retired_at",
         "retired_by",
     )
@@ -46,5 +41,5 @@ class ClientAdmin(admin.ModelAdmin):
 class ClientContactNumberAdmin(admin.ModelAdmin):
     list_display = ("number", "client", "label", "is_primary")
     list_filter = ("label", "is_primary")
-    search_fields = ("number", "client__name_np", "client__name_en")
+    search_fields = ("number", "client__name")
     readonly_fields = ("id", "created_at", "updated_at")

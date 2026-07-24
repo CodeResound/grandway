@@ -47,7 +47,7 @@ nothing that varies per study objective.
 
 Identity
 
-* Full name in Devanagari and in Roman script
+* Full name
 * Date of birth
 * Gender
 * Nationality
@@ -197,7 +197,7 @@ Applicant List
 
 Shows every applicant, newest first. Columns: name, status, contact number,
 whether the person came from a lead, and creation date. Filters for status and a
-search box matching Devanagari, Roman, and romanized name forms simultaneously,
+search box matching the name, email, contact number, and passport number,
 so staff can type in either script. Primary action "New applicant" is visible to
 Admins only. Serves the direct-creation and find-an-applicant flows.
 

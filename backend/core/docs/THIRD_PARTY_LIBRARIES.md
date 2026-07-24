@@ -178,10 +178,10 @@
 | **Purpose** | Adds CORS (Cross-Origin Resource Sharing) response headers and preflight (`OPTIONS`) handling, so a frontend served from a different origin/port than the Django API can call it from a browser |
 | **Package** | `django-cors-headers==4.9.0` |
 | **Docs** | https://github.com/adamchainz/django-cors-headers |
-| **Files used** | `core/settings/base.py` (`INSTALLED_APPS`, `MIDDLEWARE`), `core/settings/development.py` (`CORS_ALLOW_ALL_ORIGINS`) |
+| **Files used** | `core/settings/base.py` (`INSTALLED_APPS`, `MIDDLEWARE`), `core/settings/development.py` (`CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`, `CORS_ALLOW_CREDENTIALS`) |
 | **Alternatives considered** | Hand-rolled middleware adding `Access-Control-Allow-*` headers manually (rejected — reinvents preflight/credentials/Vary-header handling that this library already gets right; would be the only hand-rolled security-relevant middleware in the project) |
 | **Redundancy check** | None — no existing CORS handling anywhere in the project |
-| **Security concerns** | `CorsMiddleware` must sit high in `MIDDLEWARE` (before `CommonMiddleware`). `CORS_ALLOW_ALL_ORIGINS=True` is set **only** in `core/settings/development.py` — staging/production inherit no override, so they default to allowing zero cross-origin requests until an explicit `CORS_ALLOWED_ORIGINS` allowlist is configured for those environments. Never set `CORS_ALLOW_ALL_ORIGINS=True` together with `CORS_ALLOW_CREDENTIALS=True` (the library itself rejects this combination). |
+| **Security concerns** | `CorsMiddleware` must sit high in `MIDDLEWARE` (before `CommonMiddleware`). Development uses an explicit allowlist for `localhost`, `127.0.0.1`, and `192.168.110.58:3000`, plus `CSRF_TRUSTED_ORIGINS` for browser sessions. Staging/production still inherit no CORS allowlist until one is explicitly configured there. |
 | **Maintenance status** | Active |
 | **Final decision** | Approved — human-approved for the development-environment CORS fix (2026-06-29) |
 
@@ -221,17 +221,20 @@
 
 ---
 
-## indic-transliteration
+## indic-transliteration (REMOVED 2026-07-25)
+
+Removed when the project moved to English-only names (see `CLAUDE.md` §39). It
+existed solely to auto-populate the `name` search fields from
+Devanagari input; those fields and the whole bilingual name pattern are gone, so
+there is nothing left to transliterate. Dropped from `requirements/base.txt` and
+from `core/nepal/text.py` in the same change. Kept here as a tombstone rather
+than deleted outright, so a future reader who finds the package name in git
+history sees why it left.
 
 | Field | Value |
 |-------|-------|
 | **Name** | indic-transliteration |
-| **Purpose** | Devanagari → romanized ASCII transliteration used to auto-populate `name_romanized` fields, enabling Roman-script users to find Devanagari-primary records via PostgreSQL trigram search. |
-| **Package** | `indic-transliteration==2.3.82` |
-| **Docs** | https://indic-transliteration.readthedocs.io/ |
-| **Files used** | `core/nepal/text.py` |
-| **Alternatives considered** | Custom character-map table (rejected — incomplete, hard to maintain, misses conjunct consonant clusters); `aksharamukha` (heavier, web-service oriented); `transliterate` (generic, no Indic-specific handling) |
-| **Redundancy check** | No other transliteration library in the project |
-| **Security concerns** | No network calls; pure string transformation. No secrets or PII stored. |
-| **Maintenance status** | Active (Dr. Vishvas Vasuki, widely used in Indic NLP) |
-| **Final decision** | Approved — human-approved as part of Nepal localization foundation (2026-07-02) |
+| **Purpose** | (former) Devanagari → romanized ASCII transliteration for the `name` search fields |
+| **Package** | `indic-transliteration==2.3.82` — no longer installed |
+| **Files used** | (former) `core/nepal/text.py` |
+| **Final decision** | Removed — the feature it served no longer exists |

@@ -38,33 +38,20 @@ class TestLeadCreation(TestCase):
         self.owner = make_lead_manager("owner")
         self.source = make_source()
 
-    def test_romanized_name_is_derived_from_devanagari(self) -> None:
-        lead = make_lead(self.owner, self.source, name_np="राम श्रेष्ठ")
-        self.assertNotEqual(lead.full_name_romanized, "")
-        self.assertTrue(lead.full_name_romanized.isascii())
-
-    def test_supplied_romanized_name_is_respected(self) -> None:
+    def test_name_is_unicode_normalized(self) -> None:
+        raw = "Raḿ"  # a combining acute — NFC folds it to a single codepoint
         lead = services.create_lead(
             actor=self.owner,
-            data={
-                "full_name_np": "राम श्रेष्ठ",
-                "full_name_romanized": "Ram Shrestha",
-                "source": self.source,
-            },
+            data={"full_name": raw, "source": self.source},
             contact_numbers=[{"number": "9800000000"}],
         )
-        self.assertEqual(lead.full_name_romanized, "Ram Shrestha")
-
-    def test_devanagari_name_is_unicode_normalized(self) -> None:
-        raw = "राम"
-        lead = make_lead(self.owner, self.source, name_np=raw)
-        self.assertEqual(lead.full_name_np, normalize_unicode(raw))
+        self.assertEqual(lead.full_name, normalize_unicode(raw))
 
     def test_at_least_one_contact_number_is_required(self) -> None:
         with self.assertRaises(ContactNumberRequiredError):
             services.create_lead(
                 actor=self.owner,
-                data={"full_name_np": "राम", "source": self.source},
+                data={"source": self.source},
                 contact_numbers=[],
             )
 
@@ -73,7 +60,7 @@ class TestLeadCreation(TestCase):
         with self.assertRaises(ReferenceInactiveError):
             services.create_lead(
                 actor=self.owner,
-                data={"full_name_np": "राम", "source": retired},
+                data={"source": retired},
                 contact_numbers=[{"number": "9800000000"}],
             )
 
@@ -82,7 +69,7 @@ class TestLeadCreation(TestCase):
         with self.assertRaises(SourceDetailRequiredError):
             services.create_lead(
                 actor=self.owner,
-                data={"full_name_np": "राम", "source": other},
+                data={"source": other},
                 contact_numbers=[{"number": "9800000000"}],
             )
 
@@ -202,17 +189,17 @@ class TestReferenceServices(TestCase):
         self.admin = make_admin()
 
     def test_duplicate_source_code_is_rejected(self) -> None:
-        services.create_lead_source(actor=self.admin, data={"code": "walk_in", "name_np": "वाक-इन"})
+        services.create_lead_source(actor=self.admin, data={"code": "walk_in", "name": "Walk-in"})
         with self.assertRaises(ReferenceCodeTakenError):
-            services.create_lead_source(actor=self.admin, data={"code": "walk_in", "name_np": "वाक-इन"})
+            services.create_lead_source(actor=self.admin, data={"code": "walk_in", "name": "Walk-in"})
 
     def test_duplicate_loss_reason_code_is_rejected(self) -> None:
-        services.create_loss_reason(actor=self.admin, data={"code": "other", "name_np": "अन्य"})
+        services.create_loss_reason(actor=self.admin, data={"code": "other", "name": "Other"})
         with self.assertRaises(ReferenceCodeTakenError):
-            services.create_loss_reason(actor=self.admin, data={"code": "other", "name_np": "अन्य"})
+            services.create_loss_reason(actor=self.admin, data={"code": "other", "name": "Other"})
 
     def test_update_without_changes_writes_no_event(self) -> None:
-        source = services.create_lead_source(actor=self.admin, data={"code": "web", "name_np": "वेब"})
+        source = services.create_lead_source(actor=self.admin, data={"code": "web", "name": "Web"})
         before = AuditEvent.objects.count()
         services.update_lead_source(actor=self.admin, source=source, fields={"is_active": True})
         self.assertEqual(AuditEvent.objects.count(), before)

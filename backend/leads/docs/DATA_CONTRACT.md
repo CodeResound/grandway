@@ -1,7 +1,7 @@
 # Data Contract — Leads
 
 **Owner app:** `leads`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns the enquiry record and everything that happens to it before conversion — identity, contact numbers, source attribution, preliminary study interest, stage, manual follow-up, notes, and loss/reopen state. It does **not** own the applicant, the applicant journey, or any post-conversion data; those belong to the `applicants` and `applicant_journeys` apps. It owns no history table either — a lead's chronological history is the central `audit` log filtered to that lead.
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial contract — six models, lead lifecycle without conversion |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Two search indexes added (no column change): GIN trigram on `Lead.email` and B-tree on `LeadContactNumber.number`, both supporting the widened `search_leads` |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -36,9 +37,7 @@
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
 | code | CharField(50) | Yes | No | No | ASCII system identifier, unique, lowercased on write |
-| name_np | CharField(150) | Yes | No | No | Devanagari name — the canonical human label |
-| name_en | CharField(150) | No | No | No | English name — an independent identity, not a translation |
-| name_romanized | CharField(150) | No | No | Yes | ASCII search form, derived from `name_np` in the service layer |
+| name | CharField(150) | No | No | No | English name — an independent identity, not a translation |
 | requires_detail | Boolean | No | No | No | When true, a lead choosing this source must supply `source_detail` |
 | is_active | Boolean | No | No | No | Deactivated entries are hidden from pickers but never deleted |
 | display_order | PositiveInteger | No | No | No | Sort position in the picker |
@@ -49,8 +48,8 @@
 - `code` matches `^[a-z0-9](?:[a-z0-9_-]{0,48}[a-z0-9])?$` — ASCII only, never Devanagari (§39.7).
 - `code` is unique across all sources; a duplicate raises `LEADS_SOURCE_CODE_TAKEN`.
 - `code` is immutable after creation — the update serializer drops the field.
-- `name_np` and `name_en` are Unicode-normalized (NFC) on write (§39.2).
-- `name_romanized` is never accepted from a client; it is derived (§39.3).
+- `name` and `name` are Unicode-normalized (NFC) on write (§39.2).
+- `name` is Unicode-normalized on write (§39.2), in the service layer as well as the serializer.
 
 **Indexes:** `code` (unique), `is_active`
 
@@ -61,9 +60,7 @@
 {
   "id": "0f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8",
   "code": "walk_in",
-  "name_np": "वाक-इन",
-  "name_en": "Walk-in",
-  "name_romanized": "waak-in",
+  "name": "Walk-in",
   "requires_detail": false,
   "is_active": true,
   "display_order": 1,
@@ -92,9 +89,7 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 {
   "id": "1a2b3c4d-5e6f-7081-92a3-b4c5d6e7f809",
   "code": "no_response",
-  "name_np": "कुनै जवाफ छैन",
-  "name_en": "No response",
-  "name_romanized": "kunai javaapha chhaina",
+  "name": "No response",
   "requires_detail": false,
   "is_active": true,
   "display_order": 1,
@@ -115,9 +110,7 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
-| full_name_np | CharField(255) | Yes | No | No | Devanagari name — the canonical human identity |
-| full_name_en | CharField(255) | No | No | No | Roman name — an independent identity, not a translation |
-| full_name_romanized | CharField(255) | No | No | Yes | ASCII search form derived from `full_name_np` |
+| full_name | CharField(255) | No | No | No | Roman name — an independent identity, not a translation |
 | email | EmailField | No | No | No | Single address; multiple emails are deliberately not supported |
 | address | TextField | No | No | No | Free text, Unicode-normalized |
 | source | FK → LeadSource | Yes | No | No | How the lead reached the consultancy (`PROTECT`) |
@@ -139,8 +132,8 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 | updated_at | DateTime | — | No | Yes | Set on every save |
 
 **Validation Rules:**
-- `full_name_np` is required and Unicode-normalized; `full_name_romanized` is derived in the service layer and never accepted from a client (§39.1/§39.3).
-- Every user-entered text field (`full_name_np`, `full_name_en`, `address`, `source_detail`) is Unicode-normalized on write (§39.2).
+- `full_name` is required and Unicode-normalized on write (§39.2).
+- Every user-entered text field (`full_name`, `full_name`, `address`, `source_detail`) is Unicode-normalized on write (§39.2).
 - The chosen `source` must be active — an inactive source raises `LEADS_SOURCE_INACTIVE`.
 - `source_detail` is mandatory when the chosen source has `requires_detail` — otherwise `LEADS_SOURCE_DETAIL_REQUIRED`.
 - A lead must always have at least one `LeadContactNumber` — otherwise `LEADS_CONTACT_REQUIRED`.
@@ -155,7 +148,7 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 **Indexes:**
 - `lead_owner_recent_idx` — `(created_by, -created_at)`. Supports the default list view, a Lead Manager's own leads newest first.
 - `lead_stage_recent_idx` — `(stage, -created_at)`. Supports stage filters and funnel views.
-- `lead_name_np_trgm_idx`, `lead_name_en_trgm_idx`, `lead_name_rom_trgm_idx` — GIN trigram indexes (`gin_trgm_ops`) on the three name fields. `search_leads` runs a leading-wildcard `icontains` across all three, which a B-tree index cannot serve. Created in migration `0002`, which also enables the `pg_trgm` extension.
+- `lead_name_trgm_idx` — GIN trigram indexes (`gin_trgm_ops`) on the three name fields. `search_leads` runs a leading-wildcard `icontains` across all three, which a B-tree index cannot serve. Created in migration `0002`, which also enables the `pg_trgm` extension.
 - `lead_email_trgm_idx` — GIN trigram on `email`, supporting the same leading-wildcard `icontains` now that `search_leads` matches the email as well (migration `0004_search_indexes`).
 - `stage` additionally carries `db_index=True` for single-column stage lookups.
 
@@ -165,20 +158,18 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 ```json
 {
   "id": "9d8c7b6a-5e4f-3021-a1b2-c3d4e5f60718",
-  "full_name_np": "राम श्रेष्ठ",
-  "full_name_en": "Ram Shrestha",
-  "full_name_romanized": "raam shrestha",
+  "full_name": "Ram Shrestha",
   "email": "ram@example.com",
   "address": "Lalitpur",
-  "source": { "id": "0f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8", "code": "walk_in", "name_en": "Walk-in" },
+  "source": { "id": "0f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8", "code": "walk_in", "name": "Walk-in" },
   "source_detail": "",
   "stage": "counselling",
   "created_by": { "id": "aaaa1111-2222-3333-4444-555566667777", "username": "leadmgr", "display_name": "Leadmgr" },
   "last_followed_up_at": "2026-07-23T04:00:00Z",
   "last_followed_up_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   },
   "lost_reason": null,
   "lost_detail": "",

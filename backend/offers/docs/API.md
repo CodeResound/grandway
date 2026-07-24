@@ -1,7 +1,7 @@
 # API — Offers
 
 **Owner app:** `offers`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/offers/`
@@ -17,6 +17,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 11 endpoints across two resources |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | §1.7 history entries gained `actor_id` and are now serialized by audit's shared `AuditEventHistorySerializer` (`offers.offer.list_history` → 1.1.0). Additive; no other endpoint changed |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`institution_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -100,7 +101,7 @@ These hold on every endpoint below and are not repeated per endpoint.
 - **Permission key:** `offers.offer.create` (risk: medium)
 - **Auth:** required. Admin or Lead Manager.
 
-**Request:** `journey` (required UUID); the reference, either `program` or `institution_name_en` + `program_title`; optional `institution`, `campus`, the remaining snapshot fields, `offer_type`, `offer_reference`, `issue_date`, `response_deadline`, the nine money fields, `notes`, and a `conditions` array.
+**Request:** `journey` (required UUID); the reference, either `program` or `institution_name` + `program_title`; optional `institution`, `campus`, the remaining snapshot fields, `offer_type`, `offer_reference`, `issue_date`, `response_deadline`, the nine money fields, `notes`, and a `conditions` array.
 
 ```json
 {
@@ -130,7 +131,7 @@ These hold on every endpoint below and are not repeated per endpoint.
 
 **Error codes:** `OFFERS_JOURNEY_NOT_FOUND`, `OFFERS_PROGRAM_REFERENCE_REQUIRED`, `OFFERS_CATALOGUE_REFERENCE_INVALID`, `OFFERS_AMOUNT_INCOMPLETE`, `OFFERS_ACTOR_FORBIDDEN`, `VALIDATION_ERROR`.
 
-**AI debugging notes:** `OFFERS_PROGRAM_REFERENCE_REQUIRED` after sending a valid `program` id means the program resolved but its institution chain did not populate `institution_name_en` — check the catalogue record, not the request.
+**AI debugging notes:** `OFFERS_PROGRAM_REFERENCE_REQUIRED` after sending a valid `program` id means the program resolved but its institution chain did not populate `institution_name` — check the catalogue record, not the request.
 
 ### 1.3 Retrieve an offer
 

@@ -75,8 +75,7 @@ class FieldSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "code",
-            "name_en",
-            "name_np",
+            "name",
             "is_active",
             "display_order",
             "created_at",
@@ -93,7 +92,7 @@ class FieldCreateSerializer(NormalizedTextMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Field
-        fields = ["code", "name_en", "name_np", "is_active", "display_order"]
+        fields = ["code", "name", "is_active", "display_order"]
 
 
 class FieldUpdateSerializer(NormalizedTextMixin, serializers.ModelSerializer):
@@ -101,8 +100,8 @@ class FieldUpdateSerializer(NormalizedTextMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Field
-        fields = ["name_en", "name_np", "is_active", "display_order"]
-        extra_kwargs = {"name_en": {"required": False}}
+        fields = ["name", "is_active", "display_order"]
+        extra_kwargs = {"name": {"required": False}}
 
 
 # ---------------------------------------------------------------------------
@@ -118,8 +117,7 @@ class CountrySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "code",
-            "name_en",
-            "name_np",
+            "name",
             "availability_status",
             "availability_note",
             "is_usable",
@@ -139,8 +137,7 @@ class CountryCreateSerializer(NormalizedTextMixin, serializers.ModelSerializer):
         model = Country
         fields = [
             "code",
-            "name_en",
-            "name_np",
+            "name",
             "availability_status",
             "availability_note",
             "notes",
@@ -154,14 +151,13 @@ class CountryUpdateSerializer(NormalizedTextMixin, serializers.ModelSerializer):
     class Meta:
         model = Country
         fields = [
-            "name_en",
-            "name_np",
+            "name",
             "availability_status",
             "availability_note",
             "notes",
             "display_order",
         ]
-        extra_kwargs = {"name_en": {"required": False}}
+        extra_kwargs = {"name": {"required": False}}
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +170,7 @@ class CountryBriefSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     code = serializers.CharField(read_only=True)
-    name_en = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
     availability_status = serializers.CharField(read_only=True)
 
 
@@ -187,8 +183,7 @@ class InstitutionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "country",
-            "name_en",
-            "name_np",
+            "name",
             "common_name",
             "institution_type",
             "availability_status",
@@ -208,8 +203,7 @@ class InstitutionCreateSerializer(NormalizedTextMixin, serializers.ModelSerializ
         model = Institution
         fields = [
             "country",
-            "name_en",
-            "name_np",
+            "name",
             "common_name",
             "institution_type",
             "availability_status",
@@ -228,15 +222,14 @@ class InstitutionUpdateSerializer(NormalizedTextMixin, serializers.ModelSerializ
         model = Institution
         fields = [
             "country",
-            "name_en",
-            "name_np",
+            "name",
             "common_name",
             "institution_type",
             "availability_status",
             "availability_note",
             "notes",
         ]
-        extra_kwargs = {"name_en": {"required": False}}
+        extra_kwargs = {"name": {"required": False}}
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +241,7 @@ class InstitutionBriefSerializer(serializers.Serializer):
     """Just enough of the institution to label a campus or program."""
 
     id = serializers.UUIDField(read_only=True)
-    name_en = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
     common_name = serializers.CharField(read_only=True)
     availability_status = serializers.CharField(read_only=True)
 
@@ -262,7 +255,7 @@ class CampusSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "institution",
-            "name_en",
+            "name",
             "city",
             "availability_status",
             "availability_note",
@@ -280,14 +273,14 @@ class CampusCreateSerializer(NormalizedTextMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Campus
-        fields = ["name_en", "city", "availability_status", "availability_note", "notes"]
+        fields = ["name", "city", "availability_status", "availability_note", "notes"]
 
 
 class CampusUpdateSerializer(NormalizedTextMixin, serializers.ModelSerializer):
     class Meta:
         model = Campus
-        fields = ["name_en", "city", "availability_status", "availability_note", "notes"]
-        extra_kwargs = {"name_en": {"required": False}}
+        fields = ["name", "city", "availability_status", "availability_note", "notes"]
+        extra_kwargs = {"name": {"required": False}}
 
 
 # ---------------------------------------------------------------------------
@@ -298,12 +291,12 @@ class CampusUpdateSerializer(NormalizedTextMixin, serializers.ModelSerializer):
 class FieldBriefSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     code = serializers.CharField(read_only=True)
-    name_en = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
 
 
 class CampusBriefSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
-    name_en = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
     city = serializers.CharField(read_only=True)
     availability_status = serializers.CharField(read_only=True)
 

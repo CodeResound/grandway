@@ -135,7 +135,7 @@ class DocumentListCreateTests(DocumentAPITestCase):
 
     def test_filter_by_applicant(self) -> None:
         f.make_document(self.admin, self.applicant)
-        other = f.make_applicant(self.admin, name_np="सीता")
+        other = f.make_applicant(self.admin)
         f.make_document(self.admin, other)
         self.auth(self.admin)
 
@@ -276,7 +276,7 @@ class DocumentDetailTests(DocumentAPITestCase):
         self.assertEqual(response.json()["data"]["content"], content)
 
     def test_patch_cannot_reassign_the_owner(self) -> None:
-        other = f.make_applicant(self.admin, name_np="सीता")
+        other = f.make_applicant(self.admin)
         self.auth(self.admin)
         response = self.client.patch(self.url, {"applicant": str(other.id)}, format="json")
 

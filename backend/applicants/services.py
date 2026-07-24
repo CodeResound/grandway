@@ -19,7 +19,7 @@ from typing import Any
 from audit.constants import ActorType
 from audit.services import record_event
 from core.constants import ContactNumberLabel
-from core.nepal.text import normalize_unicode, romanize_devanagari
+from core.nepal.text import normalize_unicode
 from django.db import transaction
 
 from applicants.constants import (
@@ -80,15 +80,13 @@ def _record(
 
 
 def _apply_name_fields(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalize the Devanagari name and derive its romanized form (§39.1/§39.3).
+    """Normalize the applicant's name (§39.2).
 
-    Computed in the service layer — never in a model or signal — and only when
-    the caller has not supplied one.
+    Applied in the service layer as well as the serializer so a direct service
+    caller — a management command, a test, a conversion — cannot bypass it.
     """
-    if data.get("full_name_np"):
-        data["full_name_np"] = normalize_unicode(data["full_name_np"])
-        if not data.get("full_name_romanized"):
-            data["full_name_romanized"] = romanize_devanagari(data["full_name_np"])
+    if data.get("full_name"):
+        data["full_name"] = normalize_unicode(data["full_name"])
     return data
 
 
@@ -126,7 +124,7 @@ def _replace_family_members(applicant: Applicant, members: list[dict[str, Any]])
         [
             FamilyMember(
                 applicant=applicant,
-                **{**entry, "full_name_np": normalize_unicode(entry.get("full_name_np", ""))},
+                **{**entry, "full_name": normalize_unicode(entry.get("full_name", ""))},
             )
             for entry in members
         ]
@@ -139,7 +137,7 @@ def _replace_emergency_contacts(applicant: Applicant, contacts: list[dict[str, A
         [
             EmergencyContact(
                 applicant=applicant,
-                **{**entry, "full_name_np": normalize_unicode(entry.get("full_name_np", ""))},
+                **{**entry, "full_name": normalize_unicode(entry.get("full_name", ""))},
             )
             for entry in contacts
         ]
@@ -201,7 +199,7 @@ def create_applicant(
         action=ApplicantAuditAction.APPLICANT_CREATED,
         actor=actor,
         applicant=applicant,
-        summary=f"Applicant '{applicant.full_name_np}' created.",
+        summary=f"Applicant '{applicant.full_name}' created.",
         metadata={"creation_source": creation_source},
         ip_address=ip_address,
     )
@@ -246,7 +244,7 @@ def update_applicant(
             action=ApplicantAuditAction.APPLICANT_UPDATED,
             actor=actor,
             applicant=applicant,
-            summary=f"Applicant '{applicant.full_name_np}' updated.",
+            summary=f"Applicant '{applicant.full_name}' updated.",
             changes=changes,
             ip_address=ip_address,
         )

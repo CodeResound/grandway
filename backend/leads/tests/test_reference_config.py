@@ -44,35 +44,35 @@ class TestLeadSourceEndpoints(APITestCase):
         self.auth(self.manager)
         self.assertEqual(self.client.get(self.url).status_code, status.HTTP_200_OK)
 
-        resp = self.client.post(self.url, {"code": "website", "name_np": "वेबसाइट"}, format="json")
+        resp = self.client.post(self.url, {"code": "website", "name": "Website"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(resp.data["error"]["code"], ErrorCode.ACTOR_FORBIDDEN)
 
     # --- behaviour ---------------------------------------------------------
 
-    def test_admin_creates_source_and_romanized_is_derived(self) -> None:
+    def test_admin_creates_source(self) -> None:
         self.auth(self.admin)
         resp = self.client.post(
             self.url,
-            {"code": "Referral", "name_np": "सिफारिस", "name_en": "Referral"},
+            {"code": "Referral", "name": "Referral"},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertTrue(resp.data["success"])
-        # Code is normalized to lowercase ASCII; romanized is auto-populated (§39.3).
+        # Code is normalized to lowercase ASCII.
         self.assertEqual(resp.data["data"]["code"], "referral")
-        self.assertNotEqual(resp.data["data"]["name_romanized"], "")
+        self.assertEqual(resp.data["data"]["name"], "Referral")
 
     def test_duplicate_code_conflicts(self) -> None:
         make_source(code="walk_in")
         self.auth(self.admin)
-        resp = self.client.post(self.url, {"code": "walk_in", "name_np": "वाक-इन"}, format="json")
+        resp = self.client.post(self.url, {"code": "walk_in", "name": "Walk-in"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(resp.data["error"]["code"], ErrorCode.SOURCE_CODE_TAKEN)
 
     def test_invalid_code_is_a_field_error(self) -> None:
         self.auth(self.admin)
-        resp = self.client.post(self.url, {"name_np": "वाक-इन"}, format="json")
+        resp = self.client.post(self.url, {"name": "Walk-in"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(resp.data["success"])
         self.assertIn("code", resp.data["error"]["details"])
@@ -128,14 +128,14 @@ class TestLossReasonEndpoints(APITestCase):
 
     def test_lead_manager_may_not_create(self) -> None:
         self.auth(self.manager)
-        resp = self.client.post(self.url, {"code": "other", "name_np": "अन्य"}, format="json")
+        resp = self.client.post(self.url, {"code": "other", "name": "Other"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_admin_creates_reason(self) -> None:
         self.auth(self.admin)
         resp = self.client.post(
             self.url,
-            {"code": "other", "name_np": "अन्य", "requires_detail": True},
+            {"code": "other", "requires_detail": True},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)

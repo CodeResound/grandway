@@ -51,9 +51,9 @@ def token_for(user: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def make_client(actor: Any, *, name_np: str = "हिमाल एजुकेशन", **overrides: Any) -> Any:
+def make_client(actor: Any, *, name: str = "Himal Education", **overrides: Any) -> Any:
     contact_numbers = overrides.pop("contact_numbers", None)
-    data: dict[str, Any] = {"name_np": name_np, "name_en": "Himal Education", **overrides}
+    data: dict[str, Any] = {"name": name, **overrides}
     return services.create_client(actor=actor, data=data, contact_numbers=contact_numbers)
 
 

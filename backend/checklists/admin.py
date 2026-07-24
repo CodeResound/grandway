@@ -25,7 +25,7 @@ class ChecklistTemplateAdmin(admin.ModelAdmin):
     list_display = ("label", "key", "country", "is_default", "status", "display_order")
     list_filter = ("status", "is_default", "country")
     list_select_related = ("country",)
-    search_fields = ("label", "key", "country__name_en")
+    search_fields = ("label", "key", "country__name")
     readonly_fields = ("id", "created_by", "created_at", "updated_at")
     inlines = [ChecklistTemplateItemInline]
     ordering = ("display_order", "label")
@@ -54,9 +54,8 @@ class ChecklistAdmin(admin.ModelAdmin):
     list_select_related = ("journey", "journey__applicant", "country")
     search_fields = (
         "title",
-        "journey__applicant__full_name_np",
-        "journey__applicant__full_name_en",
-        "country__name_en",
+        "journey__applicant__full_name",
+        "country__name",
     )
     readonly_fields = (
         "id",

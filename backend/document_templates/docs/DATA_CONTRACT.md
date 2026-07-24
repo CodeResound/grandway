@@ -1,7 +1,7 @@
 # Data Contract — Document Templates
 
 **Owner app:** `document_templates`
-**Version:** 1.0.2
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the signatory library that certificate documents point at, and the catalogue of template slugs the document picker offers. It does **not** own the editable document record (`documents`), the immutable print snapshot (`document_history`), file storage (`uploaded_files`, which now exists but which this app does not call), or the template *rendering* — which lives in the frontend as code, not here.
@@ -13,8 +13,9 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — two models, `Signatory` and `DocumentTemplate` |
-| 1.0.1 | 2026-07-24 | AI (Claude) | No schema change. Renamed the `PATCH` status guard's error code and documented the `name_romanized` re-derivation rule |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No schema change. Renamed the `PATCH` status guard's error code and documented the `name` re-derivation rule |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Same, for `signature_image_url` |
+| 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (Signatory `name`/`title`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -42,8 +43,8 @@ A second rule follows: **nothing here is ever deleted.** Documents reference a t
 - **The catalogue is advisory, not enforcing.** `documents` does **not** consult this table. Creating a document with a `template_key` absent from the catalogue still succeeds. Enforcing it would narrow a shipped endpoint's accepted input (§29 breaking change) and add a runtime dependency from `documents` to this app; that is its own decision with its own approval gate. The consequence is that `documents`' documented gap — *"a typo that happens to match the family prefix is accepted"* — stays open.
 - **The signature image is a URL, not an upload.** §14 requires a full file contract — allowed types, max size, storage location, filename rule, MIME validation, access control — and `concepts/project_overview.txt` names a dedicated `uploaded_files` domain that does not exist. `signature_image_url` is a plain link to an image hosted elsewhere, mirroring `clients.logo_url` field-for-field. **Fourth deferral of this kind**, after the applicant photograph, offer attachments, and the client logo. The concept explicitly permits it: *"In V1 this can be a stored path or URL-like value."*
 - **`role` is free text, not an enum.** The frontend picks signatories into `instructorId` and `directorId` slots and `document_history`'s worked example carries `"role": "director"` — but the signature-slot metadata that would fix the vocabulary is not built, so an enum would be a guess that starts rejecting real roles the moment a template needs a fourth one.
-- **`Signatory` gets the full §39.1 bilingual treatment; `DocumentTemplate.label` does not.** A signatory is a named person whose name is printed on a Nepali legal document — exactly §39.1's premise that the Devanagari and Roman forms are two equally canonical identities. A template label is operational shorthand from a picker ("Vyas Statement"), which is the deviation `documents.label` already recorded and this follows.
-- **`title_np`/`title_en` have no `_romanized` sibling.** §39.6 scopes romanized fields to search, and search here is over names only — nobody looks up a signatory by job title.
+- **`Signatory.name` and `DocumentTemplate.label` are both single English fields (§39.1).** A signatory is a named person; a template label is operational shorthand from a picker ("Vyas Statement"). Both are one field, Unicode-normalized on write (§39.2).
+- **`title` is a single optional field.** Search is over the name only — nobody looks up a signatory by job title.
 - **No history table**, for the same reason as every other app: `audit` provides an immutable append-only log and §4 forbids duplicating it.
 - **Nothing in the audit log is redacted**, unlike `documents` (which replaces its body with a marker) and `document_history` (which drops two whole JSON columns). There is no applicant data in this app to protect, so full before/after values are recorded — which is the point of the log.
 
@@ -57,11 +58,8 @@ A second rule follows: **nothing here is ever deleted.** Documents reference a t
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key. **This is the value `documents` stores in `content.instructorId` / `content.directorId`** |
-| name_np | CharField(255) | Yes | No | No | Devanagari name (§39.1) |
-| name_en | CharField(255) | No | No | No | Roman name — an independent identity, not a translation |
-| name_romanized | CharField(255) | No | No | Yes | Auto-derived from `name_np` by the service (§39.3). Never hand-entered in a write serializer; a caller-supplied value is kept |
-| title_np | CharField(255) | No | No | No | |
-| title_en | CharField(255) | No | No | No | |
+| name | CharField(255) | No | No | No | Roman name — an independent identity, not a translation |
+| title | CharField(255) | No | No | No | |
 | role | CharField(100) | No | No | No | Free text, e.g. `director`, `instructor`. **Not an enum** |
 | signature_image_url | URLField(500) | No | No | No | A link to an image hosted elsewhere — **not an upload** |
 | status | CharField(20) | No | No | No | Defaults to `draft`; indexed |
@@ -77,18 +75,18 @@ A second rule follows: **nothing here is ever deleted.** Documents reference a t
 
 **Validation Rules:**
 
-- `name_np` is required; every other text field is optional.
-- All user-entered text is Unicode-normalized on write (§39.2). `name_romanized` is derived via `romanize_devanagari` when absent and preserved when supplied — an operator's hand correction ("Griha" over the generated "grha") must survive the next save. **The same rule applies on update, not only on create:** a `PATCH` that changes `name_np` without supplying a romanization re-derives it, because leaving a stale one would silently break Roman-script search for that record. Covered by `tests/test_services.py::SignatoryLocalizationTests`.
+- `name` is required; every other text field is optional.
+- All user-entered text is Unicode-normalized on write (§39.2), in the service layer as well as the serializer.
 - `signature_image_url` must be a well-formed URL when present → `VALIDATION_ERROR`.
 - **`status` and `status_note` are not settable through update** → `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE`. Both move through the status action, so a change of standing is always a recorded transition rather than a field diff. The code is named for immutability rather than for a transition because **no transition here is ever invalid** — `LifecycleStatus` allows every state from every state.
 - A new signatory is created as **`draft`**, never `active`. A signatory with no signature image yet is not one a certificate should be able to name, so activation is a decision rather than a default.
 
 **Indexes:**
 
-- `(status, name_np)` — `signatory_status_name_idx`. The frontend's only call into this app: the active-signatory picker, alphabetical.
-- GIN trigram on `name_np`, `name_en`, `name_romanized` — `signatory_name_{np,en,rom}_trgm_idx`. The `?search=` lookup across all three forms (§39.6), so a Roman-script query finds a Devanagari-primary record. `pg_trgm` comes from `leads` migration 0002, declared as an explicit migration dependency.
+- `(status, name)` — `signatory_status_name_idx`. The frontend's only call into this app: the active-signatory picker, alphabetical.
+- GIN trigram on `name` — `signatory_name_trgm_idx`. Serves the `?search=` lookup (§39.6). `pg_trgm` comes from `leads` migration 0002, declared as an explicit migration dependency.
 
-Ordering is `name_np` — a reference library read as a picker, not a worklist, so recency means nothing. Same call `clients` made.
+Ordering is `name` — a reference library read as a picker, not a worklist, so recency means nothing. Same call `clients` made.
 
 **Soft Delete:** `N/A — no deletion at all.` There is no delete endpoint and no delete service, enforced by a test that fails if one appears (`tests/test_services.py::NothingIsDeletedTests`). A signatory whose id is frozen into a snapshot's `render_context` must keep resolving forever; deactivating removes them from the picker and nothing else. `created_by` is `PROTECT`.
 

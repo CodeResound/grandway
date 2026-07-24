@@ -54,7 +54,7 @@ class TemplatesAPITestCase(APITestCase):
         return body
 
     def signatory_payload(self, **overrides: Any) -> dict[str, Any]:
-        return {"name_np": f.NAME_NP, "name_en": f.NAME_EN, "role": "director", **overrides}
+        return {"name": f.NAME, "role": "director", **overrides}
 
     def template_payload(self, **overrides: Any) -> dict[str, Any]:
         return {
@@ -121,20 +121,20 @@ class SignatoryEndpointTests(TemplatesAPITestCase):
         super().setUp()
         self.auth(self.admin)
 
-    def test_create_returns_201_with_the_derived_romanization(self) -> None:
+    def test_create_returns_201_as_a_draft(self) -> None:
         response = self.client.post(SIGNATORIES, self.signatory_payload(), format="json")
 
         self.assertEqual(response.status_code, 201)
         data = self.assert_success_envelope(response)["data"]
-        self.assertTrue(data["name_romanized"])
+        self.assertEqual(data["name"], f.NAME)
         self.assertEqual(data["status"], LifecycleStatus.DRAFT)
         self.assertFalse(data["is_active"])
 
-    def test_create_rejects_a_missing_devanagari_name(self) -> None:
-        response = self.client.post(SIGNATORIES, {"name_en": "Sunita"}, format="json")
+    def test_create_rejects_a_missing_name(self) -> None:
+        response = self.client.post(SIGNATORIES, {"role": "director"}, format="json")
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("name_np", response.json()["error"]["details"])
+        self.assertIn("name", response.json()["error"]["details"])
 
     def test_create_rejects_a_malformed_signature_url(self) -> None:
         response = self.client.post(
@@ -146,8 +146,8 @@ class SignatoryEndpointTests(TemplatesAPITestCase):
 
     def test_the_frontend_picker_call_returns_only_active_signatories(self) -> None:
         """`?status=active` — the one call the frontend makes into this app."""
-        f.make_signatory(self.admin, name_np="मुकेश")
-        active = f.make_active_signatory(self.admin, name_np="सुनिता")
+        f.make_signatory(self.admin)
+        active = f.make_active_signatory(self.admin)
 
         response = self.client.get(f"{SIGNATORIES}?status=active")
 
@@ -237,8 +237,8 @@ class SignatoryEndpointTests(TemplatesAPITestCase):
 
     def test_omitting_status_returns_every_signatory(self) -> None:
         """The management screen wants drafts and retired signers, not the picker."""
-        f.make_signatory(self.admin, name_np="मुकेश")
-        f.make_active_signatory(self.admin, name_np="सुनिता")
+        f.make_signatory(self.admin)
+        f.make_active_signatory(self.admin)
 
         body = self.client.get(SIGNATORIES).json()
 

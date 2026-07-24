@@ -35,8 +35,8 @@ class InheritanceTests(TestCase):
         self.country = self.catalogue["country"]
         self.template = make_country_template(self.admin, self.country)
 
-    def _journey(self, name_np: str, username_suffix: str) -> object:
-        applicant = make_applicant(self.admin, name_np=name_np, full_name_en=username_suffix)
+    def _journey(self, applicant_name: str, username_suffix: str) -> object:
+        applicant = make_applicant(self.admin, full_name=username_suffix)
         return make_journey(self.admin, applicant)
 
     def test_choosing_a_country_inherits_that_countrys_checklist(self) -> None:
@@ -62,7 +62,7 @@ class InheritanceTests(TestCase):
 
     def test_creating_a_journey_with_a_country_inherits_immediately(self) -> None:
         """Inheritance is not update-only — a journey born with a destination gets its list."""
-        applicant = make_applicant(self.admin, name_np="सीता देवी", full_name_en="Sita")
+        applicant = make_applicant(self.admin, full_name="Sita")
 
         with self.captureOnCommitCallbacks(execute=True):
             journey = make_journey(self.admin, applicant, target_country_ref=self.country)
@@ -112,7 +112,7 @@ class InheritanceTests(TestCase):
     def test_a_country_with_no_template_inherits_nothing_and_raises_nothing(self) -> None:
         from institutions import services as catalogue_services
 
-        nowhere = catalogue_services.create_country(actor=self.admin, data={"code": "nz", "name_en": "New Zealand"})
+        nowhere = catalogue_services.create_country(actor=self.admin, data={"code": "nz", "name": "New Zealand"})
         journey = self._journey("गीता शर्मा", "Gita")
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -126,7 +126,7 @@ class InheritanceTests(TestCase):
 
         from checklists.constants import TemplateStatus
 
-        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name_en": "Canada"})
+        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name": "Canada"})
         make_template(
             self.admin,
             country=canada,
@@ -185,7 +185,7 @@ class BackfillCommandTests(TestCase):
         self.country = self.catalogue["country"]
 
     def _journey_with_country_but_no_template(self) -> object:
-        applicant = make_applicant(self.admin, name_np="राम बहादुर", full_name_en="Ram")
+        applicant = make_applicant(self.admin, full_name="Ram")
         # No template exists yet, so nothing is inherited — the common real case:
         # the destination is recorded before anyone authors its requirements.
         with self.captureOnCommitCallbacks(execute=True):

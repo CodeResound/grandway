@@ -11,8 +11,7 @@ from django.contrib import admin
 from offers.models import Offer, OfferCondition
 
 _SNAPSHOT_FIELDS = (
-    "institution_name_en",
-    "institution_name_np",
+    "institution_name",
     "campus_name",
     "program_title",
     "country_name",
@@ -33,7 +32,7 @@ class OfferConditionInline(admin.TabularInline):
 class OfferAdmin(admin.ModelAdmin):
     list_display = (
         "program_title",
-        "institution_name_en",
+        "institution_name",
         "intake_label",
         "status",
         "offer_type",
@@ -41,7 +40,7 @@ class OfferAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("status", "offer_type", "reference_source", "qualification_level")
-    search_fields = ("institution_name_en", "program_title", "offer_reference", "intake_label")
+    search_fields = ("institution_name", "program_title", "offer_reference", "intake_label")
     readonly_fields = (
         "id",
         "created_at",
@@ -60,5 +59,5 @@ class OfferAdmin(admin.ModelAdmin):
 class OfferConditionAdmin(admin.ModelAdmin):
     list_display = ("condition_type", "offer", "status", "due_date", "resolved_at")
     list_filter = ("status", "condition_type")
-    search_fields = ("description", "offer__program_title", "offer__institution_name_en")
+    search_fields = ("description", "offer__program_title", "offer__institution_name")
     readonly_fields = ("id", "created_at", "updated_at", "resolved_at", "resolved_by")

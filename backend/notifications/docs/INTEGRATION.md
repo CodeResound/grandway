@@ -85,8 +85,8 @@ Worked success envelope, `GET /api/v1/notifications/?status=active&due_bucket=ov
       "due_at": "2026-07-18T09:00:00Z",
       "due_at_bs": {
         "year": 2083, "month": 4, "day": 2,
-        "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-        "display_en": "2083 Shrawan 2", "display_np": "२०८३ श्रावण २"
+        "month_name": "Shrawan",
+        "display": "2083 Shrawan 2"
       },
       "due_bucket": "overdue",
       "is_read": false,

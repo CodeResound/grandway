@@ -1,7 +1,7 @@
 # Integration — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Status:** Active
 **Created:** 2026-07-22
 
@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial contract — Phase 1 (login, refresh, logout, me, change password) |
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — mfa/enroll·verify·disable, login `otp_code`, `mfa_enabled`/`mfa_enrollment_required` |
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account management (users CRUD, block/restore, admin password/MFA reset), own + admin session management, per-account auth-activity review |
+| 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (User `full_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -63,7 +64,7 @@
 
 ## 4. Models
 
-**User** — `{ id:uuid, username:string, authority_type:string[enum], display_name:string, full_name_np:string, full_name_en:string, email:string, phone:string, is_active:bool, must_change_password:bool, mfa_enabled:bool, mfa_enrollment_required:bool, last_login:string|null, created_at:string }`
+**User** — `{ id:uuid, username:string, authority_type:string[enum], display_name:string, full_name:string, email:string, phone:string, is_active:bool, must_change_password:bool, mfa_enabled:bool, mfa_enrollment_required:bool, last_login:string|null, created_at:string }`
 - Read-only. Returned in FULL by both `login` (nested under `data.user`) and `me` — the two return the identical User object. `must_change_password` is `true` on a freshly provisioned/reset account and until the first password change. `mfa_enabled` is `true` once a TOTP device is confirmed. `mfa_enrollment_required` is `true` for a superadmin who has not yet enrolled MFA (mandatory). All timestamps are ISO 8601 UTC (`Z`); `last_login` is `null` before the first login.
 
 **MFA enrollment** — `{ secret:string(base32), otpauth_url:string }`
@@ -91,8 +92,7 @@
   "username": "ramesh.admin",
   "authority_type": "admin",
   "display_name": "Ramesh Shrestha",
-  "full_name_np": "रमेश श्रेष्ठ",
-  "full_name_en": "Ramesh Shrestha",
+  "full_name": "Ramesh Shrestha",
   "email": "ramesh@example.com",
   "phone": "",
   "is_active": true,
@@ -117,8 +117,7 @@
     "username": "ramesh.admin",
     "authority_type": "admin",
     "display_name": "Ramesh Shrestha",
-    "full_name_np": "रमेश श्रेष्ठ",
-    "full_name_en": "Ramesh Shrestha",
+    "full_name": "Ramesh Shrestha",
     "email": "ramesh@example.com",
     "phone": "",
     "is_active": true,
@@ -278,9 +277,9 @@
 - `GET /api/v1/auth/users/<id>/events/` (`authenticate.user.list_events`)
 
 **Send (create):**
-- `username` (required), `authority_type` (required — must be the tier you manage), `display_name`, `full_name_np`, `full_name_en`, `email`, `phone` (optional), `password` (optional — omit to auto-generate a temporary one)
+- `username` (required), `authority_type` (required — must be the tier you manage), `display_name`, `full_name`, `full_name`, `email`, `phone` (optional), `password` (optional — omit to auto-generate a temporary one)
 
-**Send (update):** any of `display_name`, `full_name_np`, `full_name_en`, `email`, `phone` (partial). `username`, `authority_type`, and account status are immutable here.
+**Send (update):** any of `display_name`, `full_name`, `full_name`, `email`, `phone` (partial). `username`, `authority_type`, and account status are immutable here.
 
 **Send (block):** `reason` (optional). **Send (reset-password):** `password` (optional — omit to auto-generate). **Send (restore / reset-mfa):** none. **Send (sessions/revoke):** `session_id` (optional — omit to revoke all of the account's sessions).
 

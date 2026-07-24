@@ -37,8 +37,7 @@ from offers.models import Offer, OfferCondition
 #: Snapshot fields a client may supply directly. Accepted on create only — a
 #: manually recorded historical offer has no catalogue record to copy from.
 SNAPSHOT_INPUT_FIELDS = (
-    "institution_name_en",
-    "institution_name_np",
+    "institution_name",
     "campus_name",
     "program_title",
     "country_name",
@@ -174,7 +173,7 @@ class OfferListSerializer(serializers.ModelSerializer):
             "journey_stage",
             "applicant_id",
             "applicant_name",
-            "institution_name_en",
+            "institution_name",
             "campus_name",
             "program_title",
             "qualification_level",
@@ -223,7 +222,6 @@ class OfferDetailSerializer(OfferListSerializer):
             "campus",
             "program",
             "reference_source",
-            "institution_name_np",
             "country_name",
             "offer_reference",
             "tuition_amount",
@@ -328,8 +326,7 @@ class OfferCreateSerializer(_OfferWritableSerializer, serializers.Serializer):
     campus = serializers.UUIDField(required=False, allow_null=True)
     program = serializers.UUIDField(required=False, allow_null=True)
 
-    institution_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    institution_name_np = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    institution_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     campus_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     program_title = serializers.CharField(max_length=255, required=False, allow_blank=True)
     country_name = serializers.CharField(max_length=150, required=False, allow_blank=True)

@@ -1,7 +1,7 @@
 # Integration — Leads
 
 **Owner app:** `leads`
-**Version:** 1.1.1
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 17 endpoints; conversion not yet available |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Lead list widened (`leads.lead.list` → 1.1.0): `search` now matches email and any contact number, and its results are **relevance-ordered**, so §3's "ordering is fixed newest-first" is no longer unconditionally true. Owner scoping is unchanged. Recorded in §9 that there is still no way to filter leads by country of interest |
 | 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -66,21 +67,21 @@
 - **IDs:** UUID strings everywhere. Sent as strings in request bodies and path segments.
 - **Times:** ISO 8601, UTC, e.g. `2026-07-23T04:00:00Z`. User-facing datetimes additionally carry a `<field>_bs` sibling holding the Bikram Sambat projection as an object (see `BsDate` in §4). `created_at` and `updated_at` never have a `_bs` sibling.
 - **List/search/filter/order params:** on `GET /api/v1/leads/` only — `stage`, `source` (a lead-source id), `search`, `fiscal_year` (`YYYY/YY`, Nepali fiscal year, filters on creation date). There is no client-controlled ordering anywhere in this module. `GET /api/v1/leads/sources/` and `/loss-reasons/` accept `include_inactive=true` and nothing else.
-- **Ordering.** Notes and history are always newest first; sources and loss reasons are always by `display_order` then `name_np`. Leads are newest first **except** `GET /api/v1/leads/?search=…`, which is relevance-ordered and only tie-broken by recency. Do not assume `data[0]` is the most recent lead when you passed a `search`.
+- **Ordering.** Notes and history are always newest first; sources and loss reasons are always by `display_order` then `name`. Leads are newest first **except** `GET /api/v1/leads/?search=…`, which is relevance-ordered and only tie-broken by recency. Do not assume `data[0]` is the most recent lead when you passed a `search`.
 - **What `search` matches.** All three name forms, the `email`, and **any** of the lead's contact numbers. All partial, case-insensitive, substring matches. It is **not** fuzzy: a misspelling matches nothing.
 - **How `search` ranks.** `3` a name equals the query, `2` a name starts with it, `1` a name contains it, `0` matched only on email or contact number. Ties fall to newest-first, then id. The score is not returned in the response — only the order reflects it.
 - **Ranking never widens scope.** A Lead Manager's search reorders their own leads and can never surface another manager's. Scoping is applied before ranking, in the database.
 
 ## 4. Models
 
-**BsDate** — `{ year, month, day, month_name_en, month_name_np, display_en, display_np }`
+**BsDate** — `{ year, month, day, month_name, display }`
 
 - Never sent by a client; appears only as the value of a `<field>_bs` key.
 
-**ReferenceEntry** — `{ id, code, name_np, name_en, name_romanized, requires_detail, is_active, display_order, created_at, updated_at }`
+**ReferenceEntry** — `{ id, code, name, requires_detail, is_active, display_order, created_at, updated_at }`
 
 - The shape of both `LeadSource` and `LossReason`; they are identical.
-- `name_np` is the Devanagari name and `name_en` the English one — independent identities, not translations. `name_romanized` is a server-derived ASCII search form; never send it.
+- `name` is the source's English name, normalized on write (§39.2).
 - `requires_detail` true means a lead choosing this entry must supply an explanation — `source_detail` for a source, `detail` for a loss reason.
 - `is_active` false means retired: it stays referenced by old leads but must not be offered in a picker.
 
@@ -93,7 +94,7 @@
 
 **UserBrief** — `{ id, username, display_name }`
 
-**Lead (list shape)** — `{ id, full_name_np, full_name_en, full_name_romanized, email, address, source:ReferenceEntry, source_detail, stage:[enum], created_by:UserBrief, contact_numbers:[ContactNumber], last_followed_up_at?, last_followed_up_at_bs?:BsDate, created_at, updated_at }`
+**Lead (list shape)** — `{ id, full_name, email, address, source:ReferenceEntry, source_detail, stage:[enum], created_by:UserBrief, contact_numbers:[ContactNumber], last_followed_up_at?, last_followed_up_at_bs?:BsDate, created_at, updated_at }`
 
 **Lead (detail shape)** — the list shape plus `{ study_interest?:StudyInterest, last_followed_up_by?:UserBrief, lost_reason?:ReferenceEntry, lost_detail, lost_at?, lost_at_bs?:BsDate, lost_by?:UserBrief, stage_before_loss, converted_at?, converted_at_bs?:BsDate, converted_by?:UserBrief, converted_applicant_id?, converted_journey_id? }`
 
@@ -118,17 +119,13 @@
 ```json
 {
   "id": "9d8c7b6a-5e4f-3021-a1b2-c3d4e5f60718",
-  "full_name_np": "राम श्रेष्ठ",
-  "full_name_en": "Ram Shrestha",
-  "full_name_romanized": "raam shrestha",
+  "full_name": "Ram Shrestha",
   "email": "ram@example.com",
   "address": "Lalitpur",
   "source": {
     "id": "0f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8",
     "code": "walk_in",
-    "name_np": "वाक-इन",
-    "name_en": "Walk-in",
-    "name_romanized": "waak-in",
+    "name": "Walk-in",
     "requires_detail": false,
     "is_active": true,
     "display_order": 1,
@@ -144,8 +141,8 @@
   "last_followed_up_at": "2026-07-23T04:00:00Z",
   "last_followed_up_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   },
   "study_interest": {
     "interested_countries": ["Australia", "Canada"],
@@ -183,17 +180,13 @@
   "data": [
     {
       "id": "9d8c7b6a-5e4f-3021-a1b2-c3d4e5f60718",
-      "full_name_np": "राम श्रेष्ठ",
-      "full_name_en": "Ram Shrestha",
-      "full_name_romanized": "raam shrestha",
+      "full_name": "Ram Shrestha",
       "email": "ram@example.com",
       "address": "Lalitpur",
       "source": {
         "id": "0f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8",
         "code": "walk_in",
-        "name_np": "वाक-इन",
-        "name_en": "Walk-in",
-        "name_romanized": "waak-in",
+        "name": "Walk-in",
         "requires_detail": false,
         "is_active": true,
         "display_order": 1,
@@ -209,8 +202,8 @@
       "last_followed_up_at": "2026-07-23T04:00:00Z",
       "last_followed_up_at_bs": {
         "year": 2083, "month": 4, "day": 8,
-        "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-        "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+        "month_name": "Shrawan",
+        "display": "2083 Shrawan 8"
       },
       "created_at": "2026-07-20T05:00:00Z",
       "updated_at": "2026-07-23T04:00:00Z"
@@ -253,8 +246,8 @@
   "created_at": "2026-07-23T06:30:00Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   }
 }
 ```
@@ -295,15 +288,15 @@
 - `PATCH /api/v1/leads/sources/<source_id>/` — edit or retire a source (permission: `leads.source.update`, risk: medium)
 
 **Send (create/update):**
-- create: `code` (required, lowercase ASCII, letters/digits/`_`/`-`), `name_np` (required), `name_en`, `requires_detail`, `is_active`, `display_order`
-- update: `name_np`, `name_en`, `requires_detail`, `is_active`, `display_order` — `code` is immutable and is ignored if sent
+- create: `code` (required, lowercase ASCII, letters/digits/`_`/`-`), `name` (required), `name`, `requires_detail`, `is_active`, `display_order`
+- update: `name`, `name`, `requires_detail`, `is_active`, `display_order` — `code` is immutable and is ignored if sent
 
 **Returns:** `ReferenceEntry` | list[`ReferenceEntry`]
 **Requires state:** an authenticated Admin or Lead Manager for `GET`; an authenticated **Admin** for `POST` and `PATCH`.
 **Side effects:** `POST` and `PATCH` each append one event to the central audit log (`lead_source_created` / `lead_source_updated`). These do **not** appear in any lead's history. A `PATCH` that changes nothing writes no event.
 **Notes:**
 - `GET` hides retired entries by default; pass `include_inactive=true` to see them. Show retired entries on the settings screen, never in the create-lead picker.
-- `name_romanized` is generated server-side from `name_np`; sending it has no effect.
+- `name` is generated server-side from `name`; sending it has no effect.
 - `code` is lowercased on write, so `"Referral"` is stored as `"referral"`.
 - There is no delete. Retire with `{"is_active": false}` — existing leads keep pointing at the entry.
 
@@ -342,7 +335,7 @@
 - `PATCH /api/v1/leads/<lead_id>/` — correct a lead (permission: `leads.lead.update`, risk: medium)
 
 **Send (create/update):**
-- create: `full_name_np` (required), `full_name_en`, `email`, `address`, `source` (required, a lead-source id), `source_detail`, `contact_numbers` (required, at least one), `study_interest` (optional object)
+- create: `full_name` (required), `full_name`, `email`, `address`, `source` (required, a lead-source id), `source_detail`, `contact_numbers` (required, at least one), `study_interest` (optional object)
 - update: any subset of the same fields, all optional
 
 **Returns:** Lead (detail shape) for create, retrieve, and update; list[Lead (list shape)] for the list, paginated.
@@ -355,11 +348,11 @@
 - **Scope:** an Admin sees and edits every lead; a Lead Manager sees and edits only leads they created. A lead outside the caller's scope returns 404, identical to a non-existent one — do not treat 404 as proof the lead does not exist.
 - **Ownership never moves.** There is no assignment, reassignment, or transfer endpoint anywhere in this module, by design. `created_by` is set from the token at creation and can never be changed.
 - `stage` is **not** writable through `PATCH`. Sending it is ignored, not rejected. Use the stage, follow-up, lost, or reopen actions instead.
-- `full_name_romanized` is generated server-side from `full_name_np`; sending it has no effect.
+- `full_name` is generated server-side from `full_name`; sending it has no effect.
 - Sending `contact_numbers` **replaces the entire set** — always send the complete list the lead should end up with, never a delta. The same number cannot appear twice on one lead.
 - Sending `study_interest` upserts the single interest record; a lead never has more than one.
 - A new lead always starts at `stage: "new"`.
-- `search` matches across the Devanagari, English, and romanized names simultaneously, so a user can type in either script — and also the `email` and any contact number. A lead is very often a number in a call log before anyone has agreed how to spell the name.
+- `search` matches the lead's name, and also the `email` and any contact number. A lead is very often a number in a call log before anyone has agreed how to spell the name.
 - **A `search` result set is relevance-ordered, not newest-first.** See §3 for the scoring. Every other list in this module is newest-first.
 
 **Errors:**
@@ -526,7 +519,7 @@
 **Record and work a new enquiry**
 1. `GET /api/v1/leads/sources/` → capture the chosen `source.id`
    - empty list: no sources are configured. A Lead Manager cannot fix this; an Admin must create one first.
-2. `POST /api/v1/leads/` with `full_name_np`, `source`, and at least one entry in `contact_numbers` → capture `lead.id`. The lead starts at `new`.
+2. `POST /api/v1/leads/` with `full_name`, `source`, and at least one entry in `contact_numbers` → capture `lead.id`. The lead starts at `new`.
    - `LEADS_SOURCE_DETAIL_REQUIRED`: the chosen source needs an explanation — re-submit with `source_detail` filled in.
    - `LEADS_CONTACT_REQUIRED` or a 400 on `contact_numbers`: at least one number is mandatory.
 3. `POST /api/v1/leads/<lead.id>/stage/` with `{"stage": "contact_attempted"}` after the first call attempt.
@@ -563,10 +556,10 @@
 3. `GET /api/v1/leads/<lead.id>/notes/` → the free text the Lead Manager wrote. Note bodies live only here, never in history entries, so a complete picture needs both calls.
 
 **Configure the pickers** *(Admin only)*
-1. `POST /api/v1/leads/sources/` with `{"code": "tiktok", "name_np": "टिकटक", "name_en": "TikTok"}` → capture `source.id`
+1. `POST /api/v1/leads/sources/` with `{"code": "tiktok", "name": "TikTok"}` → capture `source.id`
    - `LEADS_ACTOR_FORBIDDEN`: the caller is a Lead Manager or Superadmin; only an Admin may configure.
    - `LEADS_SOURCE_CODE_TAKEN`: that code already exists, possibly on a retired entry — list with `include_inactive=true` to check.
-2. `POST /api/v1/leads/loss-reasons/` with `{"code": "other", "name_np": "अन्य", "requires_detail": true}` so choosing it forces an explanation.
+2. `POST /api/v1/leads/loss-reasons/` with `{"code": "other", "requires_detail": true}` so choosing it forces an explanation.
 3. `PATCH /api/v1/leads/sources/<source.id>/` with `{"is_active": false}` to retire a channel. Existing leads keep it; new leads can no longer pick it.
 
 ## 9. Gaps

@@ -29,8 +29,7 @@ class ApplicantApiTestCase(APITestCase):
 
     def payload(self, **overrides: object) -> dict:
         base = {
-            "full_name_np": "राम श्रेष्ठ",
-            "full_name_en": "Ram Shrestha",
+            "full_name": "Ram Shrestha",
             "email": "ram@example.com",
             "contact_numbers": [{"number": "9800000000", "label": "mobile", "is_primary": True}],
         }
@@ -57,8 +56,8 @@ class TestApplicantAccess(ApplicantApiTestCase):
 
     def test_lead_manager_sees_every_applicant(self) -> None:
         """Applicants are shared, unlike leads — no owner scoping."""
-        make_applicant(self.admin, name_np="राम श्रेष्ठ")
-        make_applicant(self.admin, name_np="सीता गुरुङ")
+        make_applicant(self.admin)
+        make_applicant(self.admin)
         self.auth(self.manager)
         resp = self.client.get(self.list_url)
         self.assertEqual(resp.data["meta"]["count"], 2)
@@ -90,7 +89,6 @@ class TestApplicantCreate(ApplicantApiTestCase):
         data = resp.data["data"]
         self.assertEqual(data["status"], ApplicantStatus.ACTIVE)
         self.assertEqual(data["creation_source"], CreationSource.DIRECT_ADMIN)
-        self.assertNotEqual(data["full_name_romanized"], "")
         self.assertIsNone(data["originating_lead_id"])
 
     def test_contact_number_is_required(self) -> None:
@@ -115,8 +113,8 @@ class TestApplicantCreate(ApplicantApiTestCase):
                     "issued_date": "2022-01-01",
                     "expiry_date": "2032-01-01",
                 },
-                family_members=[{"relationship": "father", "full_name_np": "हरि श्रेष्ठ"}],
-                emergency_contacts=[{"full_name_np": "गीता", "contact_number": "9812345678"}],
+                family_members=[{"relationship": "father", "full_name": "Hari Shrestha"}],
+                emergency_contacts=[{"contact_number": "9812345678"}],
             ),
             format="json",
         )
@@ -171,9 +169,9 @@ class TestApplicantUpdate(ApplicantApiTestCase):
         self.auth(self.admin)
 
     def test_identity_is_corrected(self) -> None:
-        resp = self.client.patch(self.url, {"full_name_en": "Ram B. Shrestha"}, format="json")
+        resp = self.client.patch(self.url, {"full_name": "Ram B. Shrestha"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["data"]["full_name_en"], "Ram B. Shrestha")
+        self.assertEqual(resp.data["data"]["full_name"], "Ram B. Shrestha")
 
     def test_contact_numbers_replace_wholesale(self) -> None:
         resp = self.client.patch(
@@ -227,8 +225,8 @@ class TestApplicantStatus(ApplicantApiTestCase):
 class TestApplicantListFilters(ApplicantApiTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.ram = make_applicant(self.admin, name_np="राम श्रेष्ठ")
-        self.sita = make_applicant(self.admin, name_np="सीता गुरुङ")
+        self.ram = make_applicant(self.admin, name="Ram Shrestha")
+        self.sita = make_applicant(self.admin, name="Sita Gurung")
         Applicant.objects.filter(pk=self.sita.pk).update(status=ApplicantStatus.DORMANT)
         self.auth(self.manager)
 
@@ -236,14 +234,13 @@ class TestApplicantListFilters(ApplicantApiTestCase):
         resp = self.client.get(self.list_url, {"status": ApplicantStatus.DORMANT})
         self.assertEqual([row["id"] for row in resp.data["data"]], [str(self.sita.id)])
 
-    def test_search_matches_devanagari(self) -> None:
-        resp = self.client.get(self.list_url, {"search": "राम"})
+    def test_search_matches_name(self) -> None:
+        resp = self.client.get(self.list_url, {"search": "Ram"})
         self.assertEqual([row["id"] for row in resp.data["data"]], [str(self.ram.id)])
 
-    def test_search_matches_romanized(self) -> None:
-        romanized = Applicant.objects.get(pk=self.ram.pk).full_name_romanized
-        resp = self.client.get(self.list_url, {"search": romanized[:3]})
-        self.assertIn(str(self.ram.id), [row["id"] for row in resp.data["data"]])
+    def test_search_is_case_insensitive(self) -> None:
+        resp = self.client.get(self.list_url, {"search": "sita"})
+        self.assertIn(str(self.sita.id), [row["id"] for row in resp.data["data"]])
 
     def test_pagination_meta_shape(self) -> None:
         meta = self.client.get(self.list_url).data["meta"]
@@ -260,7 +257,7 @@ class TestApplicantHistory(ApplicantApiTestCase):
     def test_history_records_creation_and_changes(self) -> None:
         self.client.patch(
             reverse("v1:applicants:applicant-detail", args=[self.applicant.id]),
-            {"full_name_en": "Ram B."},
+            {"full_name": "Ram B."},
             format="json",
         )
         self.client.post(

@@ -115,7 +115,7 @@ class TestBikramSambatOnRead(APITestCase):
 
     def _assert_bs_shape(self, value: object) -> None:
         self.assertIsInstance(value, dict)
-        for key in ("year", "month", "day", "month_name_en", "month_name_np", "display_en", "display_np"):
+        for key in ("year", "month", "day", "month_name", "display"):
             self.assertIn(key, value)
         self.assertIsInstance(value["year"], int)
         self.assertGreater(value["year"], 2000)

@@ -21,7 +21,7 @@
 
 The concept file (`concepts/checklists.txt`) was rewritten in the same session as this build, so it and this contract agree. Three decisions still depart from a project-wide default and are recorded here:
 
-- **`ChecklistTemplate.label` and `ChecklistItem.label` are single fields, not the §39.1 `_np`/`_en` pair.** A template label is operational shorthand read off a picker, the deviation `documents.label` first recorded and `document_templates.label` followed. The names in this module that genuinely carry two canonical identities are the country's, and those live in the `institutions` catalogue where §39.1 already applies.
+- **`ChecklistTemplate.label` and `ChecklistItem.label` are single English fields (§39.1)**, like every name in the project. A template label is operational shorthand read off a picker.
 - **`Checklist.created_by` is nullable — the only nullable `created_by` in the project.** A checklist inherited automatically has no human author. Recording the staff member who happened to be editing the journey would be a lie about who decided the applicant needed this list, so the column is null and `origin` says why.
 - **`ChecklistItem.evidence_file` is the project's first inbound foreign key to `uploaded_files`.** Until now that app depended on five others and none depended on it. The reference is one-way and optional; nothing in `uploaded_files` knows this app exists.
 
@@ -66,7 +66,7 @@ The concept file (`concepts/checklists.txt`) was rewritten in the same session a
   "key": "australia-student",
   "label": "Australia — Student Visa",
   "description": "Documents and stages required for an Australian student visa application.",
-  "country": { "id": "3a7c...", "code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया" },
+  "country": { "id": "3a7c...", "code": "au", "name": "Australia" },
   "is_default": true,
   "is_inheritable": true,
   "status": "active",
@@ -173,9 +173,9 @@ The concept file (`concepts/checklists.txt`) was rewritten in the same session a
 {
   "id": "7c3e9a11-4b2d-4f0e-8a55-1d9c7b3e2f10",
   "journey": "5e2b...",
-  "applicant": { "id": "8a1c...", "full_name_np": "राम बहादुर", "full_name_en": "Ram Bahadur", "status": "active" },
+  "applicant": { "id": "8a1c...", "full_name": "Ram Bahadur", "status": "active" },
   "source_template": "9b1f3c22-8d4a-4e1b-9c77-2f0a6b5d1e33",
-  "country": { "id": "3a7c...", "code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया" },
+  "country": { "id": "3a7c...", "code": "au", "name": "Australia" },
   "title": "Australia — Student Visa",
   "origin": "auto",
   "status": "active",

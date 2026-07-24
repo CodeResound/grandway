@@ -444,7 +444,7 @@ class DetailTests(FilesAPITestCase):
         for field in ("created_at_bs", "reviewed_at_bs", "archived_at_bs"):
             with self.subTest(field=field):
                 self.assertIsNotNone(data[field])
-                self.assertIn("display_np", data[field])
+                self.assertIn("display", data[field])
 
     def test_bs_siblings_are_null_while_their_gregorian_field_is(self) -> None:
         data = self.client.get(f"{FILES}{self.stored.id}/").json()["data"]

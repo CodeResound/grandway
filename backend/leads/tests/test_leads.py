@@ -32,8 +32,7 @@ class LeadApiTestCase(APITestCase):
 
     def payload(self, **overrides: object) -> dict:
         base = {
-            "full_name_np": "राम श्रेष्ठ",
-            "full_name_en": "Ram Shrestha",
+            "full_name": "Ram Shrestha",
             "email": "ram@example.com",
             "source": str(self.source.id),
             "contact_numbers": [{"number": "9800000000", "label": "mobile", "is_primary": True}],
@@ -62,8 +61,7 @@ class TestLeadCreate(LeadApiTestCase):
         self.assertEqual(data["stage"], LeadStage.NEW)
         self.assertEqual(data["created_by"]["username"], "owner")
         self.assertEqual(len(data["contact_numbers"]), 1)
-        # Romanized name is derived by the service, never supplied by the client.
-        self.assertNotEqual(data["full_name_romanized"], "")
+        self.assertEqual(data["full_name"], "Ram Shrestha")
 
     def test_contact_number_is_required(self) -> None:
         self.auth(self.owner)
@@ -111,8 +109,8 @@ class TestLeadCreate(LeadApiTestCase):
 class TestLeadScoping(LeadApiTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.own_lead = make_lead(self.owner, self.source, name_np="राम श्रेष्ठ")
-        self.other_lead = make_lead(self.other, self.source, name_np="सीता गुरुङ")
+        self.own_lead = make_lead(self.owner, self.source)
+        self.other_lead = make_lead(self.other, self.source)
 
     def test_lead_manager_sees_only_own_leads(self) -> None:
         self.auth(self.owner)
@@ -136,7 +134,7 @@ class TestLeadScoping(LeadApiTestCase):
         self.auth(self.owner)
         resp = self.client.patch(
             reverse("v1:leads:lead-detail", args=[self.other_lead.id]),
-            {"full_name_en": "Hijacked"},
+            {"full_name": "Hijacked"},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
@@ -150,8 +148,8 @@ class TestLeadScoping(LeadApiTestCase):
 class TestLeadListFilters(LeadApiTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.ram = make_lead(self.owner, self.source, name_np="राम श्रेष्ठ")
-        self.sita = make_lead(self.owner, self.source, name_np="सीता गुरुङ")
+        self.ram = make_lead(self.owner, self.source, name="Ram Shrestha")
+        self.sita = make_lead(self.owner, self.source, name="Sita Gurung")
         Lead.objects.filter(pk=self.sita.pk).update(stage=LeadStage.COUNSELLING)
 
     def test_filter_by_stage(self) -> None:
@@ -165,17 +163,16 @@ class TestLeadListFilters(LeadApiTestCase):
         resp = self.client.get(self.list_url, {"source": str(self.source.id)})
         self.assertEqual(resp.data["meta"]["count"], 2)
 
-    def test_search_matches_devanagari_name(self) -> None:
+    def test_search_matches_name(self) -> None:
         self.auth(self.owner)
-        resp = self.client.get(self.list_url, {"search": "राम"})
+        resp = self.client.get(self.list_url, {"search": "Ram"})
         ids = [row["id"] for row in resp.data["data"]]
         self.assertEqual(ids, [str(self.ram.id)])
 
-    def test_search_matches_romanized_name(self) -> None:
+    def test_search_is_case_insensitive(self) -> None:
         self.auth(self.owner)
-        romanized = Lead.objects.get(pk=self.ram.pk).full_name_romanized
-        resp = self.client.get(self.list_url, {"search": romanized[:3]})
-        self.assertIn(str(self.ram.id), [row["id"] for row in resp.data["data"]])
+        resp = self.client.get(self.list_url, {"search": "sita"})
+        self.assertIn(str(self.sita.id), [row["id"] for row in resp.data["data"]])
 
     def test_list_uses_standard_pagination_meta(self) -> None:
         self.auth(self.owner)
@@ -192,9 +189,9 @@ class TestLeadUpdate(LeadApiTestCase):
 
     def test_owner_updates_identity(self) -> None:
         self.auth(self.owner)
-        resp = self.client.patch(self.url, {"full_name_en": "Ram B. Shrestha"}, format="json")
+        resp = self.client.patch(self.url, {"full_name": "Ram B. Shrestha"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["data"]["full_name_en"], "Ram B. Shrestha")
+        self.assertEqual(resp.data["data"]["full_name"], "Ram B. Shrestha")
 
     def test_admin_may_correct_any_lead(self) -> None:
         self.auth(self.admin)

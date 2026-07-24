@@ -40,7 +40,7 @@ def filter_fields(queryset: QuerySet[Field], filters: dict[str, Any] | None = No
 
     query = filters.get("q")
     if query:
-        queryset = queryset.filter(Q(name_en__icontains=query) | Q(name_np__icontains=query))
+        queryset = queryset.filter(Q(name__icontains=query))
 
     return queryset
 
@@ -72,7 +72,7 @@ def filter_countries(queryset: QuerySet[Country], filters: dict[str, Any] | None
 
     query = filters.get("q")
     if query:
-        queryset = queryset.filter(Q(name_en__icontains=query) | Q(name_np__icontains=query))
+        queryset = queryset.filter(Q(name__icontains=query))
 
     return queryset
 
@@ -117,9 +117,7 @@ def filter_institutions(
     query = filters.get("q")
     if query:
         # ``icontains`` over the trigram GIN indexes (§39.6) — never ``exact``.
-        queryset = queryset.filter(
-            Q(name_en__icontains=query) | Q(name_np__icontains=query) | Q(common_name__icontains=query)
-        )
+        queryset = queryset.filter(Q(name__icontains=query) | Q(common_name__icontains=query))
 
     return queryset
 
@@ -156,7 +154,7 @@ def filter_campuses(queryset: QuerySet[Campus], filters: dict[str, Any] | None =
 
     query = filters.get("q")
     if query:
-        queryset = queryset.filter(Q(name_en__icontains=query) | Q(city__icontains=query))
+        queryset = queryset.filter(Q(name__icontains=query) | Q(city__icontains=query))
 
     return queryset
 
@@ -241,7 +239,7 @@ def filter_programs(queryset: QuerySet[Program], filters: dict[str, Any] | None 
     if query:
         queryset = queryset.filter(
             Q(title__icontains=query)
-            | Q(institution__name_en__icontains=query)
+            | Q(institution__name__icontains=query)
             | Q(institution__common_name__icontains=query)
         )
 

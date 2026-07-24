@@ -1,7 +1,7 @@
 # Data Contract — Institutions
 
 **Owner app:** `institutions`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns Grandway's study-opportunity catalogue — the countries, institutions, campuses, and programs the consultancy can offer, together with each record's tuition, entry expectations, and current availability. It is **reference data, not a plan**: it does not own an applicant's intent, progress, or choice history (`applicant_journeys`), the person (`applicants`), the enquiry (`leads`), or offers. It owns no history table — a catalogue record's history is the central `audit` log filtered to that record.
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — Phase 1 catalogue spine: Field, Country, Institution, Campus, Program |
 | 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the first inbound dependency (`offers`, three nullable `PROTECT` FKs) and why catalogue edits stay safe under it: offers snapshot the names rather than reading through. Noted the `FeePeriod` promotion to `core.constants` |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`name` on every catalogue model). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -21,7 +22,7 @@
 
 `concepts/institutions.txt` describes ten entities and leaves five questions open. Phase 1 implements the catalogue spine and settles four of those questions; each departure from the concept file or from `CLAUDE.md` is recorded here rather than left to be inferred.
 
-- **§39.1 bilingual identity is inverted for this app: `name_en` is required, `name_np` is optional, and `name_romanized` does not exist.** §39.1 requires `name_np` (required) + `name_en` + `name_romanized` on every model with a user-visible name, and `leads.ReferenceEntry` follows that shape. Catalogue records are *foreign* proper nouns — "University of Melbourne" and "Bachelor of Nursing" have no authoritative Devanagari identity, so a required `name_np` would force staff to invent transliterations and fill the search index with noise. §39.1's premise is that the two names are "two equally canonical, legally authoritative identities"; for a foreign university that premise does not hold. `name_romanized` is dropped because the English name is already ASCII, making the field a duplicate rather than a search aid. `Country` and `Institution` still accept an optional `name_np` for the destinations staff genuinely do write in Nepali, and both are trigram-indexed. **Unicode normalization (§39.2) still applies in full** to every user-entered text field.
+- **Catalogue names are a single English `name` (§39.1).** Every catalogue record carries one required `name`; there is no second-language variant. A catalogue of foreign universities and programs is the clearest case for English-only names — "University of Melbourne" is a proper noun with no second authoritative form. **Unicode normalization (§39.2) applies in full** to every user-entered text field, and `Country`/`Institution` names are trigram-indexed for search.
 - **No `QualificationLevel` table.** The concept asks whether qualification levels should be a seeded fixed list or an admin-managed table. `core.constants.StudyLevel` already exists and is used by `leads.LeadStudyInterest.study_level` and `applicant_journeys.ApplicantJourney.study_level`; a second vocabulary for the same concept would violate §3 and would make "programs matching this journey's level" a mapping problem instead of an equality check. `Program.qualification_level` reuses the enum. Cost, accepted deliberately: adding a level is a migration, not an admin screen.
 - **`Field` *is* an admin-managed table.** The same open question, answered the other way, because `field_of_study` is free text in `leads` and `applicant_journeys` — there is no existing enum to preserve, and study areas are genuinely consultancy-specific.
 - **Availability is one status field, not a separate entity.** The concept lists "Availability note" as a core entity. It is modelled as `availability_status` + `availability_note` on each catalogue record. A separate table would answer "what is the current availability" with a query instead of a field read, for no gain — the concept's actual requirement is to *distinguish "exists" from "currently usable"*, which a status enum does directly. This mirrors the denormalized current-state pattern already used by `leads`, `applicant_journeys`, and `core.policy_engine` (§35 item 15).
@@ -43,8 +44,7 @@
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
 | code | CharField(50) | Yes | No | No | Unique ASCII system identifier (§39.7), e.g. `information_technology` |
-| name_en | CharField(150) | Yes | No | No | Display name |
-| name_np | CharField(150) | No | No | No | Optional Devanagari name |
+| name | CharField(150) | Yes | No | No | Display name |
 | is_active | Boolean | No | No | No | Deactivated, never deleted; indexed |
 | display_order | PositiveInteger | No | No | No | Ordering within admin pickers; defaults to 0 |
 | created_at / updated_at | DateTime | — | No | Yes | Base-model timestamps |
@@ -52,8 +52,8 @@
 **Validation Rules:**
 - `code` matches `^[a-z0-9](?:[a-z0-9_-]{0,48}[a-z0-9])?$` — lowercase ASCII letters, digits, `_`, `-`, starting and ending alphanumeric. Never Devanagari (§39.7).
 - `code` is unique and **immutable after creation** — it is a stable identifier that programs and external references depend on.
-- `name_en` is required and Unicode-normalized on write; `name_np` is normalized when present.
-- Ordering is `display_order`, then `name_en`.
+- `name` is required and Unicode-normalized on write; `name` is normalized when present.
+- Ordering is `display_order`, then `name`.
 
 **Indexes:** `is_active` (`db_index=True`) — every picker filters to active entries.
 
@@ -64,8 +64,7 @@
 {
   "id": "8f1d9e2a-4c3b-4a71-9f0e-2b6c5d8e1a34",
   "code": "information_technology",
-  "name_en": "Information Technology",
-  "name_np": "सूचना प्रविधि",
+  "name": "Information Technology",
   "is_active": true,
   "display_order": 10,
   "created_at": "2026-07-24T09:12:44.318Z",
@@ -85,8 +84,7 @@
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
 | code | CharField(10) | Yes | No | No | Unique ASCII identifier, ISO 3166-1 alpha-2 by convention (e.g. `au`) but not enforced as such |
-| name_en | CharField(150) | Yes | No | No | Display name, e.g. "Australia" |
-| name_np | CharField(150) | No | No | No | Optional Devanagari name — destinations staff do write in Nepali |
+| name | CharField(150) | Yes | No | No | Display name, e.g. "Australia" |
 | availability_status | CharField(20) | No | No | No | Defaults to `active`; indexed |
 | availability_note | TextField | No | No | No | Why the record is paused, seasonal, or inactive |
 | notes | TextField | No | No | No | Intake-planning or counselling notes |
@@ -95,10 +93,10 @@
 
 **Validation Rules:**
 - `code` follows the same ASCII pattern as `Field.code`, is unique, and is **immutable after creation**.
-- `name_en` required; all user-entered text Unicode-normalized on write (§39.2).
+- `name` required; all user-entered text Unicode-normalized on write (§39.2).
 - Setting `availability_status` to anything other than `active` **requires a non-empty `availability_note`** — otherwise `INSTITUTIONS_AVAILABILITY_NOTE_REQUIRED`. A record withdrawn from use without a stated reason is exactly the drift the catalogue exists to prevent.
 - Marking a country non-usable does **not** cascade to its institutions or programs. Search applies the country's status at query time; cascading would destroy each child's own recorded availability and could not be undone.
-- Ordering is `display_order`, then `name_en`.
+- Ordering is `display_order`, then `name`.
 
 **Indexes:** `availability_status` (`db_index=True`) — the default search filter.
 
@@ -109,8 +107,7 @@
 {
   "id": "1c2b3a49-5d6e-4f70-8a91-b2c3d4e5f607",
   "code": "au",
-  "name_en": "Australia",
-  "name_np": "अस्ट्रेलिया",
+  "name": "Australia",
   "availability_status": "active",
   "availability_note": "",
   "notes": "Genuine Student requirement applies from 2024 intakes onward.",
@@ -133,8 +130,7 @@
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
 | country | FK → institutions.Country | Yes | No | No | Parent country (`PROTECT`) |
-| name_en | CharField(255) | Yes | No | No | Official name, e.g. "University of Melbourne" |
-| name_np | CharField(255) | No | No | No | Optional Devanagari name |
+| name | CharField(255) | Yes | No | No | Official name, e.g. "University of Melbourne" |
 | common_name | CharField(150) | No | No | No | What staff actually call it, e.g. "Unimelb" |
 | institution_type | CharField(20) | No | No | No | Defaults to `university` |
 | availability_status | CharField(20) | No | No | No | Defaults to `active`; indexed |
@@ -143,17 +139,17 @@
 | created_at / updated_at | DateTime | — | No | Yes | Base-model timestamps |
 
 **Validation Rules:**
-- `name_en` required and Unicode-normalized; `name_np` and `common_name` normalized when present.
+- `name` required and Unicode-normalized; `name` and `common_name` normalized when present.
 - `country` is required and **may be changed** — an institution is occasionally filed under the wrong country and correcting it is legitimate. The change is audited.
 - Non-`active` status requires `availability_note` (see `Country`).
-- `(country, name_en)` is **not** unique. Two genuinely distinct providers can share a name, and blocking the second creates a worse problem than the duplicate. Duplicate detection is a Phase 2 concern.
-- Ordering is `name_en`.
+- `(country, name)` is **not** unique. Two genuinely distinct providers can share a name, and blocking the second creates a worse problem than the duplicate. Duplicate detection is a Phase 2 concern.
+- Ordering is `name`.
 
 **Indexes:**
 - `availability_status` (`db_index=True`) — default search filter.
 - `institution_country_status_idx` — `(country, availability_status)`. Supports the country-detail screen's "institutions in this country, usable ones first".
-- `institution_name_en_trgm_idx` — GIN `gin_trgm_ops` on `name_en`. Supports the `?q=` search.
-- `institution_name_np_trgm_idx` — GIN `gin_trgm_ops` on `name_np`. Same, for the optional Devanagari name.
+- `institution_name_trgm_idx` — GIN `gin_trgm_ops` on `name`. Supports the `?q=` search.
+- `institution_name_trgm_idx` — GIN `gin_trgm_ops` on `name`, for provider-name search.
 
 **Soft Delete:** `N/A — availability_status replaces deletion.` No delete endpoint. `Campus.institution` and `Program.institution` use `PROTECT`.
 
@@ -162,8 +158,7 @@
 {
   "id": "2d3e4f50-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
   "country": "1c2b3a49-5d6e-4f70-8a91-b2c3d4e5f607",
-  "name_en": "University of Melbourne",
-  "name_np": "",
+  "name": "University of Melbourne",
   "common_name": "Unimelb",
   "institution_type": "university",
   "availability_status": "active",
@@ -188,7 +183,7 @@
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
 | institution | FK → institutions.Institution | Yes | No | No | Parent institution (`PROTECT`) |
-| name_en | CharField(255) | Yes | No | No | Campus name, e.g. "Parkville" |
+| name | CharField(255) | Yes | No | No | Campus name, e.g. "Parkville" |
 | city | CharField(150) | No | No | No | City the campus sits in |
 | availability_status | CharField(20) | No | No | No | Defaults to `active`; indexed |
 | availability_note | TextField | No | No | No | Required when status is not `active` |
@@ -196,17 +191,17 @@
 | created_at / updated_at | DateTime | — | No | Yes | Base-model timestamps |
 
 **Validation Rules:**
-- `name_en` required and Unicode-normalized; `city` normalized when present.
+- `name` required and Unicode-normalized; `city` normalized when present.
 - `institution` is set at creation and is **immutable** — a campus does not move between providers. Correcting a mistake means creating the campus under the right institution and deactivating the wrong one, which keeps the programs attached to each one honest.
-- `(institution, name_en)` is unique — one institution genuinely cannot have two campuses of the same name, and here the duplicate is always an error. Violation returns `INSTITUTIONS_CAMPUS_DUPLICATE`.
+- `(institution, name)` is unique — one institution genuinely cannot have two campuses of the same name, and here the duplicate is always an error. Violation returns `INSTITUTIONS_CAMPUS_DUPLICATE`.
 - Non-`active` status requires `availability_note`.
-- No `name_np`: campus names are locality names in the destination country and are not written in Devanagari in practice.
-- Ordering is `name_en`.
+- A campus carries a single `name` (a locality in the destination country), like every other catalogue record.
+- Ordering is `name`.
 
 **Indexes:**
 - `availability_status` (`db_index=True`).
 - `campus_institution_status_idx` — `(institution, availability_status)`. Supports the institution-detail screen's campus list.
-- Unique constraint `campus_institution_name_uniq` — `(institution, name_en)`.
+- Unique constraint `campus_institution_name_uniq` — `(institution, name)`.
 
 **Soft Delete:** `N/A — availability_status replaces deletion.` No delete endpoint. `Program.campus` uses `PROTECT`.
 
@@ -215,7 +210,7 @@
 {
   "id": "3e4f5061-7b8c-4d9e-af01-2b3c4d5e6f70",
   "institution": "2d3e4f50-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
-  "name_en": "Parkville",
+  "name": "Parkville",
   "city": "Melbourne",
   "availability_status": "active",
   "availability_note": "",

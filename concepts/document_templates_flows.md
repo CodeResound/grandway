@@ -53,11 +53,11 @@ Authored and updated by the backend author in the same commit as any endpoint ch
      control.** `uploaded_files` shipped on 2026-07-24, but a `Signatory` is **not** one of its five
      owner types, so there is nowhere to attach a signature image even by hand; migrating this field
      is a separate, unscheduled decision.
-   - **`name_np` is required, `name_en` is not.** They are two independent identities (§39.1), not a
+   - **`name` is required.** It is a single English field.
      field and its translation — collect both for a real person.
-   - **Never render `name_romanized`.** It is a search aid derived from `name_np`. It is returned so
+   - 
      you can search on it, not display it.
-   - *Failure — `VALIDATION_ERROR` on `name_np`:* the Devanagari name is mandatory. Make it a
+   - *Failure — `VALIDATION_ERROR` on `name`:* the name is mandatory. Make it a
      required field on the form.
    - *Failure — `VALIDATION_ERROR` on `signature_image_url`:* it must be a well-formed URL. The API
      never fetches it, so a well-formed link to nothing passes.
@@ -90,7 +90,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Side effects:** none.
    - **This is the one call the frontend makes into this module.** It replaces the hardcoded
      signature list.
-   - Render `name_en` or `name_np` plus `title_en`; send the row's **`id`**.
+   - Render `name` plus `title`; send the row's **`id`**.
    - **Do not filter the dropdown by `role`.** A signatory's `role` is free text describing who they
      are, not which slot they may fill — a director may legitimately sign as the instructor.
 

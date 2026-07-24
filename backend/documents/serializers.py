@@ -139,7 +139,7 @@ class WorkspaceSummarySerializer(serializers.Serializer):
     last_updated = serializers.DateTimeField(read_only=True)
 
     def get_applicant_name(self, obj: dict[str, Any]) -> str:
-        return obj.get("applicant__full_name_en") or obj.get("applicant__full_name_np") or ""
+        return obj.get("applicant__full_name") or ""
 
 
 # A document's history entries are serialized by ``audit.serializers``'s

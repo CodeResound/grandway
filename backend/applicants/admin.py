@@ -50,12 +50,11 @@ class EmergencyContactInline(admin.TabularInline):
 
 @admin.register(Applicant)
 class ApplicantAdmin(admin.ModelAdmin):
-    list_display = ("full_name_np", "full_name_en", "status", "creation_source", "created_by", "created_at")
+    list_display = ("full_name", "status", "creation_source", "created_by", "created_at")
     list_filter = ("status", "creation_source", "gender")
-    search_fields = ("full_name_np", "full_name_en", "full_name_romanized", "email")
+    search_fields = ("full_name", "email")
     readonly_fields = (
         "id",
-        "full_name_romanized",
         "creation_source",
         "created_by",
         "created_at",

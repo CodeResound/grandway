@@ -92,8 +92,7 @@
   "id": "3f4e5d6c-7b8a-9012-3456-789abcdef012",
   "applicant": {
     "id": "7c8d9e0f-1a2b-3c4d-5e6f-708192a3b4c5",
-    "full_name_np": "राम श्रेष्ठ",
-    "full_name_en": "Ram Shrestha",
+    "full_name": "Ram Shrestha",
     "status": "active"
   },
   "target_country": "Australia",

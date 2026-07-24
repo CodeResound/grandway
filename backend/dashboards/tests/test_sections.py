@@ -130,8 +130,8 @@ class TestTodaysWork(SeededDashboardTestCase):
         self.assertEqual(row["checklist_id"], str(self.checklist.id))
         self.assertEqual(row["journey_id"], str(self.journey.id))
         self.assertEqual(row["applicant_id"], str(self.applicant.id))
-        self.assertEqual(row["applicant_name"], self.applicant.full_name_en)
-        self.assertEqual(row["country_name_en"], self.country.name_en)
+        self.assertEqual(row["applicant_name"], self.applicant.full_name)
+        self.assertEqual(row["country_name"], self.country.name)
 
     def test_an_overdue_offer_appears_in_todays_work(self) -> None:
         make_issued_offer(self.admin, self.journey, deadline_days=-2)
@@ -209,8 +209,8 @@ class TestBlockers(SeededDashboardTestCase):
         """The safety net: inheritance is silent when nobody authored the list."""
         from institutions import services as catalogue_services
 
-        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name_en": "Canada"})
-        orphan_applicant = make_applicant(self.admin, name_np="सीता गुरुङ")
+        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name": "Canada"})
+        orphan_applicant = make_applicant(self.admin)
         orphan_journey = make_journey(self.admin, orphan_applicant, target_country_ref=canada)
 
         block = self.section("dashboard-blockers")["journeys_without_a_checklist"]
@@ -228,7 +228,7 @@ class TestPipelineAndOutcomes(SeededDashboardTestCase):
     def test_country_filter_narrows_journeys(self) -> None:
         from institutions import services as catalogue_services
 
-        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name_en": "Canada"})
+        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name": "Canada"})
         make_journey(self.admin, self.applicant, target_country_ref=canada)
 
         self.assertEqual(self.section("dashboard-pipeline")["journeys_by_stage"]["planning"], 2)
@@ -273,8 +273,8 @@ class TestConversion(APITestCase):
 
     def test_source_row_splits_volume_from_outcome(self) -> None:
         """Volume alone cannot say whether a channel is any good."""
-        make_lead(self.admin, self.source, name_np="राम श्रेष्ठ")
-        make_lead(self.admin, self.source, name_np="सीता गुरुङ")
+        make_lead(self.admin, self.source)
+        make_lead(self.admin, self.source)
 
         rows = self.section("dashboard-conversion")["by_source"]
         self.assertEqual(len(rows), 1)
@@ -291,8 +291,8 @@ class TestConversion(APITestCase):
         self.assertEqual([row["source_code"] for row in rows], ["walk_in"])
 
     def test_lead_to_applicant_rate_is_computed_from_the_funnel(self) -> None:
-        make_lead(self.admin, self.source, name_np="राम श्रेष्ठ")
-        make_lead(self.admin, self.source, name_np="सीता गुरुङ")
+        make_lead(self.admin, self.source)
+        make_lead(self.admin, self.source)
 
         rate = self.section("dashboard-conversion")["rates"]["lead_to_applicant"]
         self.assertEqual(rate["denominator"], 2)
@@ -323,9 +323,9 @@ class TestOwnerScoping(APITestCase):
         self.mine = make_lead_manager("mgr_one")
         self.theirs = make_lead_manager("mgr_two")
 
-        self.my_lead = make_lead(self.mine, self.source, name_np="राम श्रेष्ठ")
-        make_lead(self.theirs, self.source, name_np="सीता गुरुङ")
-        make_lead(self.theirs, self.source, name_np="हरि थापा")
+        self.my_lead = make_lead(self.mine, self.source)
+        make_lead(self.theirs, self.source)
+        make_lead(self.theirs, self.source)
 
     def as_user(self, user: Any) -> None:
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_for(user)}")
@@ -425,7 +425,7 @@ class TestStaleLeads(APITestCase):
 def _loss_reason() -> Any:
     from leads.models import LossReason
 
-    return LossReason.objects.create(code="no_response", name_np="कुनै जवाफ छैन", name_en="No response")
+    return LossReason.objects.create(code="no_response", name="No response")
 
 
 class TestActivityFeed(SeededDashboardTestCase):
@@ -485,7 +485,7 @@ class TestSummaryAgreesWithItsSections(SeededDashboardTestCase):
         from institutions import services as catalogue_services
 
         set_item_due(self.items[0], days_from_now=-3)
-        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name_en": "Canada"})
+        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name": "Canada"})
 
         self.assertEqual(self.section("dashboard-summary")["alerts"]["overdue_checklist_items"], 1)
         narrowed = self.section("dashboard-summary", {"country": str(canada.id)})

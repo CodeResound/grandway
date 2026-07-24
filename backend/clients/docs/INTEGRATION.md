@@ -1,7 +1,7 @@
 # Integration — Clients
 
 **Owner app:** `clients`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 7 endpoints, one resource |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | History entries gained `actor_id` (`clients.client.list_history` → 1.1.0). The shape is now owned by the `audit` module and shared by all six modules that expose a history endpoint; three of them, this one included, had been omitting `actor_id`. Additive, so no consumer breaks. §2 `Requires` corrected: the `audit` coupling is a read dependency as well as a write one |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`name`, `spokesperson_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -50,7 +51,7 @@
 {
   "success": true,
   "message": "Client added.",
-  "data": { "id": "6d7e8f90-1a2b-4c3d-9e4f-5061728394a5", "name_np": "हिमाल एजुकेशन", "status": "active" },
+  "data": { "id": "6d7e8f90-1a2b-4c3d-9e4f-5061728394a5", "status": "active" },
   "meta": {}
 }
 ```
@@ -79,7 +80,7 @@ Field-level validation failures come from the serializer layer and put the offen
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "Validation failed.",
-    "details": { "name_np": ["This field is required."] }
+    "details": { }
   },
   "meta": {}
 }
@@ -111,21 +112,21 @@ Field-level validation failures come from the serializer layer and put the offen
 - **Request encoding:** `application/json`.
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). `data` is the **bare array of rows — not nested under a `results` key**. `meta` carries `count`, `page`, `page_size`, `next`, `previous`; `next`/`previous` are absolute URLs including scheme and host, or `null`. Applied to both list endpoints (the directory and the history).
 - **IDs:** UUID strings. There is **no human-readable code** on a client, unlike `institutions.Country` or `leads.LeadSource` — always address a client by `id`.
-- **Ordering** is fixed and **not client-controllable** — there is no `sort` or `ordering` parameter. The directory is ordered by `name_np` **alphabetically**, not newest-first. This is the opposite of every other list in the project; nobody looks up a partner by when it was added. History is newest-first.
-- **Times.** System timestamps — `created_at`, `updated_at` — are ISO 8601 UTC with **no** `_bs` sibling. `retired_at` **does** carry one, `retired_at_bs` (§39.4), because it is a date staff act on. It is an object or `null`, never a string: `{ year, month, day, month_name_en, month_name_np, display_en, display_np }`. There is no BS input anywhere.
+- **Ordering** is fixed and **not client-controllable** — there is no `sort` or `ordering` parameter. The directory is ordered by `name` **alphabetically**, not newest-first. This is the opposite of every other list in the project; nobody looks up a partner by when it was added. History is newest-first.
+- **Times.** System timestamps — `created_at`, `updated_at` — are ISO 8601 UTC with **no** `_bs` sibling. `retired_at` **does** carry one, `retired_at_bs` (§39.4), because it is a date staff act on. It is an object or `null`, never a string: `{ year, month, day, month_name, display }`. There is no BS input anywhere.
 - **Empty text fields are `""`, never `null`.** The nullable fields are `retired_at`, `retired_by_username`, and `primary_contact_number` on the list shape.
 
 ## 4. Models
 
-**Client (list shape)** — `{ id, name_np, name_en, name_romanized, spokesperson_name_np, spokesperson_name_en, email, primary_contact_number?, status:[enum], is_active, logo_url, updated_at }`
+**Client (list shape)** — `{ id, name, spokesperson_name, email, primary_contact_number?, status:[enum], is_active, logo_url, updated_at }`
 
 - `primary_contact_number` is a **flat string or `null`**, not an object — the number flagged primary, else the first recorded, else `null`. It exists so the directory can show a phone column without fetching every client's detail.
-- The list deliberately omits `website`, `address`, `notes`, the spokesperson's designation and romanized name, and the full number list. Fetch the detail for those.
+- The list deliberately omits `website`, `address`, `notes`, the spokesperson's designation, and the full number list. Fetch the detail for those.
 
-**Client (detail shape)** — `{ id, name_np, name_en, name_romanized, spokesperson_name_np, spokesperson_name_en, spokesperson_name_romanized, spokesperson_designation, email, website, logo_url, address, contact_numbers:list[ContactNumber], status:[enum], is_active, status_note, retired_at?, retired_at_bs?:json, retired_by_username?, notes, created_by_username, created_at, updated_at }`
+**Client (detail shape)** — `{ id, name, spokesperson_name, spokesperson_designation, email, website, logo_url, address, contact_numbers:list[ContactNumber], status:[enum], is_active, status_note, retired_at?, retired_at_bs?:json, retired_by_username?, notes, created_by_username, created_at, updated_at }`
 
 - Returned by retrieve, create, update, retire, **and** restore. Only the list returns the shorter shape.
-- **`name_romanized` and `spokesperson_name_romanized` are search aids, not display fields.** They are auto-derived ASCII transliterations of the `_np` names — `"हिमाल एजुकेशन"` becomes `"himala ejukesana"`. They exist so a Roman-keyboard search finds a Devanagari-primary record. Never render them; render `name_en` if present, else `name_np`.
+- **`name` is the organization's name and `spokesperson_name` the contact person's** — both plain English fields. Search covers both.
 - `status_note` is non-empty only when `status` is `inactive`. Restoring clears it.
 - `address` is one free-text field, not a structured object — unlike `applicants`, which has province/district/municipality/ward.
 
@@ -149,12 +150,8 @@ Field-level validation failures come from the serializer layer and put the offen
 ```json
 {
   "id": "6d7e8f90-1a2b-4c3d-9e4f-5061728394a5",
-  "name_np": "हिमाल एजुकेशन",
-  "name_en": "Himal Education",
-  "name_romanized": "himala ejukesana",
-  "spokesperson_name_np": "सुनिता श्रेष्ठ",
-  "spokesperson_name_en": "Sunita Shrestha",
-  "spokesperson_name_romanized": "sunita srestha",
+  "name": "Himal Education",
+  "spokesperson_name": "Sunita Shrestha",
   "spokesperson_designation": "Managing Director",
   "email": "info@himal.example",
   "website": "https://himal.example",
@@ -182,12 +179,8 @@ Field-level validation failures come from the serializer layer and put the offen
 ```json
 {
   "id": "9012a3b4-4d5e-4f60-8192-a3b4c5d6e7f8",
-  "name_np": "पुरानो पार्टनर",
-  "name_en": "",
-  "name_romanized": "purano partnara",
-  "spokesperson_name_np": "",
-  "spokesperson_name_en": "",
-  "spokesperson_name_romanized": "",
+  "name": "",
+  "spokesperson_name": "",
   "spokesperson_designation": "",
   "email": "",
   "website": "",
@@ -200,8 +193,8 @@ Field-level validation failures come from the serializer layer and put the offen
   "retired_at": "2026-07-24T10:02:00Z",
   "retired_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   },
   "retired_by_username": "adminuser",
   "notes": "",
@@ -241,8 +234,8 @@ Field-level validation failures come from the serializer layer and put the offen
 - `PATCH /api/v1/clients/<client_id>/` — update (permission: `clients.client.update`, risk: medium)
 
 **Send (create/update):**
-- create: `name_np` (**required**), plus optional `name_en`, `name_romanized`, `spokesperson_name_np`, `spokesperson_name_en`, `spokesperson_name_romanized`, `spokesperson_designation`, `email`, `website`, `logo_url`, `address`, `notes`, `contact_numbers`
-- update: any subset of the same fields (`name_np` becomes optional) — **and nothing else**
+- create: `name` (**required**), plus optional `name`, `name`, `spokesperson_name`, `spokesperson_name`, `spokesperson_name`, `spokesperson_designation`, `email`, `website`, `logo_url`, `address`, `notes`, `contact_numbers`
+- update: any subset of the same fields (`name` becomes optional) — **and nothing else**
 
 **Returns:** Client (detail shape) for create, retrieve, and update; list[Client (list shape)] for the list, paginated.
 
@@ -252,10 +245,10 @@ Field-level validation failures come from the serializer layer and put the offen
 
 **Notes:**
 - **Query params:** `status` (exact enum), `search` (partial match), `fiscal_year` (`YYYY/YY`, Nepali fiscal year, filtered on `created_at`), `page`, `page_size`.
-- **`search` covers six fields:** the organization's `name_np`, `name_en`, and `name_romanized`, **and** the spokesperson's three name fields. One box finds either the company or the person, which is what the directory is for.
+- **`search` covers six fields:** the organization's `name`, `name`, and `name`, **and** the spokesperson's three name fields. One box finds either the company or the person, which is what the directory is for.
 - **Omitting `status` returns both active and inactive clients.** Pass `status=active` for a picker; leave it off for the maintenance directory.
-- **`name_romanized` and `spokesperson_name_romanized` are auto-derived** from their `_np` source when you do not send them. Send one only to override a poor transliteration — a supplied value is never overwritten, including on a later edit.
-- **Only `name_np` is required.** Everything else, including the spokesperson and any contact number, is optional: a partner may be an organization you deal with before you know who to ask for.
+- **`name` and `spokesperson_name` are auto-derived** from their `_np` source when you do not send them. Send one only to override a poor transliteration — a supplied value is never overwritten, including on a later edit.
+- **Only `name` is required.** Everything else, including the spokesperson and any contact number, is optional: a partner may be an organization you deal with before you know who to ask for.
 - **Sending `status` on update is a 400**, not a silent no-op. See §3.
 - Defaults for omitted write fields: `status` → `"active"`, every text field → `""`, `contact_numbers` → `[]` on create.
 - There is no delete.
@@ -335,15 +328,15 @@ Field-level validation failures come from the serializer layer and put the offen
 
 **Add a partner to the directory** *(Admin)*
 
-1. `POST /api/v1/clients/` with `name_np`, the spokesperson, and a `contact_numbers` array. → client id, `status: "active"`.
-   - Missing `name_np` → 400 `VALIDATION_ERROR` with `details.name_np`.
+1. `POST /api/v1/clients/` with `name`, the spokesperson, and a `contact_numbers` array. → client id, `status: "active"`.
+   - Missing `name` → 400 `VALIDATION_ERROR` with `details.name`.
    - The same number listed twice → 400 `CLIENTS_CONTACT_NUMBER_DUPLICATE`.
    - Called by a Lead Manager → 403 `CLIENTS_ACTOR_FORBIDDEN`. Hide the "add client" button for them.
-2. Read back `name_romanized` from the response and **do not display it** — it is the search index, and it will look wrong to a human.
+2. Read back `name` from the response and **do not display it** — it is the search index, and it will look wrong to a human.
 
 **Find the right partner** *(Admin or Lead Manager)*
 
-1. `GET /api/v1/clients/?status=active&search=<query>` — one box searches both the company name and the spokesperson's, in Devanagari, English, or Roman transliteration.
+1. `GET /api/v1/clients/?status=active&search=<query>` — one box searches both the company name and the spokesperson's.
 2. Render `primary_contact_number` and `email` straight from the list row; no detail fetch needed for a phone-and-email directory.
 3. `GET /api/v1/clients/<id>/` for the full record — the other numbers, website, address, and notes.
    - A Lead Manager can do all of this. Only the edit controls are refused.

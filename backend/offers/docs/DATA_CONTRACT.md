@@ -1,7 +1,7 @@
 # Data Contract — Offers
 
 **Owner app:** `offers`
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the formal admission decisions institutions make against applicant journeys — what was offered, for which program and intake, under what conditions and money terms, and how the applicant responded. It does **not** own the study plan (`applicant_journeys`), the person (`applicants`), or the catalogue the offer references (`institutions`). It owns no history table — an offer's history is the central `audit` log filtered to that offer.
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — `Offer` and `OfferCondition` |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. An offer letter now has a home in `uploaded_files`; this model still holds no reference to it |
+| 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`institution_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -21,7 +22,7 @@
 
 `concepts/offers.txt` lists five open questions and one out-of-scope item that the project's current state decides for it. Each departure is recorded here rather than left to be inferred.
 
-- **§39.1 bilingual identity is inverted, inherited from `institutions`.** `institution_name_en` is required and `institution_name_np` is optional; there is no `_romanized` field. The snapshot copies foreign proper nouns from the catalogue, which has the same shape and the same reason: a required Devanagari name would force invented transliterations for "University of Melbourne". **Unicode normalization (§39.2) still applies in full** to every user-entered text field. See `institutions/docs/DATA_CONTRACT.md` — "Deliberate Deviations" for the original rationale.
+- **`institution_name` is a single English field (§39.1)**, copied from the `institutions` catalogue, which is likewise English-only. **Unicode normalization (§39.2) applies in full** to every user-entered text field.
 - **No supporting files *on this model*.** The concept lists "Notes and supporting files" among offer information. `notes` ships; a file field does not. **`uploaded_files` now exists** and holds a `PROTECT` foreign key to `Offer`, so an offer letter has a home — `POST /api/v1/files/` with `offer=<id>`. What is still deliberately absent is a reference in the other direction: this model has no file column and this app does not call that one, so an offer payload says nothing about the letter attached to it. Adding a count or a primary-file pointer later is additive.
 - **Conditions are a dedicated sub-record, not a reusable checklist.** The concept asks which; the project answers it. `checklists` is a named future domain with no code behind it, and building a generic checklist inside `offers` would pre-empt it. `OfferCondition` is owned by this app and belongs to exactly one offer. When `checklists` ships, the question of whether offer conditions should migrate onto it is worth reopening — it is recorded in the concept file as still open.
 - **No history table**, for the same reason as `leads`, `applicants`, `applicant_journeys`, and `institutions`: `audit` already provides an immutable append-only log and §4 forbids duplicating another app's storage.
@@ -46,8 +47,7 @@
 | campus | FK → `institutions.Campus` | No | Yes | No | Optional; `PROTECT` |
 | program | FK → `institutions.Program` | No | Yes | No | The live catalogue reference point; `PROTECT` |
 | reference_source | CharField(20) | Yes | No | Yes | How the reference was entered; derived at creation |
-| institution_name_en | CharField(255) | Yes | No | No | **Snapshot.** The provider as named when the decision was made |
-| institution_name_np | CharField(255) | No | No | No | **Snapshot.** Optional Devanagari name |
+| institution_name | CharField(255) | Yes | No | No | **Snapshot.** The provider as named when the decision was made |
 | campus_name | CharField(255) | No | No | No | **Snapshot** |
 | program_title | CharField(255) | Yes | No | No | **Snapshot.** The program as named when the decision was made |
 | country_name | CharField(150) | No | No | No | **Snapshot** |
@@ -134,8 +134,7 @@
   "campus": "3e4f5061-7b8c-4d9e-af01-2b3c4d5e6f70",
   "program": "4f506172-8c9d-4e0f-b112-3c4d5e6f7081",
   "reference_source": "catalogue",
-  "institution_name_en": "University of Melbourne",
-  "institution_name_np": "",
+  "institution_name": "University of Melbourne",
   "campus_name": "Parkville",
   "program_title": "Master of Information Technology",
   "country_name": "Australia",
@@ -146,8 +145,8 @@
   "issue_date": "2026-07-18",
   "issue_date_bs": {
     "year": 2083, "month": 4, "day": 2,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 2", "display_np": "२०८३ श्रावण २"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 2"
   },
   "response_deadline": "2026-09-30",
   "is_response_overdue": false,
@@ -234,8 +233,8 @@
   "due_date": "2026-08-15",
   "due_date_bs": {
     "year": 2083, "month": 4, "day": 30,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 30", "display_np": "२०८३ श्रावण ३०"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 30"
   },
   "display_order": 0,
   "resolution_note": "",

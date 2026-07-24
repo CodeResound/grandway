@@ -29,7 +29,7 @@ class ApplicantSearchTestCase(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_for(self.admin)}")
 
     def names(self, response: Any) -> list[str]:
-        return [row["full_name_en"] for row in response.data["data"]]
+        return [row["full_name"] for row in response.data["data"]]
 
 
 class TestMultiFieldSearch(ApplicantSearchTestCase):
@@ -40,14 +40,13 @@ class TestMultiFieldSearch(ApplicantSearchTestCase):
         self.target = services.create_applicant(
             actor=self.admin,
             data={
-                "full_name_np": "राम श्रेष्ठ",
-                "full_name_en": "Ram Shrestha",
+                "full_name": "Ram Shrestha",
                 "email": "ram.shrestha@example.com",
             },
             contact_numbers=[{"number": "9841000111", "label": "mobile", "is_primary": True}],
             passport={"passport_number": "PA1234567"},
         )
-        self.other = make_applicant(self.admin, name_np="सीता गुरुङ", full_name_en="Sita Gurung")
+        self.other = make_applicant(self.admin, full_name="Sita Gurung")
 
     def test_search_matches_email(self) -> None:
         resp = self.client.get(self.list_url, {"search": "ram.shrestha@example.com"})
@@ -65,9 +64,9 @@ class TestMultiFieldSearch(ApplicantSearchTestCase):
         self.assertEqual(resp.data["meta"]["count"], 1)
         self.assertEqual(resp.data["data"][0]["id"], str(self.target.id))
 
-    def test_search_still_matches_devanagari_name(self) -> None:
-        """The pre-existing behaviour must survive the widening."""
-        resp = self.client.get(self.list_url, {"search": "सीता"})
+    def test_search_matches_the_other_applicant_by_name(self) -> None:
+        """Name search still works alongside the widened email/phone/passport match."""
+        resp = self.client.get(self.list_url, {"search": "Sita"})
         self.assertEqual(resp.data["meta"]["count"], 1)
         self.assertEqual(resp.data["data"][0]["id"], str(self.other.id))
 
@@ -101,9 +100,9 @@ class TestSearchRanking(ApplicantSearchTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.exact = make_applicant(self.admin, name_np="राम", full_name_en="Ram")
-        self.prefix = make_applicant(self.admin, name_np="राम बहादुर", full_name_en="Ram Bahadur")
-        self.contains = make_applicant(self.admin, name_np="श्री राम श्रेष्ठ", full_name_en="Shree Ram Shrestha")
+        self.exact = make_applicant(self.admin, full_name="Ram")
+        self.prefix = make_applicant(self.admin, full_name="Ram Bahadur")
+        self.contains = make_applicant(self.admin, full_name="Shree Ram Shrestha")
 
     def test_exact_beats_prefix_beats_contains(self) -> None:
         resp = self.client.get(self.list_url, {"search": "Ram"})
@@ -116,7 +115,7 @@ class TestSearchRanking(ApplicantSearchTestCase):
         """Someone whose *email* contains the query sorts below every name match."""
         by_email = services.create_applicant(
             actor=self.admin,
-            data={"full_name_np": "हरि थापा", "full_name_en": "Hari Thapa", "email": "ram@example.com"},
+            data={"full_name": "Hari Thapa", "email": "ram@example.com"},
             contact_numbers=[{"number": "9800000123", "label": "mobile", "is_primary": True}],
         )
         resp = self.client.get(self.list_url, {"search": "Ram"})
@@ -138,17 +137,17 @@ class TestDestinationFilters(ApplicantSearchTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.australia = make_country(self.admin, code="au", name_en="Australia")
-        self.canada = make_country(self.admin, code="ca", name_en="Canada")
+        self.australia = make_country(self.admin, code="au", name="Australia")
+        self.canada = make_country(self.admin, code="ca", name="Canada")
 
-        self.bound_for_au = make_applicant(self.admin, name_np="राम श्रेष्ठ", full_name_en="Ram Shrestha")
+        self.bound_for_au = make_applicant(self.admin, full_name="Ram Shrestha")
         self.au_journey = journey_services.create_journey(
             actor=self.admin,
             applicant=self.bound_for_au,
             data={"target_country_ref": self.australia},
         )
 
-        self.bound_for_ca = make_applicant(self.admin, name_np="सीता गुरुङ", full_name_en="Sita Gurung")
+        self.bound_for_ca = make_applicant(self.admin, full_name="Sita Gurung")
         journey_services.create_journey(
             actor=self.admin,
             applicant=self.bound_for_ca,
@@ -156,7 +155,7 @@ class TestDestinationFilters(ApplicantSearchTestCase):
         )
 
         # No journey at all — must never appear under any destination filter.
-        self.undecided = make_applicant(self.admin, name_np="हरि थापा", full_name_en="Hari Thapa")
+        self.undecided = make_applicant(self.admin, full_name="Hari Thapa")
 
     def test_filter_by_country_id(self) -> None:
         resp = self.client.get(self.list_url, {"country": str(self.australia.id)})
@@ -210,8 +209,8 @@ class TestDestinationsResponseField(ApplicantSearchTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.australia = make_country(self.admin, code="au", name_en="Australia")
-        self.applicant = make_applicant(self.admin, name_np="राम श्रेष्ठ", full_name_en="Ram Shrestha")
+        self.australia = make_country(self.admin, code="au", name="Australia")
+        self.applicant = make_applicant(self.admin, full_name="Ram Shrestha")
 
     def test_catalogue_destination_is_projected(self) -> None:
         journey = journey_services.create_journey(
@@ -225,7 +224,7 @@ class TestDestinationsResponseField(ApplicantSearchTestCase):
         self.assertEqual(destinations[0]["journey_id"], str(journey.id))
         self.assertEqual(destinations[0]["country_id"], str(self.australia.id))
         self.assertEqual(destinations[0]["country_code"], "au")
-        self.assertEqual(destinations[0]["country_name_en"], "Australia")
+        self.assertEqual(destinations[0]["country_name"], "Australia")
         self.assertEqual(destinations[0]["stage"], JourneyStage.PLANNING)
 
     def test_free_text_destination_survives_with_no_catalogue_link(self) -> None:

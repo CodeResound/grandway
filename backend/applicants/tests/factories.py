@@ -41,9 +41,9 @@ def token_for(user: Any) -> str:
     return auth_services.build_access_token(user, session, must_change_password=False)
 
 
-def make_applicant(creator: Any, *, name_np: str = "राम श्रेष्ठ", **overrides: Any) -> Applicant:
+def make_applicant(creator: Any, *, name: str = "Ram Shrestha", **overrides: Any) -> Applicant:
     """Create an applicant through the service so derived fields are set."""
-    data = {"full_name_np": name_np, **overrides}
+    data = {"full_name": name, **overrides}
     return services.create_applicant(
         actor=creator,
         data=data,

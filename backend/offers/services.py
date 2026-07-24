@@ -58,8 +58,7 @@ _ACTOR_TYPES = {ActorType.SUPERADMIN, ActorType.ADMIN, ActorType.LEAD_MANAGER}
 #: at creation (a manual offer has nothing else), fixed forever after.
 SNAPSHOT_FIELDS: frozenset[str] = frozenset(
     {
-        "institution_name_en",
-        "institution_name_np",
+        "institution_name",
         "campus_name",
         "program_title",
         "country_name",
@@ -190,8 +189,7 @@ def build_reference_block(
         institution = institution or campus.institution
 
     snapshot: dict[str, Any] = {
-        "institution_name_en": "",
-        "institution_name_np": "",
+        "institution_name": "",
         "campus_name": "",
         "program_title": "",
         "country_name": "",
@@ -200,11 +198,11 @@ def build_reference_block(
     }
 
     if institution is not None:
-        snapshot["institution_name_en"] = institution.name_en
-        snapshot["institution_name_np"] = institution.name_np
-        snapshot["country_name"] = institution.country.name_en
+        snapshot["institution_name"] = institution.name
+        snapshot["institution_name"] = institution.name
+        snapshot["country_name"] = institution.country.name
     if campus is not None:
-        snapshot["campus_name"] = campus.name_en
+        snapshot["campus_name"] = campus.name
     if program is not None:
         snapshot["program_title"] = program.title
         snapshot["qualification_level"] = program.qualification_level
@@ -214,7 +212,7 @@ def build_reference_block(
         if manual.get(key):
             snapshot[key] = manual[key]
 
-    if not snapshot["program_title"] or not snapshot["institution_name_en"]:
+    if not snapshot["program_title"] or not snapshot["institution_name"]:
         raise ProgramReferenceRequiredError(
             "An offer must name both the institution and the program, "
             "either by catalogue reference or as manual entry.",
@@ -273,7 +271,7 @@ def create_offer(
         action=OfferAuditAction.OFFER_CREATED,
         actor=actor,
         offer=offer,
-        summary=f"Offer recorded from {offer.institution_name_en} for {offer.program_title}.",
+        summary=f"Offer recorded from {offer.institution_name} for {offer.program_title}.",
         metadata={
             "journey_id": str(journey.id),
             "reference_source": offer.reference_source,

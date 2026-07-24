@@ -1,7 +1,7 @@
 # API Documentation — Leads
 
 **App:** `leads`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Base prefix:** `/api/v1/leads/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Authority and ownership rules are enforced inline per `SECURITY.md` §1 — this app does not use the §9 `is_staff` snippet, because leads are owner-scoped rows.
 **Throttle:** Project DRF defaults only. No custom scopes — every endpoint is authenticated and none is expensive enough to warrant one today (`SECURITY.md` §7).
@@ -15,6 +15,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial API documentation — 17 endpoints; conversion deferred to Phase 4 |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Lead list (§3.1) widened: `search` now matches email and any contact number, and results are relevance-ordered rather than newest-first. Owner scoping is unchanged — ranking reorders inside the caller's existing scope. Additive only |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -52,7 +53,7 @@ Admin-configurable reference data. Every lead actor may read the list — a Lead
 
 **Policy key(s):** `leads.source.list` (risk: low)
 **Request:** optional `?include_inactive=true` to include deactivated entries (default hides them).
-**Response:** array of the `LeadSource` shape — `DATA_CONTRACT.md` §1. Unpaginated; ordered by `display_order`, then `name_np`.
+**Response:** array of the `LeadSource` shape — `DATA_CONTRACT.md` §1. Unpaginated; ordered by `display_order`, then `name`.
 **Error codes:** none beyond the app-wide 401/403.
 
 ### 1.2 Create — `POST /api/v1/leads/sources/`
@@ -60,10 +61,10 @@ Admin-configurable reference data. Every lead actor may read the list — a Lead
 **Policy key(s):** `leads.source.create` (risk: medium) — **Admin only**
 **Request:**
 ```json
-{ "code": "referral", "name_np": "सिफारिस", "name_en": "Referral", "requires_detail": false, "display_order": 3 }
+{ "code": "referral", "name": "Referral", "requires_detail": false, "display_order": 3 }
 ```
 **Response:** the created `LeadSource` (`DATA_CONTRACT.md` §1), HTTP 201.
-**Validation rules:** `code` is lowercased and must be ASCII `[a-z0-9_-]`; `name_romanized` is derived server-side and rejected as input.
+**Validation rules:** `code` is lowercased and must be ASCII `[a-z0-9_-]`; `name` is derived server-side and rejected as input.
 **Error codes:**
 - `LEADS_SOURCE_CODE_TAKEN` (409) — a source with that code already exists.
 **Business rules:** set `requires_detail: true` on catch-all entries such as `other`; leads choosing them must then supply `source_detail`.
@@ -71,7 +72,7 @@ Admin-configurable reference data. Every lead actor may read the list — a Lead
 ### 1.3 Edit or deactivate — `PATCH /api/v1/leads/sources/<source_id>/`
 
 **Policy key(s):** `leads.source.update` (risk: medium) — **Admin only**
-**Request:** any of `name_np`, `name_en`, `requires_detail`, `is_active`, `display_order`. `code` is immutable and silently absent from the update serializer.
+**Request:** any of `name`, `name`, `requires_detail`, `is_active`, `display_order`. `code` is immutable and silently absent from the update serializer.
 **Response:** the updated `LeadSource`.
 **Error codes:**
 - `LEADS_SOURCE_NOT_FOUND` (404) — no source with that id.
@@ -116,7 +117,7 @@ Same shape and same access split as §1. A reason is mandatory whenever a lead i
 **Request query params:**
 - `stage` — one of the eight `LeadStage` values
 - `source` — a `LeadSource` id
-- `search` — matches across `full_name_np`, `full_name_en`, `full_name_romanized`, `email`, and any contact number. All partial (`icontains`) matches
+- `search` — matches across `full_name`, `full_name`, `full_name`, `email`, and any contact number. All partial (`icontains`) matches
 - `fiscal_year` — Nepali fiscal year as `YYYY/YY`, e.g. `2081/82`, filtering on `created_at`
 - `page`, `page_size` (max 100)
 
@@ -135,8 +136,7 @@ Same shape and same access split as §1. A reason is mandatory whenever a lead i
 **Request:**
 ```json
 {
-  "full_name_np": "राम श्रेष्ठ",
-  "full_name_en": "Ram Shrestha",
+  "full_name": "Ram Shrestha",
   "email": "ram@example.com",
   "address": "Lalitpur",
   "source": "0f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8",
@@ -151,7 +151,7 @@ Same shape and same access split as §1. A reason is mandatory whenever a lead i
 - `LEADS_SOURCE_INACTIVE` (400) — the chosen source has been deactivated.
 - `LEADS_SOURCE_DETAIL_REQUIRED` (400) — the chosen source has `requires_detail` but `source_detail` was blank.
 - `LEADS_CONTACT_REQUIRED` (400) — no contact number survived validation.
-**Business rules:** `full_name_romanized` is derived from `full_name_np` server-side (§39.3). Writes one `lead_created` audit event.
+**Business rules:** `full_name` is Unicode-normalized server-side (§39.2). Writes one `lead_created` audit event.
 
 ### 3.3 Retrieve — `GET /api/v1/leads/<lead_id>/`
 
@@ -254,7 +254,7 @@ All three fields are optional; an empty body records a follow-up at the current 
   "changes": { "stage": { "from": "new", "to": "contacted" } },
   "metadata": {},
   "created_at": "2026-07-23T04:05:00Z",
-  "created_at_bs": { "year": 2083, "month": 4, "day": 8, "month_name_en": "Shrawan", "month_name_np": "श्रावण", "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८" }
+  "created_at_bs": { "year": 2083, "month": 4, "day": 8, "month_name": "Shrawan", "display": "2083 Shrawan 8" }
 }
 ```
 **Error codes:** app-wide 404 only.
@@ -288,7 +288,7 @@ All three fields are optional; an empty body records a follow-up at the current 
 
 *Atomicity.* The whole conversion runs in one `atomic()` block. A failure while creating the journey rolls back the applicant too — there is no state in which a lead has an applicant but no journey.
 
-*Identity mapping to the applicant.* `full_name_np`, `full_name_en`, `full_name_romanized`, `email`, all contact numbers, and `address` (as a `permanent` `ApplicantAddress`). Nothing else — a lead holds no date of birth, passport, or family.
+*Identity mapping to the applicant.* `full_name`, `full_name`, `full_name`, `email`, all contact numbers, and `address` (as a `permanent` `ApplicantAddress`). Nothing else — a lead holds no date of birth, passport, or family.
 
 *Study-interest mapping to the journey.* `LeadStudyInterest` has ten fields; six map directly (`study_level`, `field_of_study`, `preferred_intake`, `budget_amount`, `budget_currency`, `scholarship_interest`). The remaining four are handled explicitly rather than dropped:
 

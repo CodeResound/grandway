@@ -54,22 +54,22 @@ def token_for(user: Any) -> str:
 
 
 def make_field(actor: Any, *, code: str = "information_technology", **overrides: Any) -> Any:
-    data = {"code": code, "name_en": "Information Technology", **overrides}
+    data = {"code": code, "name": "Information Technology", **overrides}
     return services.create_field(actor=actor, data=data)
 
 
 def make_country(actor: Any, *, code: str = "au", **overrides: Any) -> Any:
-    data = {"code": code, "name_en": "Australia", **overrides}
+    data = {"code": code, "name": "Australia", **overrides}
     return services.create_country(actor=actor, data=data)
 
 
 def make_institution(actor: Any, country: Any, **overrides: Any) -> Any:
-    data = {"country": country, "name_en": "University of Melbourne", **overrides}
+    data = {"country": country, "name": "University of Melbourne", **overrides}
     return services.create_institution(actor=actor, data=data)
 
 
-def make_campus(actor: Any, institution: Any, *, name_en: str = "Parkville", **overrides: Any) -> Any:
-    data = {"name_en": name_en, **overrides}
+def make_campus(actor: Any, institution: Any, *, name: str = "Parkville", **overrides: Any) -> Any:
+    data = {"name": name, **overrides}
     return services.create_campus(actor=actor, institution=institution, data=data)
 
 

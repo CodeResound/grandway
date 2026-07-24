@@ -12,7 +12,7 @@ import logging
 import secrets
 from typing import Any
 
-from core.nepal.text import normalize_unicode, romanize_devanagari
+from core.nepal.text import normalize_unicode
 from django.conf import settings
 from django.contrib.auth import authenticate as django_authenticate
 from django.core.exceptions import PermissionDenied
@@ -169,12 +169,10 @@ def _emit_to_central_audit(
 
 
 def _apply_name_fields(fields: dict[str, Any]) -> dict[str, Any]:
-    """Normalize name fields and auto-populate the romanized search field (§39.2/39.3)."""
-    for key in ("display_name", "full_name_np", "full_name_en"):
+    """Normalize the account's name fields on write (§39.2)."""
+    for key in ("display_name", "full_name"):
         if fields.get(key):
             fields[key] = normalize_unicode(fields[key])
-    if fields.get("full_name_np") and not fields.get("full_name_romanized"):
-        fields["full_name_romanized"] = romanize_devanagari(fields["full_name_np"])
     return fields
 
 
@@ -772,7 +770,7 @@ def create_managed_account(
     return user, (password if generated else None)
 
 
-_EDITABLE_ACCOUNT_FIELDS = ("display_name", "full_name_np", "full_name_en", "email", "phone")
+_EDITABLE_ACCOUNT_FIELDS = ("display_name", "full_name", "email", "phone")
 
 
 @transaction.atomic

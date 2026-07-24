@@ -89,7 +89,7 @@ def get_lead_for_actor(actor: Any, lead_id: str) -> Lead | None:
 #: The three language representations of a lead's name (§39.1), searched
 #: together. Mirrors ``applicants.selectors._NAME_FIELDS`` — the two apps hold
 #: the same person at two stages of their life and are searched the same way.
-_NAME_FIELDS = ("full_name_np", "full_name_en", "full_name_romanized")
+_NAME_FIELDS = ("full_name",)
 
 
 def _name_match(query: str) -> Q:
@@ -260,7 +260,7 @@ def get_lead_source_conversion(
         fiscal_year=fiscal_year,
     )
     rows = (
-        queryset.values("source_id", "source__code", "source__name_np", "source__name_en")
+        queryset.values("source_id", "source__code", "source__name")
         .annotate(
             total=Count("id"),
             converted=Count("id", filter=Q(stage=LeadStage.CONVERTED)),
@@ -272,8 +272,7 @@ def get_lead_source_conversion(
         {
             "source_id": str(row["source_id"]),
             "source_code": row["source__code"],
-            "source_name_np": row["source__name_np"],
-            "source_name_en": row["source__name_en"],
+            "source_name": row["source__name"],
             "total": row["total"],
             "converted": row["converted"],
             "lost": row["lost"],

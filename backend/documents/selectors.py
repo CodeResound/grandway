@@ -127,7 +127,7 @@ def get_workspace_summaries() -> QuerySet[dict[str, Any]]:
     return (
         Document.objects.filter(applicant__isnull=False)
         .exclude(status=DocumentStatus.ARCHIVED)
-        .values("applicant_id", "applicant__full_name_np", "applicant__full_name_en")
+        .values("applicant_id", "applicant__full_name")
         .annotate(document_count=Count("id"), last_updated=Max("updated_at"))
         .order_by("-last_updated")
     )

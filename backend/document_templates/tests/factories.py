@@ -27,19 +27,15 @@ from documents.tests.factories import (  # noqa: F401 — re-exported for this s
 from document_templates import services
 from document_templates.constants import LifecycleStatus
 
-#: A Devanagari name used across the suite, so the romanization and
-#: normalization assertions all operate on the same input.
-NAME_NP = "सुनिता श्रेष्ठ"
-NAME_EN = "Sunita Shrestha"
+#: A signatory name used across the suite.
+NAME = "Sunita Shrestha"
 
 
 def make_signatory(actor: Any, **overrides: Any) -> Any:
     """A signatory, ``draft`` by default — the service's own default."""
     data: dict[str, Any] = {
-        "name_np": NAME_NP,
-        "name_en": NAME_EN,
-        "title_np": "निर्देशक",
-        "title_en": "Director",
+        "name": NAME,
+        "title": "Director",
         "role": "director",
         "signature_image_url": "https://files.example/signatures/sunita.png",
         **overrides,

@@ -62,7 +62,7 @@ class ChecklistTemplate(BaseModel):
         help_text="Stable ASCII identifier, e.g. 'australia-student-visa'.",
     )
 
-    # A plain ``label``, not the §39.1 ``_np``/``_en`` pair. A template label is
+    # A plain ``label`` rather than a display name. A template label is
     # operational shorthand read off a picker by staff — the deviation
     # ``documents.label`` recorded and ``document_templates.label`` followed. The
     # names that genuinely carry two canonical identities in this module are the

@@ -31,10 +31,8 @@ class Applicant(BaseModel):
     accessor ``applicant.originating_lead``.
     """
 
-    # --- Identity (§39.1 bilingual identity) -------------------------------
-    full_name_np = models.CharField(max_length=255)
-    full_name_en = models.CharField(max_length=255, blank=True)
-    full_name_romanized = models.CharField(max_length=255, blank=True)
+    # --- Identity ----------------------------------------------------------
+    full_name = models.CharField(max_length=255)
     date_of_birth = models.DateField(null=True, blank=True)
     gender = models.CharField(max_length=20, choices=Gender.choices, blank=True)
     nationality = models.CharField(max_length=100, blank=True)
@@ -64,15 +62,8 @@ class Applicant(BaseModel):
             # The default list view: everyone's applicants, newest first.
             models.Index(fields=["status", "-created_at"], name="applicant_status_recent_idx"),
             # Name search (§39.6). ``search_applicants`` runs a leading-wildcard
-            # icontains across all three representations, which a B-tree index
-            # cannot serve — hence GIN trigram, one per field.
-            GinIndex(fields=["full_name_np"], name="appl_name_np_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(fields=["full_name_en"], name="appl_name_en_trgm_idx", opclasses=["gin_trgm_ops"]),
-            GinIndex(
-                fields=["full_name_romanized"],
-                name="appl_name_rom_trgm_idx",
-                opclasses=["gin_trgm_ops"],
-            ),
+            # icontains, which a B-tree index cannot serve — hence GIN trigram.
+            GinIndex(fields=["full_name"], name="appl_name_trgm_idx", opclasses=["gin_trgm_ops"]),
             # ``search_applicants`` also matches the email with a leading
             # wildcard, so the same reasoning as the name fields applies: a
             # B-tree index cannot serve ``LIKE '%…%'``.
@@ -80,7 +71,7 @@ class Applicant(BaseModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.full_name_en or self.full_name_np} ({self.status})"
+        return f"{self.full_name} ({self.status})"
 
     @property
     def is_archived(self) -> bool:
@@ -204,8 +195,7 @@ class FamilyMember(BaseModel):
 
     applicant = models.ForeignKey(Applicant, on_delete=models.CASCADE, related_name="family_members")
     relationship = models.CharField(max_length=20, choices=FamilyRelationship.choices)
-    full_name_np = models.CharField(max_length=255)
-    full_name_en = models.CharField(max_length=255, blank=True)
+    full_name = models.CharField(max_length=255, blank=True)
     occupation = models.CharField(max_length=150, blank=True)
     contact_number = models.CharField(
         max_length=32,
@@ -220,15 +210,14 @@ class FamilyMember(BaseModel):
         ordering = ["relationship", "created_at"]
 
     def __str__(self) -> str:
-        return f"{self.full_name_en or self.full_name_np} ({self.relationship})"
+        return f"{self.full_name} ({self.relationship})"
 
 
 class EmergencyContact(BaseModel):
     """Who to reach if something goes wrong. Not necessarily a relative."""
 
     applicant = models.ForeignKey(Applicant, on_delete=models.CASCADE, related_name="emergency_contacts")
-    full_name_np = models.CharField(max_length=255)
-    full_name_en = models.CharField(max_length=255, blank=True)
+    full_name = models.CharField(max_length=255, blank=True)
     relationship = models.CharField(max_length=100, blank=True)
     contact_number = models.CharField(max_length=32, validators=[validate_contact_number])
     email = models.EmailField(blank=True)
@@ -241,4 +230,4 @@ class EmergencyContact(BaseModel):
         ordering = ["created_at"]
 
     def __str__(self) -> str:
-        return f"{self.full_name_en or self.full_name_np} ({self.contact_number})"
+        return f"{self.full_name} ({self.contact_number})"

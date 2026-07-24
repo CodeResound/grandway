@@ -25,10 +25,9 @@ class ApplicantJourneyAdmin(admin.ModelAdmin):
     list_filter = ("stage", "outcome", "study_level", "creation_source", "target_country_ref")
     list_select_related = ("applicant", "target_country_ref")
     search_fields = (
-        "applicant__full_name_np",
-        "applicant__full_name_en",
+        "applicant__full_name",
         "target_country",
-        "target_country_ref__name_en",
+        "target_country_ref__name",
         "target_institution_name",
         "field_of_study",
     )

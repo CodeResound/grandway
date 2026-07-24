@@ -40,7 +40,7 @@ Three rules follow from it, and each one is load-bearing:
 - **`education` and `test_scores` are named in the concept but have no columns here, because those apps do not exist.** The concept lists education records among the owner types. When that app ships, adding a sixth nullable FK and extending the constraint is one additive migration in this app and none anywhere else. Until then, a transcript attaches to the applicant.
 - **Generated PDFs have a category but no producer.** The concept asks *"Whether generated PDFs live here immediately or only later."* The `generated_document` category and the `system_generated` upload source both exist and both work — but `document_history` has no field pointing at a file and does not call this app. A client that generates a PDF may upload it against a snapshot today; nothing in `document_history` will know it did.
 - **Verification gates nothing.** The concept asks *"Which categories require verification before use."* Every file starts `pending` and every file may be marked `verified` or `rejected`, but **no endpoint anywhere in Grandway refuses to proceed because a file is unverified.** The state is recorded for human review, not enforced. A rule that says "an offer cannot be accepted until the passport is verified" would live in `offers`, not here, and does not exist.
-- **No §39.1 bilingual identity triple.** Every other named entity in the project carries `_np`/`_en`/`_romanized`. A filename does not: it is a byte-level artefact chosen by whatever produced the file, not a canonical identity a Nepali institution recognises. §39.2 still applies in full — `notes`, `rejection_reason`, and `archive_reason` are Unicode-normalized on write. §39.6 search runs over `original_filename` alone, with a trigram index, and that is documented as a real limitation: a Devanagari-named file will not be found by a Roman-script query.
+- **`original_filename` is a byte-level artefact, not a chosen display name** — it is whatever produced the file. §39.2 applies in full: `notes`, `rejection_reason`, and `archive_reason` are Unicode-normalized on write. §39.6 search runs over `original_filename` alone, with a trigram index.
 - **`content_type` is the validated type, not the client's claim.** The browser's `Content-Type` on a multipart part is advisory and trivially forged. What is stored is the type this app derived from the extension after confirming the leading bytes agree with it.
 - **Duplicates are recorded, not blocked.** Two identical files may exist under two owners, or twice under one. `checksum_sha256` is indexed and filterable so an operator can find them; nothing rejects them. The same scan legitimately supports two different records.
 - **No upload idempotency key, and this is a deliberate departure from §15.** That section names file upload among the operations requiring idempotency. Here the requirement conflicts with the rule above: if duplicates are legitimate — and they are, because one scan may support two records — then a request-level de-duplication key would have to distinguish "the same file again on purpose" from "the same request retried", which the client is the only party able to know. The consequence is real and is recorded rather than hidden: **an upload that times out after the server stored it produces a second row on retry**, discoverable only by a `?checksum=` lookup afterwards. An idempotency key supplied by the client would close it and is the recommended future improvement.
@@ -176,8 +176,8 @@ Ordering is `-created_at`, `-id`. The `-id` tiebreaker is not cosmetic — it is
   "reviewed_at": "2026-07-24T11:20:41Z",
   "reviewed_at_bs": {
     "year": 2083, "month": 4, "day": 9,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 9", "display_np": "२०८३ श्रावण ९"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 9"
   },
   "reviewed_by_username": "admin.rita",
   "is_archived": false,
@@ -189,8 +189,8 @@ Ordering is `-created_at`, `-id`. The `-id` tiebreaker is not cosmetic — it is
   "created_at": "2026-07-24T10:58:03Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 9,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 9", "display_np": "२०८३ श्रावण ९"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 9"
   },
   "updated_at": "2026-07-24T11:20:41Z"
 }

@@ -93,7 +93,7 @@ class TestConversionIdempotency(ConversionTestCase):
         self.client.post(self.url, {}, format="json")
         self.lead.refresh_from_db()
 
-        second_lead = make_lead(self.owner, self.source, name_np="दोस्रो")
+        second_lead = make_lead(self.owner, self.source)
         second_lead.converted_applicant = self.lead.converted_applicant
         with self.assertRaises(IntegrityError), transaction.atomic():
             second_lead.save(update_fields=["converted_applicant"])
@@ -103,11 +103,10 @@ class TestConversionIdempotency(ConversionTestCase):
         self.client.post(self.url, {}, format="json")
 
         other_applicant = Applicant.objects.create(
-            full_name_np="अर्को",
             created_by=self.admin,
             creation_source=ApplicantCreationSource.DIRECT_ADMIN,
         )
-        second_lead = make_lead(self.owner, self.source, name_np="दोस्रो")
+        second_lead = make_lead(self.owner, self.source)
         second_lead.converted_applicant = other_applicant
         second_lead.save(update_fields=["converted_applicant"])
 
@@ -168,7 +167,7 @@ class TestConversionResult(ConversionTestCase):
     def test_applicant_carries_the_leads_identity_and_contacts(self) -> None:
         self.client.post(self.url, {}, format="json")
         applicant = Applicant.objects.get()
-        self.assertEqual(applicant.full_name_np, self.lead.full_name_np)
+        self.assertEqual(applicant.full_name, self.lead.full_name)
         self.assertEqual(applicant.creation_source, ApplicantCreationSource.LEAD_CONVERSION)
         self.assertEqual(
             [entry.number for entry in applicant.contact_numbers.all()],

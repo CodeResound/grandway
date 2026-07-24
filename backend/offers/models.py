@@ -14,7 +14,7 @@ Three conventions run through both models here and are deliberate:
 * **Nothing is ever deleted.** No resource here has a delete endpoint. An offer
   that is no longer live becomes terminal; a condition that no longer applies
   becomes ``not_applicable``.
-* **``name_en`` is required and ``name_np`` is optional** — the inverse of
+* **Snapshot names are English-only**, like every name in the system — as in
   §39.1, inherited from ``institutions``. These are foreign proper nouns with
   no authoritative Devanagari identity; requiring one would produce invented
   transliterations. See ``docs/DATA_CONTRACT.md`` — "Deliberate Deviations".
@@ -104,8 +104,7 @@ class Offer(BaseModel):
     # answers "what was offered" even after the catalogue record is renamed,
     # repriced, or marked inactive — and for a manual offer it is the only
     # answer there is.
-    institution_name_en = models.CharField(max_length=255)
-    institution_name_np = models.CharField(max_length=255, blank=True)
+    institution_name = models.CharField(max_length=255)
     campus_name = models.CharField(max_length=255, blank=True)
     program_title = models.CharField(max_length=255)
     country_name = models.CharField(max_length=150, blank=True)
@@ -198,7 +197,7 @@ class Offer(BaseModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.program_title} — {self.institution_name_en} ({self.status})"
+        return f"{self.program_title} — {self.institution_name} ({self.status})"
 
     @property
     def is_terminal(self) -> bool:

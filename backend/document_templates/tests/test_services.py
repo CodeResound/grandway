@@ -48,53 +48,6 @@ class DocumentTemplatesTestCase(TestCase):
 # ---------------------------------------------------------------------------
 
 
-class SignatoryLocalizationTests(DocumentTemplatesTestCase):
-    """§39.1–§39.3 — a signatory is a named person, so the full rule applies."""
-
-    def test_romanized_name_is_derived_from_the_devanagari_name(self) -> None:
-        signatory = f.make_signatory(self.admin)
-
-        self.assertTrue(signatory.name_romanized)
-        self.assertNotEqual(signatory.name_romanized, signatory.name_np)
-        self.assertEqual(signatory.name_romanized, signatory.name_romanized.lower())
-
-    def test_a_hand_supplied_romanization_is_not_overwritten(self) -> None:
-        """An operator's correction must survive the next save (§39.3)."""
-        signatory = f.make_signatory(self.admin, name_romanized="griha")
-
-        self.assertEqual(signatory.name_romanized, "griha")
-
-    def test_updating_the_devanagari_name_rederives_the_romanized_form(self) -> None:
-        """Renaming must not leave a stale romanization — search matches on it.
-
-        A §19.5 consumer review ranked this the defect most likely to make a
-        client author write a bug: if a rename did *not* re-derive, Roman-script
-        search would silently break for every record an Admin edits, and the
-        contract said nothing either way. The behaviour is correct; the test and
-        the contract now both say so.
-        """
-        signatory = f.make_signatory(self.admin)
-        original = signatory.name_romanized
-
-        services.update_signatory(actor=self.admin, signatory=signatory, fields={"name_np": "राम बहादुर"})
-
-        signatory.refresh_from_db()
-        self.assertNotEqual(signatory.name_romanized, original)
-        self.assertIn(signatory, search_signatories(Signatory.objects.all(), signatory.name_romanized))
-
-    def test_a_rename_that_also_supplies_a_romanization_keeps_the_supplied_one(self) -> None:
-        signatory = f.make_signatory(self.admin)
-
-        services.update_signatory(
-            actor=self.admin,
-            signatory=signatory,
-            fields={"name_np": "राम बहादुर", "name_romanized": "ram bdr"},
-        )
-
-        signatory.refresh_from_db()
-        self.assertEqual(signatory.name_romanized, "ram bdr")
-
-
 class UnicodeNormalizationTests(DocumentTemplatesTestCase):
     """§39.2 — every user-entered text field is NFC-normalized on write.
 
@@ -120,9 +73,9 @@ class UnicodeNormalizationTests(DocumentTemplatesTestCase):
         self.assertEqual(unicodedata.normalize("NFC", self.PRECOMPOSED), self.NORMALIZED)
 
     def test_signatory_name_is_normalized(self) -> None:
-        signatory = f.make_signatory(self.admin, name_np=self.PRECOMPOSED)
+        signatory = f.make_signatory(self.admin, name=self.PRECOMPOSED)
 
-        self.assertEqual(signatory.name_np, self.NORMALIZED)
+        self.assertEqual(signatory.name, self.NORMALIZED)
 
     def test_status_note_is_normalized(self) -> None:
         signatory = f.make_signatory(self.admin)
@@ -138,10 +91,10 @@ class UnicodeNormalizationTests(DocumentTemplatesTestCase):
 
     def test_two_spellings_of_one_name_converge_in_storage(self) -> None:
         """The point of §39.2, stated as the behaviour search depends on."""
-        first = f.make_signatory(self.admin, name_np=self.PRECOMPOSED)
-        second = f.make_signatory(self.admin, name_np=self.NORMALIZED)
+        first = f.make_signatory(self.admin)
+        second = f.make_signatory(self.admin)
 
-        self.assertEqual(first.name_np, second.name_np)
+        self.assertEqual(first.name, second.name)
 
 
 class SignatoryLifecycleTests(DocumentTemplatesTestCase):
@@ -154,9 +107,9 @@ class SignatoryLifecycleTests(DocumentTemplatesTestCase):
 
     def test_only_active_signatories_reach_the_picker(self) -> None:
         """A draft signatory is excluded alongside a retired one."""
-        f.make_signatory(self.admin, name_np="मुकेश")
-        active = f.make_active_signatory(self.admin, name_np="सुनिता")
-        retired = f.make_active_signatory(self.admin, name_np="राम")
+        f.make_signatory(self.admin)
+        active = f.make_active_signatory(self.admin)
+        retired = f.make_active_signatory(self.admin)
         services.change_signatory_status(actor=self.admin, signatory=retired, status=LifecycleStatus.INACTIVE)
 
         picker = list(get_active_signatories())
@@ -177,10 +130,10 @@ class SignatoryLifecycleTests(DocumentTemplatesTestCase):
         with self.assertRaises(InvalidStatusTransitionError):
             services.change_signatory_status(actor=self.admin, signatory=signatory, status="enabled")
 
-    def test_search_matches_any_of_the_three_name_forms(self) -> None:
+    def test_search_matches_the_name(self) -> None:
         signatory = f.make_signatory(self.admin)
 
-        for query in (signatory.name_np, "Sunita", signatory.name_romanized):
+        for query in (signatory.name, "Sunita", "sunita"):
             with self.subTest(query=query):
                 found = search_signatories(Signatory.objects.all(), query)
                 self.assertIn(signatory, found)

@@ -15,16 +15,16 @@ from datetime import date, datetime
 
 from nepali.datetime import nepalidate
 
-from core.nepal.constants import (
-    BS_MONTH_NAMES_EN,
-    BS_MONTH_NAMES_NP,
-    DEVANAGARI_DIGITS,
-    NEPAL_TZ,
-)
+from core.nepal.constants import BS_MONTH_NAMES_EN, NEPAL_TZ
 
 
 class BsDate:
-    """Lightweight container for a Bikram Sambat date with display helpers."""
+    """Lightweight container for a Bikram Sambat date with display helpers.
+
+    The calendar is Nepali; the rendering is English. There is no `_np` variant
+    of the month name or display string — the system stores and presents one
+    language, so a language suffix would distinguish nothing.
+    """
 
     def __init__(self, year: int, month: int, day: int) -> None:
         self.year = year
@@ -32,32 +32,20 @@ class BsDate:
         self.day = day
 
     @property
-    def month_name_en(self) -> str:
+    def month_name(self) -> str:
         return BS_MONTH_NAMES_EN[self.month]
 
     @property
-    def month_name_np(self) -> str:
-        return BS_MONTH_NAMES_NP[self.month]
-
-    @property
-    def display_en(self) -> str:
-        return f"{self.year} {self.month_name_en} {self.day}"
-
-    @property
-    def display_np(self) -> str:
-        year_np = "".join(DEVANAGARI_DIGITS[int(d)] for d in str(self.year))
-        day_np = "".join(DEVANAGARI_DIGITS[int(d)] for d in str(self.day))
-        return f"{year_np} {self.month_name_np} {day_np}"
+    def display(self) -> str:
+        return f"{self.year} {self.month_name} {self.day}"
 
     def to_dict(self) -> dict:
         return {
             "year": self.year,
             "month": self.month,
             "day": self.day,
-            "month_name_en": self.month_name_en,
-            "month_name_np": self.month_name_np,
-            "display_en": self.display_en,
-            "display_np": self.display_np,
+            "month_name": self.month_name,
+            "display": self.display,
         }
 
     def to_date(self) -> date:

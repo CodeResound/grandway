@@ -56,11 +56,8 @@ class SignatorySerializer(serializers.ModelSerializer):
         model = Signatory
         fields = (
             "id",
-            "name_np",
-            "name_en",
-            "name_romanized",
-            "title_np",
-            "title_en",
+            "name",
+            "title",
             "role",
             "signature_image_url",
             "status",
@@ -106,22 +103,17 @@ class DocumentTemplateSerializer(serializers.ModelSerializer):
 class SignatoryCreateSerializer(_NormalizedTextMixin, serializers.Serializer):
     """A new person in the signature library.
 
-    ``name_romanized`` is accepted but **not required** (§39.1): the service
-    derives it from ``name_np`` when it is absent, and keeps a hand-corrected
-    value when it is present.
+    The service normalizes ``name`` on write (§39.2).
 
     ``status`` is absent — a new signatory starts as ``draft`` and is activated
     through its own action, so "this signatory is usable" is always a recorded
     decision rather than a default.
     """
 
-    text_fields = ("name_np", "name_en", "title_np", "title_en", "role")
+    text_fields = ("name", "title", "role")
 
-    name_np = serializers.CharField(max_length=255)
-    name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    name_romanized = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    title_np = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    title_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    name = serializers.CharField(max_length=255)
+    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
     role = serializers.CharField(max_length=100, required=False, allow_blank=True)
     signature_image_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
 
@@ -133,13 +125,10 @@ class SignatoryUpdateSerializer(_NormalizedTextMixin, serializers.Serializer):
     a signatory could change standing without the transition being recorded.
     """
 
-    text_fields = ("name_np", "name_en", "title_np", "title_en", "role")
+    text_fields = ("name", "title", "role")
 
-    name_np = serializers.CharField(max_length=255, required=False)
-    name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    name_romanized = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    title_np = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    title_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
     role = serializers.CharField(max_length=100, required=False, allow_blank=True)
     signature_image_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
 

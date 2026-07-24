@@ -85,8 +85,8 @@ class ClientListCreateTests(ClientAPITestCase):
         self.assertIsNone(row["primary_contact_number"])
 
     def test_search_filter(self) -> None:
-        f.make_client(self.admin, name_np="हिमाल एजुकेशन", name_en="Himal Education")
-        f.make_client(self.admin, name_np="सगरमाथा कन्सल्ट", name_en="Sagarmatha Consult")
+        f.make_client(self.admin, name="Himal Education")
+        f.make_client(self.admin, name="Sagarmatha Consult")
         self.auth(self.lead_manager)
 
         response = self.client.get(CLIENTS_URL, {"search": "Sagarmatha"})
@@ -102,9 +102,7 @@ class ClientListCreateTests(ClientAPITestCase):
         response = self.client.post(
             CLIENTS_URL,
             {
-                "name_np": "हिमाल एजुकेशन",
-                "name_en": "Himal Education",
-                "spokesperson_name_np": "सुनिता श्रेष्ठ",
+                "name": "Himal Education",
                 "spokesperson_designation": "Managing Director",
                 "email": "info@himal.example",
                 "website": "https://himal.example",
@@ -116,30 +114,29 @@ class ClientListCreateTests(ClientAPITestCase):
         self.assertEqual(response.status_code, 201)
         data = self.assert_success_envelope(response)["data"]
         self.assertEqual(data["status"], ClientStatus.ACTIVE)
-        self.assertTrue(data["name_romanized"])
-        self.assertTrue(data["spokesperson_name_romanized"])
+        self.assertEqual(data["name"], "Himal Education")
         self.assertEqual(len(data["contact_numbers"]), 1)
 
     def test_lead_manager_may_not_add_a_client(self) -> None:
         """The defining split of this app — reads shared, writes Admin-only."""
         self.auth(self.lead_manager)
-        response = self.client.post(CLIENTS_URL, {"name_np": "हिमाल"}, format="json")
+        response = self.client.post(CLIENTS_URL, {"name": "Himal"}, format="json")
 
         self.assertEqual(response.status_code, 403)
         self.assert_error_envelope(response, ErrorCode.ACTOR_FORBIDDEN)
 
-    def test_name_np_is_required(self) -> None:
+    def test_name_is_required(self) -> None:
         self.auth(self.admin)
-        response = self.client.post(CLIENTS_URL, {"name_en": "Himal Education"}, format="json")
+        response = self.client.post(CLIENTS_URL, {"email": "info@himal.example"}, format="json")
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("name_np", response.json()["error"]["details"])
+        self.assertIn("name", response.json()["error"]["details"])
 
     def test_duplicate_number_in_one_payload_is_rejected(self) -> None:
         self.auth(self.admin)
         response = self.client.post(
             CLIENTS_URL,
-            {"name_np": "हिमाल", "contact_numbers": [{"number": "9801111111"}, {"number": "9801111111"}]},
+            {"name": "Himal Education", "contact_numbers": [{"number": "9801111111"}, {"number": "9801111111"}]},
             format="json",
         )
 
@@ -150,14 +147,14 @@ class ClientListCreateTests(ClientAPITestCase):
         self.auth(self.admin)
         response = self.client.post(
             CLIENTS_URL,
-            {"name_np": "हिमाल", "contact_numbers": [{"number": "call me maybe"}]},
+            {"contact_numbers": [{"number": "call me maybe"}]},
             format="json",
         )
         self.assertEqual(response.status_code, 400)
 
     def test_malformed_email_is_rejected(self) -> None:
         self.auth(self.admin)
-        response = self.client.post(CLIENTS_URL, {"name_np": "हिमाल", "email": "not-an-email"}, format="json")
+        response = self.client.post(CLIENTS_URL, {"email": "not-an-email"}, format="json")
         self.assertEqual(response.status_code, 400)
 
 

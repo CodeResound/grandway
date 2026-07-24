@@ -46,7 +46,7 @@ class OfferCreationTests(TestCase):
     def test_catalogue_offer_copies_the_snapshot(self) -> None:
         offer = f.make_offer(self.admin, self.journey, program=self.catalogue["program"])
 
-        self.assertEqual(offer.institution_name_en, "University of Melbourne")
+        self.assertEqual(offer.institution_name, "University of Melbourne")
         self.assertEqual(offer.program_title, "Master of Information Technology")
         self.assertEqual(offer.campus_name, "Parkville")
         self.assertEqual(offer.country_name, "Australia")
@@ -75,7 +75,7 @@ class OfferCreationTests(TestCase):
             actor=self.admin,
             institution=self.catalogue["institution"],
             fields={
-                "name_en": "Melbourne Uni (renamed)",
+                "name": "Melbourne Uni (renamed)",
                 "availability_status": "inactive",
                 "availability_note": "No longer working with this provider.",
             },
@@ -83,7 +83,7 @@ class OfferCreationTests(TestCase):
 
         offer.refresh_from_db()
         self.assertEqual(offer.program_title, "Master of Information Technology")
-        self.assertEqual(offer.institution_name_en, "University of Melbourne")
+        self.assertEqual(offer.institution_name, "University of Melbourne")
         # The live link is still intact — the offer points at the record it came
         # from, it simply no longer takes its wording from it.
         self.assertEqual(offer.program_id, self.catalogue["program"].id)
@@ -111,7 +111,7 @@ class OfferCreationTests(TestCase):
 
     def test_campus_from_another_institution_is_rejected(self) -> None:
         other_institution = self.catalogue["institution"].__class__.objects.create(
-            country=self.catalogue["country"], name_en="Other University"
+            country=self.catalogue["country"], name="Other University"
         )
         with self.assertRaises(CatalogueReferenceInvalidError):
             services.create_offer(

@@ -16,7 +16,7 @@ from typing import Any
 from audit.constants import ActorType
 from audit.services import record_event
 from core.constants import ContactNumberLabel
-from core.nepal.text import normalize_unicode, romanize_devanagari
+from core.nepal.text import normalize_unicode
 from django.db import transaction
 from django.utils import timezone
 
@@ -96,24 +96,20 @@ def _record(
 
 
 def _apply_name_fields(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalize the Devanagari name and derive its romanized form (§39.1/§39.3).
+    """Normalize the lead's name (§39.2).
 
-    The romanized field is computed here in the service layer — never in a
-    model or signal — and only when the caller has not supplied one.
+    Applied in the service layer as well as the serializer so a direct service
+    caller — a management command, a test, a future import — cannot bypass it.
     """
-    if "full_name_np" in data and data["full_name_np"]:
-        data["full_name_np"] = normalize_unicode(data["full_name_np"])
-        if not data.get("full_name_romanized"):
-            data["full_name_romanized"] = romanize_devanagari(data["full_name_np"])
+    if data.get("full_name"):
+        data["full_name"] = normalize_unicode(data["full_name"])
     return data
 
 
 def _apply_reference_name_fields(data: dict[str, Any]) -> dict[str, Any]:
     """The ``_apply_name_fields`` equivalent for the two reference tables."""
-    if "name_np" in data and data["name_np"]:
-        data["name_np"] = normalize_unicode(data["name_np"])
-        if not data.get("name_romanized"):
-            data["name_romanized"] = romanize_devanagari(data["name_np"])
+    if data.get("name"):
+        data["name"] = normalize_unicode(data["name"])
     return data
 
 
@@ -277,7 +273,7 @@ def create_lead(
         actor=actor,
         entity_type=AUDIT_ENTITY_LEAD,
         entity_id=str(lead.id),
-        summary=f"Lead '{lead.full_name_np}' created.",
+        summary=f"Lead '{lead.full_name}' created.",
         metadata={"source": lead.source.code, "stage": lead.stage},
         ip_address=ip_address,
     )
@@ -319,7 +315,7 @@ def update_lead(
             actor=actor,
             entity_type=AUDIT_ENTITY_LEAD,
             entity_id=str(lead.id),
-            summary=f"Lead '{lead.full_name_np}' updated.",
+            summary=f"Lead '{lead.full_name}' updated.",
             changes=changes,
             ip_address=ip_address,
         )
@@ -643,9 +639,7 @@ def convert_lead(*, actor: Any, lead: Lead, ip_address: str | None = None) -> Le
     applicant = applicant_services.create_applicant(
         actor=actor,
         data={
-            "full_name_np": lead.full_name_np,
-            "full_name_en": lead.full_name_en,
-            "full_name_romanized": lead.full_name_romanized,
+            "full_name": lead.full_name,
             "email": lead.email,
         },
         contact_numbers=[
@@ -687,7 +681,7 @@ def convert_lead(*, actor: Any, lead: Lead, ip_address: str | None = None) -> Le
         actor=actor,
         entity_type=AUDIT_ENTITY_LEAD,
         entity_id=str(lead.id),
-        summary=f"Lead converted to applicant '{applicant.full_name_np}'.",
+        summary=f"Lead converted to applicant '{applicant.full_name}'.",
         changes={"stage": {"from": previous, "to": LeadStage.CONVERTED}},
         metadata={"applicant_id": str(applicant.id), "journey_id": str(journey.id)},
         ip_address=ip_address,

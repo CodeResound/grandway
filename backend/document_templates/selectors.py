@@ -41,7 +41,7 @@ def get_active_signatories() -> QuerySet[Signatory]:
 def search_signatories(queryset: QuerySet[Signatory], query: str) -> QuerySet[Signatory]:
     """Narrow signatories by any of their three name forms (§39.6).
 
-    OR semantics across ``name_np``, ``name_en``, and ``name_romanized``, each
+    ``icontains`` over ``name``,
     carried by its own GIN trigram index, so a Roman-script query finds a
     Devanagari-primary record. ``title`` is **not** searched: it has no
     romanized sibling, so a title search would work in one script and silently
@@ -50,9 +50,7 @@ def search_signatories(queryset: QuerySet[Signatory], query: str) -> QuerySet[Si
     query = (query or "").strip()
     if not query:
         return queryset
-    return queryset.filter(
-        Q(name_np__icontains=query) | Q(name_en__icontains=query) | Q(name_romanized__icontains=query)
-    )
+    return queryset.filter(Q(name__icontains=query))
 
 
 def filter_signatories(queryset: QuerySet[Signatory], filters: dict[str, Any] | None = None) -> QuerySet[Signatory]:

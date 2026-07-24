@@ -70,15 +70,15 @@
 
 ## 4. Models
 
-**BsDate** — `{ year, month, day, month_name_en, month_name_np, display_en, display_np }`
+**BsDate** — `{ year, month, day, month_name, display }`
 
 **UserBrief** — `{ id, username, display_name }`
 
-**CountryBrief** — `{ id, code, name_en, name_np }`
+**CountryBrief** — `{ id, code, name }`
 
 - The nested read shape of `target_country_ref`. Written as a bare UUID, read back as this object — the same asymmetry `applicant` has. `null` on any journey whose destination was never resolved to a catalogue country.
 
-**ApplicantBrief** — `{ id, full_name_np, full_name_en, status }`
+**ApplicantBrief** — `{ id, full_name, status }`
 
 - Just enough of the applicant to label the journey. The journey never duplicates the person's contact details — fetch the applicant from the `applicants` module for those.
 
@@ -107,8 +107,7 @@
   "id": "3f4e5d6c-7b8a-9012-3456-789abcdef012",
   "applicant": {
     "id": "7c8d9e0f-1a2b-3c4d-5e6f-708192a3b4c5",
-    "full_name_np": "राम श्रेष्ठ",
-    "full_name_en": "Ram Shrestha",
+    "full_name": "Ram Shrestha",
     "status": "active"
   },
   "target_country": "Australia",
@@ -147,8 +146,7 @@
   "id": "3f4e5d6c-7b8a-9012-3456-789abcdef012",
   "applicant": {
     "id": "7c8d9e0f-1a2b-3c4d-5e6f-708192a3b4c5",
-    "full_name_np": "राम श्रेष्ठ",
-    "full_name_en": "Ram Shrestha",
+    "full_name": "Ram Shrestha",
     "status": "active"
   },
   "target_country": "Australia",
@@ -169,8 +167,8 @@
   "closed_at": "2026-07-23T09:00:00Z",
   "closed_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   },
   "closed_by": { "id": "aaaa1111-2222-3333-4444-555566667777", "username": "adminuser", "display_name": "Adminuser" },
   "deferred_at": null,
@@ -200,8 +198,8 @@
   "created_at": "2026-07-23T09:00:00Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   }
 }
 ```

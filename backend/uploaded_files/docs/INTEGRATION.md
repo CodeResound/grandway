@@ -135,7 +135,7 @@
 - **Pagination:** page-number based. `page` and `page_size` (default 20, max 100). `data` is the **bare array of rows — not nested under a `results` key**. `meta` carries `count`, `page`, `page_size`, `next`, `previous`; `count` is the **total across all pages**, not the rows in `data`. `next`/`previous` are absolute URLs (scheme + host) or `null`. Applied to `GET /files/` only — **the version-chain endpoint is not paginated** and returns its own `meta: { count }`.
 - **IDs:** UUID strings, unquoted and unmarked in the shapes below — a field with no type marker is a string. **Every per-file route** takes the file's UUID `id` in its path; the list and upload routes take none. There is no lookup by filename or by checksum path; `?checksum=` on the list is the closest equivalent.
 - **Ordering** is fixed and **not client-controllable** — there is no `sort` or `ordering` parameter. The list is newest-created first. The version chain is **oldest first**, which is the opposite direction, deliberately: a chain is read as a history.
-- **Times.** `created_at`, `updated_at`, `reviewed_at`, `archived_at`, and `superseded_at` are ISO 8601 UTC. **Three carry a Bikram Sambat sibling** (§39.4) — `created_at_bs`, `reviewed_at_bs`, `archived_at_bs` — each an object with `year`, `month`, `day`, `month_name_en`, `month_name_np`, `display_en`, `display_np`, or `null` while its Gregorian field is null. `updated_at` and `superseded_at` have **no** sibling. There is **no `?fiscal_year=` filter** on the list.
+- **Times.** `created_at`, `updated_at`, `reviewed_at`, `archived_at`, and `superseded_at` are ISO 8601 UTC. **Three carry a Bikram Sambat sibling** (§39.4) — `created_at_bs`, `reviewed_at_bs`, `archived_at_bs` — each an object with `year`, `month`, `day`, `month_name`, `month_name`, `display`, `display`, or `null` while its Gregorian field is null. `updated_at` and `superseded_at` have **no** sibling. There is **no `?fiscal_year=` filter** on the list.
 - **Empty text fields are `""`, never `null`.** The nullable fields are exactly those marked `?` in §4 — nine of them: `replaces`, `superseded_at`, `superseded_by_username`, `reviewed_at`, `reviewed_at_bs`, `reviewed_by_username`, `archived_at`, `archived_at_bs`, and `archived_by_username`. Every other field is always present and non-null.
 
 ## 4. Models
@@ -178,8 +178,8 @@ A verified passport scan, replacing an earlier upload:
   "reviewed_at": "2026-07-24T11:20:41Z",
   "reviewed_at_bs": {
     "year": 2083, "month": 4, "day": 9,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 9", "display_np": "२०८३ श्रावण ९"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 9"
   },
   "reviewed_by_username": "admin.rita",
   "is_archived": false,
@@ -192,8 +192,8 @@ A verified passport scan, replacing an earlier upload:
   "created_at": "2026-07-24T10:58:03Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 9,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 9", "display_np": "२०८३ श्रावण ९"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 9"
   },
   "updated_at": "2026-07-24T11:20:41Z"
 }
@@ -223,8 +223,8 @@ Its predecessor, still readable and still downloadable:
   "reviewed_at": "2026-07-24T09:41:12Z",
   "reviewed_at_bs": {
     "year": 2083, "month": 4, "day": 9,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 9", "display_np": "२०८३ श्रावण ९"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 9"
   },
   "reviewed_by_username": "admin.rita",
   "is_archived": false,
@@ -237,8 +237,8 @@ Its predecessor, still readable and still downloadable:
   "created_at": "2026-07-24T09:12:55Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 9,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 9", "display_np": "२०८३ श्रावण ९"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 9"
   },
   "updated_at": "2026-07-24T10:58:03Z"
 }
@@ -311,7 +311,7 @@ Its predecessor, still readable and still downloadable:
 - Extension checking uses the **last** dot-segment, so `passport.pdf.exe` is an `exe` and is refused.
 - Every new file is `pending`, including `system_generated` ones.
 - **Duplicates are allowed.** Uploading the same bytes twice succeeds and produces two rows with the same `checksum_sha256`.
-- `search` covers `original_filename` **only** — not `notes`, and there is no Devanagari/romanized search here as there is on other modules. A file named in Devanagari will not be found by a Roman-script query.
+- `search` covers `original_filename` **only** — not `notes`.
 - A recognised filter with a bad value is a 400; an unrecognised parameter is ignored.
 
 **Errors:**

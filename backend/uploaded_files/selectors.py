@@ -76,7 +76,7 @@ def search_files(queryset: QuerySet[UploadedFile], query: str) -> QuerySet[Uploa
 
     One field, backed by a GIN trigram index. **This is a real limitation and
     not an oversight:** unlike every other searchable model in the project, a
-    file has no ``_np``/``_en``/``_romanized`` triple to search across, because a
+    file has no separate display name to search across, because a
     filename is a byte-level artefact rather than a canonical identity (§39.1).
     A file named in Devanagari will not be found by a Roman-script query.
     ``notes`` is deliberately not searched — it is an operator's free text and

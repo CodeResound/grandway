@@ -57,16 +57,14 @@ class CountryBriefSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     code = serializers.CharField(read_only=True)
-    name_en = serializers.CharField(read_only=True)
-    name_np = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
 
 
 class ApplicantBriefSerializer(serializers.Serializer):
     """Who the checklist is for. The reason a client never needs a second call."""
 
     id = serializers.UUIDField(read_only=True)
-    full_name_np = serializers.CharField(read_only=True)
-    full_name_en = serializers.CharField(read_only=True)
+    full_name = serializers.CharField(read_only=True)
     status = serializers.CharField(read_only=True)
 
 

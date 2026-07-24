@@ -18,16 +18,26 @@ from django.db import migrations, models
 def backfill_country_ref(apps, schema_editor):
     """Point each journey at the catalogue row its typed country names.
 
-    Exact, case-insensitive match against ``name_en``, ``name_np``, and ``code``.
+    Exact, case-insensitive match against the country's name and ``code``.
     Deliberately not fuzzy: "UK" does not become "United Kingdom" here. Those are
     resolved by hand, or by re-saving the journey with an explicit id.
+
+    The name field is resolved by introspection rather than named directly: this
+    migration predates the English-only rename (``institutions.0002``), so
+    depending on the migration order at run time the historical ``Country`` may
+    still carry the old ``name_en``/``name_np`` columns or the current ``name``.
+    Reading whichever exists keeps a fresh ``migrate`` correct either way.
     """
     Country = apps.get_model("institutions", "Country")
     ApplicantJourney = apps.get_model("applicant_journeys", "ApplicantJourney")
 
+    field_names = {f.name for f in Country._meta.get_fields()}
+    name_fields = [f for f in ("name", "name_en", "name_np", "code") if f in field_names]
+
     lookup = {}
     for country in Country.objects.all():
-        for name in (country.name_en, country.name_np, country.code):
+        for field in name_fields:
+            name = getattr(country, field, None)
             if name:
                 lookup.setdefault(name.strip().casefold(), country.pk)
 

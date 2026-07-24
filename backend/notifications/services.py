@@ -257,10 +257,10 @@ def _applicant_name(applicant: Any) -> str:
 
     Both forms are canonical identities rather than translations, so this picks
     the one a staff-facing alert reads best in and never claims the other does
-    not exist. ``full_name_np`` is required on the model, so the fallback always
+    not exist. ``full_name`` is required on the model, so the fallback always
     resolves.
     """
-    return applicant.full_name_en or applicant.full_name_np
+    return applicant.full_name
 
 
 def _key(notification_type: str, entity_type: str, entity_id: Any, discriminator: str = "") -> str:
@@ -370,7 +370,7 @@ def build_offer_deadline_alert(offer: Any, *, expired: bool) -> AlertSpec:
         dedupe_key=_key(notification_type, SourceEntityType.OFFER, offer.id, str(deadline)),
         title=title,
         body=(
-            f"{offer.program_title} at {offer.institution_name_en} is still awaiting a response. "
+            f"{offer.program_title} at {offer.institution_name} is still awaiting a response. "
             f"The deadline {timing}."
         ),
         source_app="offers",
@@ -539,7 +539,7 @@ def build_offer_decided_alert(offer: Any) -> AlertSpec:
         notification_type=NotificationType.OFFER_DECIDED,
         dedupe_key=_key(NotificationType.OFFER_DECIDED, SourceEntityType.OFFER, offer.id, offer.status),
         title=f"Offer {decision.lower()}: {applicant}",
-        body=f"{offer.program_title} at {offer.institution_name_en}.",
+        body=f"{offer.program_title} at {offer.institution_name}.",
         source_app="offers",
         source_entity_type=SourceEntityType.OFFER,
         source_entity_id=offer.id,

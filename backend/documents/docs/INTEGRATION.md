@@ -146,7 +146,7 @@
 - **Pagination:** page-number based. `page` and `page_size` (default 20, max 100). `data` is the **bare array of rows — not nested under a `results` key**. `meta` carries `count`, `page`, `page_size`, `next`, `previous`; `next`/`previous` are absolute URLs or `null`. Applied to all three list endpoints (documents, workspaces, history).
 - **IDs:** UUID strings. `template_key` is a human-readable slug but is **not** an identifier you can address a record by.
 - **Ordering** is fixed and **not client-controllable** — there is no `sort` or `ordering` parameter. Documents are ordered by `-updated_at` (most recently touched first). Workspaces by `-last_updated`. History newest-first.
-- **Times.** `created_at`, `updated_at`, and `archived_at` are ISO 8601 UTC. **Only `archived_at` carries a Bikram Sambat sibling**, `archived_at_bs` — an object or `null`, shaped `{ year, month, day, month_name_en, month_name_np, display_en, display_np }`. Dates *inside* `content` are opaque frontend data and are never parsed, converted, or given a BS sibling.
+- **Times.** `created_at`, `updated_at`, and `archived_at` are ISO 8601 UTC. **Only `archived_at` carries a Bikram Sambat sibling**, `archived_at_bs` — an object or `null`, shaped `{ year, month, day, month_name, display }`. Dates *inside* `content` are opaque frontend data and are never parsed, converted, or given a BS sibling.
 - **Empty text fields are `""`, never `null`.** The nullable fields are `applicant`, `applicant_name`, `archived_at`, and `archived_by_username`.
 
 ## 4. Models
@@ -165,7 +165,7 @@
 **WorkspaceSummary** — `{ applicant_id, applicant_name, document_count, last_updated }`
 
 - One row per applicant who has **live** documents. **Standalone documents are excluded** (no applicant to group under) and **archived documents are excluded from the count** — this table answers "whose files have live work on them". To list standalone documents use `GET /documents/?standalone=true`.
-- `applicant_name` prefers the applicant's English name and falls back to the Devanagari one.
+- `applicant_name` is the applicant's name.
 
 **HistoryEvent** — `{ id, action, actor_type:[enum], actor_id:uuid|null, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:json }`
 
@@ -238,8 +238,8 @@
   "archived_at": "2026-07-24T10:02:00Z",
   "archived_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   },
   "archived_by_username": "adminuser",
   "created_by_username": "adminuser",
@@ -499,7 +499,7 @@ The uploaded `frontend_api-used.md` and `frontend_data-contract.md` describe a *
 | `GET /documents/workspaces` | `GET /api/v1/documents/workspaces/` — note the trailing slash |
 | `DocumentWorkspaceSummary.studentId` / `.studentName` | `applicant_id` / `applicant_name` |
 | `GET /documents/:id/print-logs`, `POST` the same | Built, in a **different module and at a different path**: `GET /api/v1/document-history/documents/<document_id>/timeline/` and `POST /api/v1/document-history/documents/<document_id>/snapshots/` |
-| `GET /signatures?active=true` | Built, in a **different module and at a different path**: `GET /api/v1/document-templates/signatories/?status=active`. The resource is `Signatory`, and its name fields are the §39.1 bilingual triple (`name_np` / `name_en` / `name_romanized`) rather than a single `name` |
+| `GET /signatures?active=true` | Built, in a **different module and at a different path**: `GET /api/v1/document-templates/signatories/?status=active`. The resource is `Signatory`, and the resource is `Signatory` with a single `name` field |
 | Any authenticated user reaches these screens | **Admin only.** A Lead Manager gets 403 on every route, reads included |
 
 **What the frontend gets right and must keep:** `content` carries input fields only; derived values are computed at render and never persisted. That is exactly this backend's contract, and the one thing in the uploaded docs that needed no reconciliation at all.

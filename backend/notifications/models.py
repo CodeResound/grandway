@@ -90,7 +90,7 @@ class Notification(BaseModel):
         db_index=True,
     )
 
-    # Plain fields, not the §39.1 ``_np``/``_en`` pair. These are sentences this
+    # Plain fields rather than named identities. These are sentences this
     # system composes from a source record, not a second canonical identity of an
     # entity — the same call ``documents.label``, ``document_templates.label``,
     # and ``checklists.label`` recorded. §39.1 exists because an organization

@@ -142,7 +142,7 @@ def create_field(*, actor: Any, data: dict[str, Any], ip_address: str | None = N
         actor=actor,
         entity_type=AUDIT_ENTITY_FIELD,
         entity_id=str(field.id),
-        summary=f"Study field '{field.name_en}' created.",
+        summary=f"Study field '{field.name}' created.",
         metadata={"code": field.code},
         ip_address=ip_address,
     )
@@ -166,7 +166,7 @@ def update_field(
             actor=actor,
             entity_type=AUDIT_ENTITY_FIELD,
             entity_id=str(field.id),
-            summary=f"Study field '{field.name_en}' updated.",
+            summary=f"Study field '{field.name}' updated.",
             changes=changes,
             ip_address=ip_address,
         )
@@ -191,7 +191,7 @@ def create_country(*, actor: Any, data: dict[str, Any], ip_address: str | None =
         actor=actor,
         entity_type=AUDIT_ENTITY_COUNTRY,
         entity_id=str(country.id),
-        summary=f"Country '{country.name_en}' created.",
+        summary=f"Country '{country.name}' created.",
         metadata={"code": country.code},
         ip_address=ip_address,
     )
@@ -219,7 +219,7 @@ def update_country(
             actor=actor,
             entity_type=AUDIT_ENTITY_COUNTRY,
             entity_id=str(country.id),
-            summary=f"Country '{country.name_en}' updated.",
+            summary=f"Country '{country.name}' updated.",
             changes=changes,
             ip_address=ip_address,
         )
@@ -244,7 +244,7 @@ def create_institution(*, actor: Any, data: dict[str, Any], ip_address: str | No
         actor=actor,
         entity_type=AUDIT_ENTITY_INSTITUTION,
         entity_id=str(institution.id),
-        summary=f"Institution '{institution.name_en}' created.",
+        summary=f"Institution '{institution.name}' created.",
         metadata={"country_id": str(institution.country_id)},
         ip_address=ip_address,
     )
@@ -272,7 +272,7 @@ def update_institution(
             actor=actor,
             entity_type=AUDIT_ENTITY_INSTITUTION,
             entity_id=str(institution.id),
-            summary=f"Institution '{institution.name_en}' updated.",
+            summary=f"Institution '{institution.name}' updated.",
             changes=changes,
             ip_address=ip_address,
         )
@@ -303,7 +303,7 @@ def create_campus(
         actor=actor,
         entity_type=AUDIT_ENTITY_CAMPUS,
         entity_id=str(campus.id),
-        summary=f"Campus '{campus.name_en}' created for {institution.name_en}.",
+        summary=f"Campus '{campus.name}' created for {institution.name}.",
         metadata={"institution_id": str(institution.id)},
         ip_address=ip_address,
     )
@@ -331,7 +331,7 @@ def update_campus(
             actor=actor,
             entity_type=AUDIT_ENTITY_CAMPUS,
             entity_id=str(campus.id),
-            summary=f"Campus '{campus.name_en}' updated.",
+            summary=f"Campus '{campus.name}' updated.",
             changes=changes,
             ip_address=ip_address,
         )
@@ -368,7 +368,7 @@ def create_program(*, actor: Any, data: dict[str, Any], ip_address: str | None =
         actor=actor,
         entity_type=AUDIT_ENTITY_PROGRAM,
         entity_id=str(program.id),
-        summary=f"Program '{program.title}' created at {program.institution.name_en}.",
+        summary=f"Program '{program.title}' created at {program.institution.name}.",
         metadata={
             "institution_id": str(program.institution_id),
             "qualification_level": program.qualification_level,

@@ -86,9 +86,7 @@ class Command(BaseCommand):
 
             if dry_run:
                 created += 1
-                self.stdout.write(
-                    f"  would apply '{template.label}' to {journey.applicant.full_name_np} ({journey.pk})"
-                )
+                self.stdout.write(f"  would apply '{template.label}' to {journey.applicant.full_name} ({journey.pk})")
                 continue
 
             try:

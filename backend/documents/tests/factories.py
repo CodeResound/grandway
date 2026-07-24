@@ -46,10 +46,10 @@ def token_for(user: Any) -> str:
     return auth_services.build_access_token(user, session, must_change_password=False)
 
 
-def make_applicant(actor: Any, *, name_np: str = "राम बहादुर", **overrides: Any) -> Any:
+def make_applicant(actor: Any, *, name: str = "Ram Bahadur", **overrides: Any) -> Any:
     return applicant_services.create_applicant(
         actor=actor,
-        data={"full_name_np": name_np, "full_name_en": "Ram Bahadur", **overrides},
+        data={"full_name": name, **overrides},
         contact_numbers=[{"number": "9800000000", "label": "mobile", "is_primary": True}],
     )
 

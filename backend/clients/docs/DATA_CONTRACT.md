@@ -1,7 +1,7 @@
 # Data Contract — Clients
 
 **Owner app:** `clients`
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the consultancy's B2B partner directory — the agencies, schools, and companies that refer or send applicants, with the contact and identity details staff need to work with them. It does **not** own people (`leads`, `applicants`), study plans (`applicant_journeys`), the study catalogue (`institutions`), or offers. It owns no history table — a client's history is the central `audit` log filtered to that client.
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — `Client` and `ClientContactNumber` |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Recorded that `logo_url` was deliberately not migrated, and that a `Client` is not an accepted owner type |
+| 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`name`, `spokesperson_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -28,7 +29,7 @@
 - **No `code` field.** `leads.LeadSource` and `institutions.Country` both carry a stable ASCII code because they are picked from dropdowns and referenced by key. A client is looked up by name and addressed by UUID; a code would be a field nobody types and nobody reads.
 - **No `client_type` enum.** The concept's prose names "companies, agencies, schools, or partner organizations", but its explicit field list — "company name, spokesperson, contact numbers, email, address, website, logo, notes, and status" — omits a type. §32: code only what the requirement specifies. Recorded as a future improvement.
 - **`address` is one free-text field**, not the structured province/district/municipality/ward shape `applicants.ApplicantAddress` uses. The concept asks for a form "kept intentionally small and practical", and a partner's address is written on an envelope, not used for eligibility or reporting.
-- **§39.1 applies here as written** — `name_np` required, `name_en` optional, `name_romanized` auto-populated. This is worth stating explicitly only because the neighbouring `institutions` app **inverts** it: foreign universities have no authoritative Devanagari identity, so requiring one there would produce invented transliterations. A Nepal consultancy's referral partners are predominantly domestic organizations that genuinely do have one. Following the rule needs no justification; `institutions` deviating did.
+- **`name` is a single required English field (§39.1)**, as everywhere else in the project. `spokesperson_name` is a single optional field. Both are Unicode-normalized on write (§39.2) and the organization name is trigram-indexed for search.
 
 ---
 
@@ -40,12 +41,8 @@
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
-| name_np | CharField(255) | Yes | No | No | The organization's Devanagari name (§39.1) |
-| name_en | CharField(255) | No | No | No | Optional English name |
-| name_romanized | CharField(255) | No | No | Yes | Auto-populated from `name_np`; a search aid, never displayed |
-| spokesperson_name_np | CharField(255) | No | No | No | The primary contact person |
-| spokesperson_name_en | CharField(255) | No | No | No | |
-| spokesperson_name_romanized | CharField(255) | No | No | Yes | Auto-populated from `spokesperson_name_np` |
+| name | CharField(255) | No | No | No | Optional English name |
+| spokesperson_name | CharField(255) | No | No | No | |
 | spokesperson_designation | CharField(150) | No | No | No | Their role, e.g. `Managing Director` |
 | email | EmailField | No | No | No | The organization's address, not the spokesperson's |
 | website | URLField(500) | No | No | No | |
@@ -65,8 +62,8 @@
 
 **Validation Rules:**
 
-- `name_np` is required and Unicode-normalized on write (§39.2); `name_en` is normalized when present.
-- `name_romanized` and `spokesperson_name_romanized` are derived in the **service layer** from their `_np` source (§39.3) — never in a model or a signal — and only when the caller has not supplied one, so a hand-corrected transliteration survives a later edit.
+- `name` is required and Unicode-normalized on write (§39.2); `name` is normalized when present.
+- `name` and `spokesperson_name` are Unicode-normalized in the **service layer** (§39.2) as well as the serializer, so a direct service caller cannot store an un-normalized value.
 - **`status` is not settable through the update endpoint.** It moves only through `retire_client` and `restore_client`, which stamp who acted and why. A `PATCH` carrying `status`, `status_note`, `retired_at`, or `retired_by` is **rejected** with `CLIENTS_STATUS_IMMUTABLE`, not silently dropped — a client that sent `status` and got 200 back would believe the record had changed.
 - Retiring requires a non-empty reason → `CLIENTS_STATUS_NOTE_REQUIRED`. Retiring an already-inactive client → `CLIENTS_CLIENT_ALREADY_RETIRED` (409).
 - Restoring an already-active client → `CLIENTS_CLIENT_NOT_RETIRED` (409).
@@ -76,8 +73,8 @@
 
 **Indexes:**
 
-- `(status, name_np)` — `client_status_name_idx`. Supports the directory filtered to current partners, in name order.
-- GIN trigram on `name_np`, `name_en`, `name_romanized` — `client_name_{np,en,rom}_trgm_idx`. Support the `?search=` lookup (§39.6). The `pg_trgm` extension already exists from `leads` migration 0002.
+- `(status, name)` — `client_status_name_idx`. Supports the directory filtered to current partners, in name order.
+- GIN trigram on `name`, `name`, `name` — `client_name_{np,en,rom}_trgm_idx`. Support the `?search=` lookup (§39.6). The `pg_trgm` extension already exists from `leads` migration 0002.
 - **The three spokesperson name fields are deliberately *not* trigram-indexed**, although `search_clients` does search them. The directory is a bounded table of partner organizations — tens to hundreds of rows — unlike `leads`, which grows without limit. Six GIN indexes on a table this size cost more in write overhead and disk than they save. If the directory ever reaches a few thousand rows, add them; the selector is already written to use them.
 
 **Soft Delete:** `N/A — no deletion at all.` No client is ever deleted and there is no delete endpoint or delete service, enforced by a test that fails if one appears (`tests/test_services.py::NothingIsDeletedTests`). `concepts/clients.txt` — "No deletion of historical records. Inactive clients should be retained." A partner the consultancy has stopped working with becomes `inactive` with a note. `created_by` is `PROTECT`, so the user who added a client cannot be removed either.
@@ -93,12 +90,8 @@
 ```json
 {
   "id": "6d7e8f90-1a2b-4c3d-9e4f-5061728394a5",
-  "name_np": "हिमाल एजुकेशन",
-  "name_en": "Himal Education",
-  "name_romanized": "himala ejukesana",
-  "spokesperson_name_np": "सुनिता श्रेष्ठ",
-  "spokesperson_name_en": "Sunita Shrestha",
-  "spokesperson_name_romanized": "sunita srestha",
+  "name": "Himal Education",
+  "spokesperson_name": "Sunita Shrestha",
   "spokesperson_designation": "Managing Director",
   "email": "info@himal.example",
   "website": "https://himal.example",

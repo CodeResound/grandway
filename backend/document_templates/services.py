@@ -24,7 +24,7 @@ from typing import Any
 
 from audit.constants import ActorType
 from audit.services import record_event
-from core.nepal.text import normalize_unicode, romanize_devanagari
+from core.nepal.text import normalize_unicode
 from django.db import transaction
 from documents.services import assert_template_key_matches_family
 
@@ -115,7 +115,7 @@ def _diff(instance: Any, fields: dict[str, Any]) -> dict[str, Any]:
 
 
 def apply_name_localization(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalize the Devanagari name and derive its romanized form (§39.1–§39.3).
+    """Normalize the signatory's name (§39.2).
 
     Mirrors ``applicants.services``. The romanized form is a search aid, never
     displayed and never required in a write serializer — but a caller that
@@ -123,10 +123,8 @@ def apply_name_localization(data: dict[str, Any]) -> dict[str, Any]:
     corrected by hand ("Griha" over the generated "grha") should not be
     overwritten on the next save.
     """
-    if "name_np" in data and data["name_np"]:
-        data["name_np"] = normalize_unicode(data["name_np"])
-        if not data.get("name_romanized"):
-            data["name_romanized"] = romanize_devanagari(data["name_np"])
+    if data.get("name"):
+        data["name"] = normalize_unicode(data["name"])
     return data
 
 
@@ -163,7 +161,7 @@ def create_signatory(*, actor: Any, data: dict[str, Any], ip_address: str | None
         actor=actor,
         entity_type=AUDIT_ENTITY_SIGNATORY,
         entity_id=str(signatory.id),
-        summary=f"Signatory '{signatory.name_np}' created.",
+        summary=f"Signatory '{signatory.name}' created.",
         metadata={"status": signatory.status, "role": signatory.role},
         ip_address=ip_address,
     )
@@ -192,7 +190,7 @@ def update_signatory(
             actor=actor,
             entity_type=AUDIT_ENTITY_SIGNATORY,
             entity_id=str(signatory.id),
-            summary=f"Signatory '{signatory.name_np}' updated.",
+            summary=f"Signatory '{signatory.name}' updated.",
             changes=changes,
             ip_address=ip_address,
         )
@@ -229,7 +227,7 @@ def change_signatory_status(
         actor=actor,
         entity_type=AUDIT_ENTITY_SIGNATORY,
         entity_id=str(signatory.id),
-        summary=f"Signatory '{signatory.name_np}' moved from {previous} to {status}.",
+        summary=f"Signatory '{signatory.name}' moved from {previous} to {status}.",
         reason=note,
         changes={"status": {"from": previous, "to": status}},
         ip_address=ip_address,

@@ -132,7 +132,7 @@ class ApplicantJourney(BaseModel):
         selector in this app that returns more than one row joins it.
         """
         if self.target_country_ref_id and "target_country_ref" in self._state.fields_cache:
-            return self.target_country_ref.name_en
+            return self.target_country_ref.name
         return self.target_country or "unspecified destination"
 
     @property

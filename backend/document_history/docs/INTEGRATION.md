@@ -119,7 +119,7 @@ to something when a client looks them up; nothing about this module's behaviour 
 - **Pagination:** page-number based. `page` and `page_size` (default 20, max 100). `data` is the **bare array of rows — not nested under a `results` key**. `meta` carries `count`, `page`, `page_size`, `next`, `previous`; `count` is the **total across all pages**, not the number of rows in `data`. `next`/`previous` are absolute URLs (scheme + host) or `null`. Applied to both list endpoints (snapshots, timeline).
 - **IDs:** UUID strings, unquoted and unmarked in the shapes below — a field with no type marker is a string. `version_number` is a small integer that is unique *within one document's chain* — it is **not** a global identifier and cannot be used to address a snapshot. Address snapshots by `id`.
 - **Ordering** is fixed and **not client-controllable** — there is no `sort` or `ordering` parameter. Snapshots are ordered by `-version_number`, which is unique within the one document a chain is always filtered to, so that list pages stably. Print events are ordered by `-created_at` **plus `-id` as a tiebreaker** — and `id` here is the same UUID this API returns on the row, not a hidden internal key, so you can reproduce the server's ordering exactly (descending `created_at`, then descending UUID string) when merging an optimistically-appended row into a fetched page. The tiebreaker exists because `created_at` is *not* unique: a capture writes its snapshot and its event in one transaction, and two events can share a timestamp. Without it a paginated timeline could show a row twice or skip it; with it, paging is stable.
-- **Times.** `created_at` is ISO 8601 UTC and carries a Bikram Sambat sibling `created_at_bs` on **both** resources — an object shaped `{ year, month, day, month_name_en, month_name_np, display_en, display_np }`, never `null` (both models always have a creation time). Dates *inside* `content` or `render_context` are opaque frontend data and are never parsed, converted, or given a BS sibling. `updated_at` is not exposed on either resource: a row that can never be updated has nothing to report there.
+- **Times.** `created_at` is ISO 8601 UTC and carries a Bikram Sambat sibling `created_at_bs` on **both** resources — an object shaped `{ year, month, day, month_name, display }`, never `null` (both models always have a creation time). Dates *inside* `content` or `render_context` are opaque frontend data and are never parsed, converted, or given a BS sibling. `updated_at` is not exposed on either resource: a row that can never be updated has nothing to report there.
 - **Empty text fields are `""`, never `null`.** `capture_note` and `note` are `""` when not supplied. **No field on either resource is nullable.**
 
 ## 4. Models
@@ -186,8 +186,8 @@ to something when a client looks them up; nothing about this module's behaviour 
   "created_at": "2026-07-24T09:41:02Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   }
 }
 ```
@@ -261,8 +261,8 @@ own contract §4 is authoritative.** Fields this recovery overwrote are marked.
   "created_at": "2026-07-24T11:15:30Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   }
 }
 ```

@@ -111,7 +111,7 @@ Paginated (`StandardPagination`, 20 per page, max 100). Response `data` is an ar
 
 **Query access pattern (§6).** The selector joins all five owner tables plus `replaces` and the four user columns in one `select_related`. Nine joins is unusual and is what keeps this endpoint at a fixed query count: the response reads `owner_type` off whichever foreign key is set, so a page of twenty mixed-owner files would otherwise fire twenty owner queries plus up to eighty user queries. Guarded by `tests/test_views.py::FileListQueryCountTests`, which asserts the count does not grow when the row count quadruples.
 
-**`search` covers one field, and that is a real limitation.** Unlike every other searchable model in the project, a file has no `_np`/`_en`/`_romanized` triple — a filename is a byte-level artefact, not a canonical identity (§39.1). A file named in Devanagari will not be found by a Roman-script query. `notes` is deliberately not searched: it is operator free text that may carry applicant details, which should not be reachable by guessing.
+**`search` covers one field, and that is a real limitation.** It matches `original_filename` only. `notes` is deliberately not searched: it is operator free text that may carry applicant details, which should not be reachable by guessing.
 
 **Error codes:** `UPLOADED_FILES_ACTOR_FORBIDDEN`, `VALIDATION_ERROR`.
 

@@ -1,7 +1,7 @@
 # Data Contract — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns the permanent, authoritative identity of a person the consultancy works with — name, date of birth, contact numbers, addresses, passport, family, emergency contacts, and standing. It does **not** own study objectives (`applicant_journeys`), academic history (`education`, not built), test attempts (`test_scores`, not built), or any file. It owns no history table either — an applicant's history is the central `audit` log filtered to that applicant. It carries **no reference to the originating lead**: `leads.Lead` owns that link, so this app has no dependency on `leads`.
@@ -16,6 +16,7 @@
 | 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the inbound nullable `documents.Document.applicant` FK and the access asymmetry it introduces: applicants are readable by any Admin or Lead Manager, their documents are Admin-only |
 | 1.1.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. A photograph now has a home in `uploaded_files`; this model still holds no reference, and nothing marks a primary photograph |
 | 1.2.0 | 2026-07-24 | AI (Claude Opus 4.8) | Three search indexes added (no column change): GIN trigram on `Applicant.email`, B-tree on `ApplicantContactNumber.number` and `PassportDetail.passport_number`. **Recorded the first outbound read of `applicant_journeys` from this app** — the list response projects a `destinations` array and three list filters resolve through the reverse `journeys` accessor. It is a reverse-accessor read, not an import, so the FK still runs one direction only; §8 documents the derived read model |
+| 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name` on Applicant, FamilyMember, EmergencyContact). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -40,9 +41,7 @@
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
-| full_name_np | CharField(255) | Yes | No | No | Devanagari name — the canonical human identity |
-| full_name_en | CharField(255) | No | No | No | Roman name — an independent identity, not a translation |
-| full_name_romanized | CharField(255) | No | No | Yes | ASCII search form derived from `full_name_np` |
+| full_name | CharField(255) | No | No | No | Roman name — an independent identity, not a translation |
 | date_of_birth | DateField | No | Yes | No | User-facing; exposed with a BS companion |
 | gender | CharField(20) | No | No | No | Blank when undisclosed or unknown |
 | nationality | CharField(100) | No | No | No | Free text |
@@ -54,7 +53,7 @@
 | updated_at | DateTime | — | No | Yes | Set on every save |
 
 **Validation Rules:**
-- `full_name_np` is required and Unicode-normalized; `full_name_romanized` is derived in the service layer and never accepted from a client (§39.1/§39.3).
+- `full_name` is required and Unicode-normalized on write (§39.2).
 - Every user-entered text field is Unicode-normalized on write (§39.2).
 - An applicant must always have at least one `ApplicantContactNumber` — otherwise `APPLICANTS_CONTACT_REQUIRED`.
 - `status` is **not** writable through the update endpoint; it moves only via the status action. It is never changed as a side effect of a journey opening, closing, or reaching an outcome — the two lifecycles are independent.
@@ -63,7 +62,7 @@
 
 **Indexes:**
 - `applicant_status_recent_idx` — `(status, -created_at)`. Supports the default list view and status filters.
-- `appl_name_np_trgm_idx`, `appl_name_en_trgm_idx`, `appl_name_rom_trgm_idx` — GIN trigram indexes (`gin_trgm_ops`) on the three name fields, supporting `search_applicants`'s leading-wildcard `icontains` across all three (§39.6). The `pg_trgm` extension is declared by this app's own initial migration — see the comment there for why it does not rely on the `leads` migration that also creates it.
+- `appl_name_trgm_idx` — GIN trigram indexes (`gin_trgm_ops`) on the three name fields, supporting `search_applicants`'s leading-wildcard `icontains` across all three (§39.6). The `pg_trgm` extension is declared by this app's own initial migration — see the comment there for why it does not rely on the `leads` migration that also creates it.
 - `appl_email_trgm_idx` — GIN trigram on `email`, supporting the same leading-wildcard `icontains` now that `search_applicants` matches the email as well (migration `0002_search_indexes`).
 - `status` additionally carries `db_index=True`.
 
@@ -73,14 +72,12 @@
 ```json
 {
   "id": "7c8d9e0f-1a2b-3c4d-5e6f-708192a3b4c5",
-  "full_name_np": "राम श्रेष्ठ",
-  "full_name_en": "Ram Shrestha",
-  "full_name_romanized": "raam shrestha",
+  "full_name": "Ram Shrestha",
   "date_of_birth": "2002-05-14",
   "date_of_birth_bs": {
     "year": 2059, "month": 2, "day": 1,
-    "month_name_en": "Jestha", "month_name_np": "जेठ",
-    "display_en": "2059 Jestha 1", "display_np": "२०५९ जेठ १"
+    "month_name": "Jestha",
+    "display": "2059 Jestha 1"
   },
   "gender": "male",
   "nationality": "Nepali",
@@ -205,8 +202,7 @@
 | id | UUID | — | No | Yes | Primary key |
 | applicant | FK → Applicant | Yes | No | No | Owning applicant (`CASCADE`) |
 | relationship | CharField(20) | Yes | No | No | |
-| full_name_np | CharField(255) | Yes | No | No | Unicode-normalized |
-| full_name_en | CharField(255) | No | No | No | |
+| full_name | CharField(255) | No | No | No | |
 | occupation | CharField(150) | No | No | No | Unicode-normalized |
 | contact_number | CharField(32) | No | No | No | Same validator as §2 |
 | created_at / updated_at | DateTime | — | No | Yes | Base-model timestamps |
@@ -226,8 +222,7 @@
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
 | applicant | FK → Applicant | Yes | No | No | Owning applicant (`CASCADE`) |
-| full_name_np | CharField(255) | Yes | No | No | Unicode-normalized |
-| full_name_en | CharField(255) | No | No | No | |
+| full_name | CharField(255) | No | No | No | |
 | relationship | CharField(100) | No | No | No | Free text — not the `FamilyMember` enum |
 | contact_number | CharField(32) | Yes | No | No | Same validator as §2 |
 | email | EmailField | No | No | No | |
@@ -277,7 +272,7 @@ The projection exists because a list that cannot show where anyone is headed for
 | stage | string | No | That journey's `JourneyStage` value |
 | country_id | UUID string | Yes | The `institutions.Country` id, or `null` for a journey with no catalogue link |
 | country_code | string | No | The country's ASCII code, `""` when there is no catalogue link |
-| country_name_en | string | No | The catalogue name, `""` when there is no catalogue link |
+| country_name | string | No | The catalogue name, `""` when there is no catalogue link |
 | target_country | string | No | The free text the destination was typed as. The **only** destination a pre-catalogue journey has |
 
 **Validation Rules:** none — read-only, never accepted from a client on any endpoint.
@@ -294,7 +289,7 @@ The projection exists because a list that cannot show where anyone is headed for
     "stage": "offer_stage",
     "country_id": "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9",
     "country_code": "au",
-    "country_name_en": "Australia",
+    "country_name": "Australia",
     "target_country": ""
   }
 ]

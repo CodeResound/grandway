@@ -1,7 +1,7 @@
 # API — Institutions
 
 **Owner app:** `institutions`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/catalogue/`
@@ -16,6 +16,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 20 endpoints across five resources |
+| 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`name` on every catalogue model). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -63,7 +64,7 @@ Unrouted methods — `DELETE` or `PUT` anywhere, `POST` on `/campuses/<id>/` —
 - `POST` → 201; `GET` and `PATCH` → 200.
 - **Immutable fields are silently ignored on update, never rejected** (`Field.code`, `Country.code`, `Campus.institution`, `Program.institution`) — so a read-modify-write client needs no field-stripping.
 - **A `PATCH` that changes nothing writes no audit event** and still returns 200 with the unchanged record.
-- Ordering is fixed and not client-controllable: `Field`/`Country` by `display_order` then `name_en`; `Institution`/`Campus` by `name_en`; `Program` by `title`.
+- Ordering is fixed and not client-controllable: `Field`/`Country` by `display_order` then `name`; `Institution`/`Campus` by `name`; `Program` by `title`.
 
 **Why duplicates are 409 rather than DRF's default 400.** `Field.code` and `Country.code` are declared explicitly on their create serializers so DRF's automatic `UniqueValidator` does not apply, letting the database's `IntegrityError` surface as a 409. This is deliberate: the campus duplicate is a composite `UniqueConstraint` that DRF **cannot** validate automatically (the parent institution comes from the URL, not the body), so it must be a 409 either way. Reporting the two the same way means a consumer handles "already exists" once.
 
@@ -78,9 +79,9 @@ The admin-managed study-area reference table. Read by every program filter.
 - **URI:** `GET /api/v1/catalogue/fields/`
 - **Permission key:** `institutions.field.list` (risk: low)
 - **Auth:** required. Admin or Lead Manager.
-- **Query params:** `is_active` (bool — **omitting it returns both** active and inactive), `q` (partial match on `name_en` or `name_np`), `page`, `page_size`
+- **Query params:** `is_active` (bool — **omitting it returns both** active and inactive), `q` (partial match on `name` or `name`), `page`, `page_size`
 - **Response:** paginated `list[Field]` — see `DATA_CONTRACT.md` §1
-- **Business rules:** ordered by `display_order`, then `name_en`. Not client-orderable.
+- **Business rules:** ordered by `display_order`, then `name`. Not client-orderable.
 - **Errors:** `INSTITUTIONS_ACTOR_FORBIDDEN` (403)
 
 **AI debugging notes:** `is_active` uses `OptionalBooleanField`, not DRF's `BooleanField`. DRF's implements HTML-checkbox semantics — a key absent from a QueryDict yields `False`, which would silently filter this list to *inactive* fields only. The custom field yields `None` when absent, which `filter_fields` reads as "do not filter." Any new boolean filter parameter in this app must use `OptionalBooleanField` unless a `False` default is genuinely intended.
@@ -90,14 +91,14 @@ The admin-managed study-area reference table. Read by every program filter.
 - **URI:** `POST /api/v1/catalogue/fields/`
 - **Permission key:** `institutions.field.create` (risk: medium)
 - **Auth:** required. **Admin only.**
-- **Request:** `code` (required), `name_en` (required), `name_np`, `is_active`, `display_order`
+- **Request:** `code` (required), `name` (required), `name`, `is_active`, `display_order`
 
 ```json
-{ "code": "information_technology", "name_en": "Information Technology", "name_np": "सूचना प्रविधि", "display_order": 10 }
+{ "code": "information_technology", "name": "Information Technology", "display_order": 10 }
 ```
 
 - **Response:** `201` with `Field`
-- **Validation rules:** `code` must match `^[a-z0-9](?:[a-z0-9_-]{0,48}[a-z0-9])?$` (ASCII only, §39.7). `name_en` required. All text Unicode-normalized (§39.2).
+- **Validation rules:** `code` must match `^[a-z0-9](?:[a-z0-9_-]{0,48}[a-z0-9])?$` (ASCII only, §39.7). `name` required. All text Unicode-normalized (§39.2).
 - **Errors:** `INSTITUTIONS_ACTOR_FORBIDDEN` (403), `INSTITUTIONS_CODE_DUPLICATE` (409), `VALIDATION_ERROR` (400)
 
 ### 1.3 Retrieve study field
@@ -113,7 +114,7 @@ The admin-managed study-area reference table. Read by every program filter.
 - **URI:** `PATCH /api/v1/catalogue/fields/<field_id>/`
 - **Permission key:** `institutions.field.update` (risk: medium)
 - **Auth:** required. **Admin only.**
-- **Request:** any subset of `name_en`, `name_np`, `is_active`, `display_order`
+- **Request:** any subset of `name`, `name`, `is_active`, `display_order`
 - **Response:** `Field`
 - **Business rules:** `code` is **immutable** — it is absent from the update serializer, so sending it is ignored rather than rejected. A `PATCH` that changes nothing writes no audit event.
 - **Errors:** `INSTITUTIONS_FIELD_NOT_FOUND` (404), `INSTITUTIONS_ACTOR_FORBIDDEN` (403), `VALIDATION_ERROR` (400)
@@ -137,10 +138,10 @@ The admin-managed study-area reference table. Read by every program filter.
 - **URI:** `POST /api/v1/catalogue/countries/`
 - **Permission key:** `institutions.country.create` (risk: medium)
 - **Auth:** required. **Admin only.**
-- **Request:** `code` (required), `name_en` (required), `name_np`, `availability_status`, `availability_note`, `notes`, `display_order`
+- **Request:** `code` (required), `name` (required), `name`, `availability_status`, `availability_note`, `notes`, `display_order`
 
 ```json
-{ "code": "au", "name_en": "Australia", "name_np": "अस्ट्रेलिया", "notes": "Genuine Student requirement applies from 2024 intakes." }
+{ "code": "au", "name": "Australia", "notes": "Genuine Student requirement applies from 2024 intakes." }
 ```
 
 - **Response:** `201` with `Country`
@@ -160,7 +161,7 @@ The admin-managed study-area reference table. Read by every program filter.
 - **URI:** `PATCH /api/v1/catalogue/countries/<country_id>/`
 - **Permission key:** `institutions.country.update` (risk: **high**)
 - **Auth:** required. **Admin only.**
-- **Request:** any subset of `name_en`, `name_np`, `availability_status`, `availability_note`, `notes`, `display_order`
+- **Request:** any subset of `name`, `name`, `availability_status`, `availability_note`, `notes`, `display_order`
 
 ```json
 { "availability_status": "paused", "availability_note": "Partner agreement under review until October." }
@@ -185,7 +186,7 @@ The admin-managed study-area reference table. Read by every program filter.
 - **Auth:** required. Admin or Lead Manager.
 - **Query params:** `country` (exact id), `institution_type` (exact enum), `availability_status` (exact enum), `usable_only` (bool, default false), `q`, `page`, `page_size`
 - **Response:** paginated `list[Institution]` — see `DATA_CONTRACT.md` §3
-- **Query access pattern:** `get_institutions()` applies `select_related("country")`; every row renders its country without an extra query. `q` searches `name_en`, `name_np`, and `common_name` with `icontains`, served by the `institution_name_en_trgm_idx` / `institution_name_np_trgm_idx` GIN trigram indexes (§39.6). `?country=&availability_status=` is served by `institution_country_status_idx`.
+- **Query access pattern:** `get_institutions()` applies `select_related("country")`; every row renders its country without an extra query. `q` searches `name`, `name`, and `common_name` with `icontains`, served by the `institution_name_trgm_idx` / `institution_name_trgm_idx` GIN trigram indexes (§39.6). `?country=&availability_status=` is served by `institution_country_status_idx`.
 - **Errors:** `INSTITUTIONS_ACTOR_FORBIDDEN` (403)
 
 ### 3.2 Create institution
@@ -193,14 +194,14 @@ The admin-managed study-area reference table. Read by every program filter.
 - **URI:** `POST /api/v1/catalogue/institutions/`
 - **Permission key:** `institutions.institution.create` (risk: medium)
 - **Auth:** required. **Admin only.**
-- **Request:** `country` (required, UUID), `name_en` (required), `name_np`, `common_name`, `institution_type`, `availability_status`, `availability_note`, `notes`
+- **Request:** `country` (required, UUID), `name` (required), `name`, `common_name`, `institution_type`, `availability_status`, `availability_note`, `notes`
 
 ```json
-{ "country": "1c2b3a49-5d6e-4f70-8a91-b2c3d4e5f607", "name_en": "University of Melbourne", "common_name": "Unimelb", "institution_type": "university" }
+{ "country": "1c2b3a49-5d6e-4f70-8a91-b2c3d4e5f607", "name": "University of Melbourne", "common_name": "Unimelb", "institution_type": "university" }
 ```
 
 - **Response:** `201` with `Institution` (`country` nested as a brief object)
-- **Business rules:** `(country, name_en)` is deliberately **not** unique — two distinct providers may legitimately share a name, and blocking the second creates a worse problem than the duplicate.
+- **Business rules:** `(country, name)` is deliberately **not** unique — two distinct providers may legitimately share a name, and blocking the second creates a worse problem than the duplicate.
 - **Errors:** `INSTITUTIONS_ACTOR_FORBIDDEN` (403), `INSTITUTIONS_AVAILABILITY_NOTE_REQUIRED` (400), `VALIDATION_ERROR` (400 — includes an unknown `country` id)
 
 ### 3.3 Retrieve institution
@@ -243,17 +244,17 @@ Nested under its institution for list and create; addressed directly for retriev
 - **URI:** `POST /api/v1/catalogue/institutions/<institution_id>/campuses/`
 - **Permission key:** `institutions.campus.create` (risk: medium)
 - **Auth:** required. **Admin only.**
-- **Request:** `name_en` (required), `city`, `availability_status`, `availability_note`, `notes`
+- **Request:** `name` (required), `city`, `availability_status`, `availability_note`, `notes`
 
 ```json
-{ "name_en": "Parkville", "city": "Melbourne" }
+{ "name": "Parkville", "city": "Melbourne" }
 ```
 
 - **Response:** `201` with `Campus`
 - **Business rules:**
   - **The institution comes from the URL, never the body.** A campus is created under a provider and never moves between providers, so putting the parent in the body would imply a mutability that does not exist.
-  - `(institution, name_en)` **is** unique — unlike institutions, a duplicate campus name within one provider is always an error.
-  - `Campus` has no `name_np`: campus names are localities in the destination country and are not written in Devanagari in practice.
+  - `(institution, name)` **is** unique — unlike institutions, a duplicate campus name within one provider is always an error.
+  - `Campus` carries a single `name` — a locality in the destination country.
 - **Errors:** `INSTITUTIONS_INSTITUTION_NOT_FOUND` (404), `INSTITUTIONS_CAMPUS_DUPLICATE` (409), `INSTITUTIONS_ACTOR_FORBIDDEN` (403), `INSTITUTIONS_AVAILABILITY_NOTE_REQUIRED` (400), `VALIDATION_ERROR` (400)
 
 ### 4.3 Retrieve campus
@@ -270,7 +271,7 @@ Nested under its institution for list and create; addressed directly for retriev
 - **URI:** `PATCH /api/v1/catalogue/campuses/<campus_id>/`
 - **Permission key:** `institutions.campus.update` (risk: medium)
 - **Auth:** required. **Admin only.**
-- **Request:** any subset of `name_en`, `city`, `availability_status`, `availability_note`, `notes`
+- **Request:** any subset of `name`, `city`, `availability_status`, `availability_note`, `notes`
 - **Response:** `Campus`
 - **Business rules:** `institution` is **immutable** and absent from the update serializer.
 - **Errors:** `INSTITUTIONS_CAMPUS_NOT_FOUND` (404), `INSTITUTIONS_CAMPUS_DUPLICATE` (409), `INSTITUTIONS_ACTOR_FORBIDDEN` (403), `INSTITUTIONS_AVAILABILITY_NOTE_REQUIRED` (400), `VALIDATION_ERROR` (400)

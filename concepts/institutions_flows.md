@@ -30,7 +30,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** nothing. This and step 2 are the two roots; either order works.
    - **Side effects:** appends `catalogue_field_created` to the audit log.
    - *Failure — `INSTITUTIONS_CODE_DUPLICATE`:* inline error on the code input, "already in use".
-   - *Failure — `VALIDATION_ERROR`:* inline field errors. The code input must reject Devanagari — show the ASCII rule before submit.
+   - *Failure — `VALIDATION_ERROR`:* inline field errors. The code input must reject non-ASCII — show the ASCII rule before submit.
 
 2. **Country List** — create a country →
    `POST /api/v1/catalogue/countries/` (`institutions.country.create`)

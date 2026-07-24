@@ -71,7 +71,7 @@ class TestFollowUp(LifecycleTestCase):
         resp = self.client.post(self.url("lead-follow-up"), {}, format="json")
         bs = resp.data["data"]["last_followed_up_at_bs"]
         self.assertIsNotNone(bs)
-        for key in ("year", "month", "day", "month_name_en", "month_name_np", "display_en", "display_np"):
+        for key in ("year", "month", "day", "month_name", "display"):
             self.assertIn(key, bs)
 
     def test_optional_note_and_stage_change_apply_together(self) -> None:

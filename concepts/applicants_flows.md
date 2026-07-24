@@ -83,7 +83,7 @@ Screen names below are quoted from `concepts/applicants.txt` → `UI screens & w
    `GET /api/v1/applicants/?search=<query>` (`applicants.applicant.list`)
    - **Requires state:** an authenticated Admin or Lead Manager.
    - **Side effects:** none.
-   - *Note:* one search box matches Devanagari, Roman, and romanized forms simultaneously. Do not build separate script-specific fields.
+   - *Note:* one search box matches the name, email, contact number, and passport number. Do not build separate fields per attribute.
    - *Note:* the same box also matches the email, **any** of the person's contact numbers, and the passport number — staff often have a phone number from a call log rather than a spelling. Label it "Search name, phone, email, or passport", not "Search by name".
    - *Note:* a searched list comes back **relevance-ordered** (exact name match first), not newest-first. Do not re-sort it client-side, and do not add a "sort by newest" control that silently discards the ranking.
    - *Failure — empty result:* the search is substring-based, not fuzzy. A misspelling matches nothing and there is no did-you-mean. Prompt the user to try a shorter fragment rather than showing "no such applicant".

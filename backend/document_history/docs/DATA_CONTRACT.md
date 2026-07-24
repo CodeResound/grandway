@@ -38,7 +38,7 @@ A second rule follows from it: **the backend copies the document body, it never 
 - **Generated file references remain deferred, and the reason has changed.** The concept names "Generated file reference" as a core entity and its second open question asks whether PDFs should be retained. There is still **no field for it** on either model. What changed on 2026-07-24 is that `uploaded_files` shipped, holds a `PROTECT` foreign key to `DocumentSnapshot`, and carries a `generated_document` category and a `system_generated` upload source — so a generated PDF now has a real home, reachable as `POST /api/v1/files/` with `snapshot=<id>` and `GET /api/v1/files/?snapshot=<id>`. **Nothing in this app knows about it**, by decision rather than by absence: adding a reverse pointer changes a shipped response shape and belongs in its own session. The concept already permits this: "No assumption that a generated PDF must exist; the snapshot is the record, the file is optional."
 - **The timeline is per-document only.** The concept's third open question asks whether a wider document-family view is needed for Admin review. It is not built (§32). Both list endpoints require a document id in the path; there is no cross-document snapshot or print-event query. Additive later.
 - **`document_history` exposes a direct recover endpoint, not a recovery payload.** The concept's fifth open question asks which. A payload-only design makes recovery two client calls that can fail between, and the resulting write is not attributable to a recovery at all. The endpoint calls `documents.services.update_document` in one transaction, so the write goes through the owning app's own rules — and both apps' audit logs record it.
-- **`label` is copied as a single field, not a §39.1 bilingual pair, and has no `_romanized` sibling.** It is copied verbatim from `documents.Document.label`, which recorded that deviation with its reasoning: a label is operational shorthand from a template picker, not an entity's legally canonical identity. Adding a language pair here would invent text the source record does not have. **Unicode normalization (§39.2) still applies in full** to `capture_note` and `note`, the two fields a user actually types.
+- **`label` is copied verbatim from `documents.Document.label`** — a single English field. **Unicode normalization (§39.2) applies in full** to `capture_note` and `note`, the two fields a user actually types.
 - **No search, and no trigram index.** A version chain is short by nature and is always read whole. §39.6's requirement applies to "new searchable models"; neither of these is one.
 - **`PrintEvent.document` is denormalized** from `snapshot.document`. See §2.
 - **No history table of its own**, for the same reason as every other app: `audit` provides an immutable append-only log and §4 forbids duplicating it. Note the layering — this app's own tables are already immutable history *of a document*; the `audit` events are history *of this app's actions*.
@@ -126,8 +126,8 @@ Ordering is `-version_number`: the history timeline reads newest first, and the 
   "created_at": "2026-07-24T09:41:02Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   }
 }
 ```

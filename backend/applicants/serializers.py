@@ -95,7 +95,7 @@ class PassportDetailSerializer(serializers.ModelSerializer):
 class FamilyMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = FamilyMember
-        fields = ["id", "relationship", "full_name_np", "full_name_en", "occupation", "contact_number"]
+        fields = ["id", "relationship", "full_name", "occupation", "contact_number"]
         read_only_fields = fields
 
 
@@ -104,8 +104,7 @@ class EmergencyContactSerializer(serializers.ModelSerializer):
         model = EmergencyContact
         fields = [
             "id",
-            "full_name_np",
-            "full_name_en",
+            "full_name",
             "relationship",
             "contact_number",
             "email",
@@ -158,12 +157,11 @@ class PassportWriteSerializer(serializers.Serializer):
 
 class FamilyMemberWriteSerializer(serializers.Serializer):
     relationship = serializers.ChoiceField(choices=FamilyRelationship.choices)
-    full_name_np = serializers.CharField(max_length=255)
-    full_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     occupation = serializers.CharField(max_length=150, required=False, allow_blank=True)
     contact_number = serializers.CharField(max_length=32, required=False, allow_blank=True)
 
-    def validate_full_name_np(self, value: str) -> str:
+    def validate_full_name(self, value: str) -> str:
         return normalize_unicode(value)
 
     def validate_occupation(self, value: str) -> str:
@@ -171,14 +169,13 @@ class FamilyMemberWriteSerializer(serializers.Serializer):
 
 
 class EmergencyContactWriteSerializer(serializers.Serializer):
-    full_name_np = serializers.CharField(max_length=255)
-    full_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     relationship = serializers.CharField(max_length=100, required=False, allow_blank=True)
     contact_number = serializers.CharField(max_length=32)
     email = serializers.EmailField(required=False, allow_blank=True)
     address = serializers.CharField(required=False, allow_blank=True)
 
-    def validate_full_name_np(self, value: str) -> str:
+    def validate_full_name(self, value: str) -> str:
         return normalize_unicode(value)
 
     def validate_address(self, value: str) -> str:
@@ -202,9 +199,7 @@ class ApplicantListSerializer(serializers.ModelSerializer):
         model = Applicant
         fields = [
             "id",
-            "full_name_np",
-            "full_name_en",
-            "full_name_romanized",
+            "full_name",
             "date_of_birth",
             "date_of_birth_bs",
             "gender",
@@ -247,7 +242,7 @@ class ApplicantListSerializer(serializers.ModelSerializer):
                     "stage": journey.stage,
                     "country_id": str(country.id) if country else None,
                     "country_code": country.code if country else "",
-                    "country_name_en": country.name_en if country else "",
+                    "country_name": country.name if country else "",
                     "target_country": journey.target_country,
                 }
             )
@@ -296,8 +291,7 @@ class ApplicantDetailSerializer(ApplicantListSerializer):
 class ApplicantCreateSerializer(serializers.Serializer):
     """Create input. ``status`` is not accepted — a new applicant is always active."""
 
-    full_name_np = serializers.CharField(max_length=255)
-    full_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    full_name = serializers.CharField(max_length=255)
     date_of_birth = serializers.DateField(required=False, allow_null=True)
     gender = serializers.ChoiceField(choices=Gender.choices, required=False, allow_blank=True)
     nationality = serializers.CharField(max_length=100, required=False, allow_blank=True)
@@ -309,10 +303,7 @@ class ApplicantCreateSerializer(serializers.Serializer):
     family_members = FamilyMemberWriteSerializer(many=True, required=False)
     emergency_contacts = EmergencyContactWriteSerializer(many=True, required=False)
 
-    def validate_full_name_np(self, value: str) -> str:
-        return normalize_unicode(value)
-
-    def validate_full_name_en(self, value: str) -> str:
+    def validate_full_name(self, value: str) -> str:
         return normalize_unicode(value)
 
     def validate_nationality(self, value: str) -> str:
@@ -329,7 +320,7 @@ class ApplicantCreateSerializer(serializers.Serializer):
 class ApplicantUpdateSerializer(ApplicantCreateSerializer):
     """Update input — every field optional; collections replace wholesale."""
 
-    full_name_np = serializers.CharField(max_length=255, required=False)
+    full_name = serializers.CharField(max_length=255, required=False)
     contact_numbers = ContactNumberWriteSerializer(many=True, allow_empty=False, required=False)
 
 

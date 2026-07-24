@@ -1,7 +1,7 @@
 # API — Clients
 
 **Owner app:** `clients`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/clients/`
@@ -17,6 +17,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 7 endpoints across one resource |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | §1.7 history entries gained `actor_id` and are now serialized by audit's shared `AuditEventHistorySerializer` (`clients.client.list_history` → 1.1.0). Additive; no other endpoint changed |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`name`, `spokesperson_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -63,7 +64,7 @@ These hold on every endpoint below and are not repeated per endpoint.
 4. **No write in this app touches another app**, and no other app references a client. This module is an island in both directions.
 5. **Query strings are validated** by `ClientSearchSerializer`; an unparseable filter is a 400 rather than an ignored parameter.
 6. **`retired_at` carries a `_bs` sibling on read** (§39.4); `created_at` and `updated_at` do not. Writes accept no BS input anywhere.
-7. **All user-entered text is Unicode-normalized on write** (§39.2) via `_NormalizedTextMixin` in `serializers.py`, and the two romanized fields are derived in the service layer (§39.3), never in a model or signal.
+7. **All user-entered text is Unicode-normalized on write** (§39.2) via `_NormalizedTextMixin` in `serializers.py`, in the service layer as well so a direct caller cannot bypass it.
 
 ---
 
@@ -82,9 +83,9 @@ These hold on every endpoint below and are not repeated per endpoint.
 
 **Query access pattern.** `selectors.get_clients` applies `select_related("created_by")` and `prefetch_related("contact_numbers")`. The prefetch is required, not an optimisation: every row reports `primary_contact_number`, so without it the list is N+1. `ClientListSerializer.get_primary_contact_number` reads from the prefetched relation and never queries — model ordering is `-is_primary`, `created_at`, so the first row is already the right one.
 
-`selectors.search_clients` matches six fields with OR `icontains` semantics: the organization's `name_np` / `name_en` / `name_romanized` **and** the spokesperson's three. The organization triple is trigram-indexed (`client_name_{np,en,rom}_trgm_idx`); **the spokesperson triple deliberately is not.** The directory is a bounded table of partner organizations — tens to hundreds of rows — unlike `leads`, which grows without limit, and six GIN indexes on a table this size cost more in write overhead and disk than they save. The growth condition that would change this: a few thousand rows. The selector is already written to use the indexes if they are added.
+`selectors.search_clients` matches six fields with OR `icontains` semantics: the organization's `name` / `name` / `name` **and** the spokesperson's three. The organization triple is trigram-indexed (`client_name_{np,en,rom}_trgm_idx`); **the spokesperson triple deliberately is not.** The directory is a bounded table of partner organizations — tens to hundreds of rows — unlike `leads`, which grows without limit, and six GIN indexes on a table this size cost more in write overhead and disk than they save. The growth condition that would change this: a few thousand rows. The selector is already written to use the indexes if they are added.
 
-The `status` filter is served by `client_status_name_idx`, which also covers the fixed `name_np` ordering.
+The `status` filter is served by `client_status_name_idx`, which also covers the fixed `name` ordering.
 
 **Business rules:** none beyond access. The directory is shared — no owner scoping.
 
@@ -98,13 +99,11 @@ The `status` filter is served by `client_status_name_idx`, which also covers the
 - **Permission key:** `clients.client.create` (risk: medium)
 - **Auth:** required. **Admin only.**
 
-**Request:** `name_np` (required); optional `name_en`, `name_romanized`, the four spokesperson fields, `email`, `website`, `logo_url`, `address`, `notes`, and `contact_numbers`.
+**Request:** `name` (required); optional `name`, `name`, the four spokesperson fields, `email`, `website`, `logo_url`, `address`, `notes`, and `contact_numbers`.
 
 ```json
 {
-  "name_np": "हिमाल एजुकेशन",
-  "name_en": "Himal Education",
-  "spokesperson_name_np": "सुनिता श्रेष्ठ",
+  "name": "Himal Education",
   "spokesperson_designation": "Managing Director",
   "email": "info@himal.example",
   "website": "https://himal.example",
@@ -117,13 +116,13 @@ The `status` filter is served by `client_status_name_idx`, which also covers the
 
 **Response:** 201 with the Client detail shape — see `DATA_CONTRACT.md` §1 "Example".
 
-**Validation rules:** `DATA_CONTRACT.md` §1 and §2 "Validation Rules". The romanization itself is in `services._apply_name_fields`, which walks the `_ROMANIZED_PAIRS` table so the organization name and the spokesperson name can never drift into being handled differently.
+**Validation rules:** `DATA_CONTRACT.md` §1 and §2 "Validation Rules". `services._apply_name_fields` normalizes both the organization name and the spokesperson name identically.
 
 **Business rules:** the client and its contact numbers are created in one transaction. `status` is always `active` on creation and is not accepted from the request.
 
 **Error codes:** `CLIENTS_CONTACT_NUMBER_DUPLICATE`, `CLIENTS_ACTOR_FORBIDDEN`, `VALIDATION_ERROR`.
 
-**AI debugging notes:** a caller reporting that `name_romanized` "looks wrong" is usually reading it as a display field. It is a search index — `"हिमाल एजुकेशन"` correctly becomes `"himala ejukesana"`, which no human would write. Point them at `name_en`.
+**AI debugging notes:** a caller reporting that `name` "looks wrong" is usually reading it as a display field. It is a search index — `"हिमाल एजुकेशन"` correctly becomes `"himala ejukesana"`, which no human would write. Point them at `name`.
 
 ### 1.3 Retrieve a client
 
@@ -143,14 +142,14 @@ The `status` filter is served by `client_status_name_idx`, which also covers the
 - **Permission key:** `clients.client.update` (risk: medium)
 - **Auth:** required. **Admin only.**
 
-**Request:** any subset of the writable fields. `name_np` becomes optional here.
+**Request:** any subset of the writable fields. `name` becomes optional here.
 
 **Response:** 200 with the Client detail shape.
 
 **Business rules:**
 - The immutable-field guard runs in the view **before** serializer validation, so a request carrying both a legal and an illegal field is rejected whole — a partial apply would be worse than a refusal.
 - **`contact_numbers` distinguishes `null` from `[]`.** The view pops it with a `None` sentinel: absent means "leave them alone", `[]` means "clear them". Collapsing the two would make it impossible to edit a client's notes without either wiping or duplicating its numbers.
-- Renaming re-derives the affected romanized field, unless the caller supplies one.
+- Renaming updates the stored name; it is Unicode-normalized on write.
 
 **Error codes:** `CLIENTS_STATUS_IMMUTABLE`, `CLIENTS_CONTACT_NUMBER_DUPLICATE`, `CLIENTS_CLIENT_NOT_FOUND`, `CLIENTS_ACTOR_FORBIDDEN`, `VALIDATION_ERROR`.
 

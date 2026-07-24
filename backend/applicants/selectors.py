@@ -60,7 +60,7 @@ def get_applicant_by_id(applicant_id: str) -> Applicant | None:
 #: The three language representations of an applicant's name (§39.1). Searched
 #: together everywhere, because they are three canonical identities for one
 #: person rather than a value and its translations.
-_NAME_FIELDS = ("full_name_np", "full_name_en", "full_name_romanized")
+_NAME_FIELDS = ("full_name",)
 
 
 def _name_match(query: str) -> Q:

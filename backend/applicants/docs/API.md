@@ -1,7 +1,7 @@
 # API Documentation — Applicants
 
 **App:** `applicants`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Base prefix:** `/api/v1/applicants/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Authority rules are enforced inline per `SECURITY.md` §1 — applicants are **shared**, not owner-scoped, which deliberately differs from `leads`.
 **Throttle:** Project DRF defaults only. No custom scopes.
@@ -15,6 +15,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial API documentation — 6 endpoints |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | List endpoint (§1.1) widened: `search` now matches email, contact number, and passport number and orders by relevance; new `country`, `country_code`, and `journey_stage` filters resolve through the applicant's journeys; the list and detail shapes gained a `destinations` array. Additive only — no filter, field, or ordering that a client already relied on changed |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name` on Applicant, FamilyMember, EmergencyContact). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -52,7 +53,7 @@
 **Request query params:**
 - `status` — `active` | `dormant` | `archived`
 - `creation_source` — `lead_conversion` | `direct_admin`
-- `search` — matches `full_name_np`, `full_name_en`, `full_name_romanized`, `email`, any contact number, and the passport number. All partial (`icontains`) matches
+- `search` — matches `full_name`, `full_name`, `full_name`, `email`, any contact number, and the passport number. All partial (`icontains`) matches
 - `country` — a `institutions.Country` id. Matches applicants with **a** journey targeting it
 - `country_code` — the same filter by the country's ASCII code (`AU`), case-insensitive
 - `journey_stage` — an `applicant_journeys.JourneyStage` value; matches applicants with a journey at that stage
@@ -76,8 +77,7 @@
 **Request:**
 ```json
 {
-  "full_name_np": "राम श्रेष्ठ",
-  "full_name_en": "Ram Shrestha",
+  "full_name": "Ram Shrestha",
   "date_of_birth": "2002-05-14",
   "gender": "male",
   "nationality": "Nepali",
@@ -85,17 +85,17 @@
   "contact_numbers": [{ "number": "9800000000", "label": "mobile", "is_primary": true }],
   "addresses": [{ "address_type": "permanent", "district": "Lalitpur", "ward": "5" }],
   "passport": { "passport_number": "PA1234567", "issued_date": "2022-01-01", "expiry_date": "2032-01-01" },
-  "family_members": [{ "relationship": "father", "full_name_np": "हरि श्रेष्ठ" }],
-  "emergency_contacts": [{ "full_name_np": "गीता", "contact_number": "9812345678" }]
+  "family_members": [{ "relationship": "father" }],
+  "emergency_contacts": [{ "contact_number": "9812345678" }]
 }
 ```
 **Response:** the created applicant in the **detail** shape, HTTP 201.
-**Validation rules:** only `full_name_np` and at least one `contact_numbers` entry are required. At most one address per `address_type`. `status` is not accepted — a new applicant is always `active`.
+**Validation rules:** only `full_name` and at least one `contact_numbers` entry are required. At most one address per `address_type`. `status` is not accepted — a new applicant is always `active`.
 **Error codes:**
 - `APPLICANTS_ACTOR_FORBIDDEN` (403) — a Lead Manager attempted creation.
 - `APPLICANTS_CONTACT_REQUIRED` (400) — no contact number survived validation.
 - `APPLICANTS_PASSPORT_EXPIRY_INVALID` (400) — `expiry_date` is not after `issued_date`.
-**Business rules:** this is the **direct** creation path, recorded as `creation_source: "direct_admin"`. The conversion path is `POST /api/v1/leads/<id>/convert/`, which calls the same service with `creation_source: "lead_conversion"`. `full_name_romanized` is derived server-side. Writes one `applicant_created` audit event.
+**Business rules:** this is the **direct** creation path, recorded as `creation_source: "direct_admin"`. The conversion path is `POST /api/v1/leads/<id>/convert/`, which calls the same service with `creation_source: "lead_conversion"`. `full_name` is derived server-side. Writes one `applicant_created` audit event.
 
 ### 1.3 Retrieve — `GET /api/v1/applicants/<applicant_id>/`
 

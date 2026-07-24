@@ -1,7 +1,7 @@
 # API Documentation — Authenticate
 
 **App:** `authenticate`
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Base prefix:** `/api/v1/auth/`
 **Auth:** Mixed. `login`/`refresh` are public; `logout`/`me`/`password/change` require a Bearer access token validated by `authenticate.authentication.SessionBoundJWTAuthentication` (see `SECURITY.md` §1). No `is_staff` gate — the three protected endpoints are self-service (any authenticated user acting on their own account).
 **Throttle:** Custom scopes — `login` uses `LoginIPThrottle` + `LoginUsernameThrottle` (`auth_login_ip` 20/min, `auth_login_user` 10/min); `refresh` uses `RefreshThrottle` (`auth_refresh` 60/min). Stateful account lockout is handled by django-axes (see `SECURITY.md` §3), not DRF.
@@ -16,6 +16,7 @@
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial API docs — Phase 1 foundation (5 endpoints) |
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — 3 mfa endpoints, login `otp_code` + MFA errors, `me` mfa fields |
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account management (users CRUD + block/restore + admin password/MFA reset), session management, auth-activity review |
+| 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (User `full_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -144,7 +145,7 @@ Cross-user account administration. Authorized by an inline authority hierarchy (
 
 **Policy key(s):** `authenticate.user.list` (low), `authenticate.user.create` (high)
 **Access:** Authenticated; caller manages the tier below them.
-**Request (create):** `{ username, authority_type, display_name?, full_name_np?, full_name_en?, email?, phone?, password? }`
+**Request (create):** `{ username, authority_type, display_name?, full_name?, email?, phone?, password? }`
 **Response:** `list` → paginated list[User] (`DATA_CONTRACT.md §1`); `create` → `201` `{ user, temporary_password? }` (`DATA_CONTRACT.md` Request/Response Payload Contracts).
 **Error codes:**
 - `AUTH_INVALID_AUTHORITY` (403) — `authority_type` is not the tier the caller may create.
@@ -155,7 +156,7 @@ Cross-user account administration. Authorized by an inline authority hierarchy (
 ### 4.2 Read / update account — `GET|PATCH /api/v1/auth/users/<id>/`
 
 **Policy key(s):** `authenticate.user.read` (low), `authenticate.user.update` (medium)
-**Request (update):** partial `{ display_name?, full_name_np?, full_name_en?, email?, phone? }` — `username`/`authority_type`/status immutable.
+**Request (update):** partial `{ display_name?, full_name?, email?, phone? }` — `username`/`authority_type`/status immutable.
 **Response:** User.
 **Error codes:** `AUTH_USER_NOT_FOUND` (404). **Business rules:** update writes `account_updated`.
 

@@ -1,7 +1,7 @@
 # Integration — Institutions
 
 **Owner app:** `institutions`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 20 endpoints, Phase 1 catalogue spine |
 | 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no endpoint or behaviour change. Added HTTP status codes, the `INSTITUTIONS_ACTOR_FORBIDDEN` body, query-parameter encoding, write-field defaults, ordering, and module-wide rules for immutability, no-op PATCH, and the availability-note requirement. Defined `is_usable` as per-record rather than chain-aware, and documented the `tuition_max` currency/period limitation, the institution→program country cascade, and `q`'s exact field coverage. Raised from the §19.5 consumer-comprehension test |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`name` on every catalogue model). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -76,7 +77,7 @@ Field-level validation failures come from the serializer layer and put the offen
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "Validation failed.",
-    "details": { "name_en": ["This field is required."] }
+    "details": { "name": ["This field is required."] }
   },
   "meta": {}
 }
@@ -109,7 +110,7 @@ Field-level validation failures come from the serializer layer and put the offen
 - **Query parameter encoding.** Booleans (`is_active`, `usable_only`, `scholarship_available`) accept, case-insensitively: `true`/`false`, `1`/`0`, `t`/`f`, `y`/`n`, `yes`/`no`, `on`/`off`. Anything else is a 400. **Omitting a boolean is not the same as sending `false`**: omitted means "do not filter on this at all" for `is_active` and `scholarship_available`, whereas `usable_only` falls back to its documented per-endpoint default. Decimals (`tuition_max`) accept a plain literal — `50000` or `50000.00`; a non-numeric value is a 400. `page_size` above the 100 maximum is **clamped, not rejected**.
 - **Every error in this module carries the standard envelope, including 405.** An unrouted method returns 405 with `error.code` of `METHOD_NOT_ALLOWED` — the project-wide code, not a module one — inside the usual `success`/`error`/`meta` structure. There is no raw-DRF error shape anywhere here, so an interceptor reading `body.error.code` is safe on every status. A path that does not exist at all — `GET /api/v1/catalogue/campuses/`, which is not a route; campuses are listed under their institution — returns a plain **404** from URL resolution, before any view or handler runs, and so carries **no envelope**. Status-first branching handles both.
 - **Defaults for omitted write fields:** `availability_status` → `"active"`, `is_active` (Field) → `true`, `institution_type` → `"university"`, `tuition_is_indicative` → `false`, `scholarship_available` → `false`, `display_order` → `0`. Every unset text field is `""`; `campus`, `duration_months`, and `tuition_amount` are `null`.
-- **Ordering** is fixed per resource and **not client-controllable** — there is no `sort` or `ordering` parameter anywhere. `Field` and `Country`: `display_order`, then `name_en`. `Institution` and `Campus`: `name_en`. `Program`: `title`.
+- **Ordering** is fixed per resource and **not client-controllable** — there is no `sort` or `ordering` parameter anywhere. `Field` and `Country`: `display_order`, then `name`. `Institution` and `Campus`: `name`. `Program`: `title`.
 - **Request encoding:** `application/json`.
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). `meta` carries `count`, `page`, `page_size`, `next`, `previous` — `next`/`previous` are absolute URLs or `null`. Applied to **every** list endpoint here.
 - **IDs:** UUID strings. `code` on `Field` and `Country` is a separate human-readable ASCII identifier, unique and immutable, but **not** the primary key — always address records by `id`.
@@ -119,11 +120,11 @@ Field-level validation failures come from the serializer layer and put the offen
 
 ## 4. Models
 
-**Field** — `{ id, code, name_en, name_np, is_active, display_order, created_at, updated_at }`
+**Field** — `{ id, code, name, is_active, display_order, created_at, updated_at }`
 
 - The study-area classification. `is_active` rather than `availability_status`: it is a pure reference table, not something that can be seasonal.
 
-**Country** — `{ id, code, name_en, name_np, availability_status:[enum], availability_note, is_usable, notes, display_order, created_at, updated_at }`
+**Country** — `{ id, code, name, availability_status:[enum], availability_note, is_usable, notes, display_order, created_at, updated_at }`
 
 - `is_usable` is a **read-only derived boolean**, true when **that record's own** `availability_status` is `active` or `seasonal`.
 
@@ -138,21 +139,21 @@ Field-level validation failures come from the serializer layer and put the offen
 >
 > **The nested brief shapes carry `availability_status`, not `is_usable`** — `CountryBrief`, `InstitutionBrief`, and `CampusBrief` are exactly the field lists given below, and none of them includes a derived boolean. `availability_status` is present on all three precisely so this check is possible without four extra requests.
 
-**CountryBrief** — `{ id, code, name_en, availability_status:[enum] }`
+**CountryBrief** — `{ id, code, name, availability_status:[enum] }`
 
-**Institution** — `{ id, country:CountryBrief, name_en, name_np, common_name, institution_type:[enum], availability_status:[enum], availability_note, is_usable, notes, created_at, updated_at }`
+**Institution** — `{ id, country:CountryBrief, name, common_name, institution_type:[enum], availability_status:[enum], availability_note, is_usable, notes, created_at, updated_at }`
 
 - `country` is a nested object on read, but a **bare UUID string** on write.
 
-**InstitutionBrief** — `{ id, name_en, common_name, availability_status:[enum] }`
+**InstitutionBrief** — `{ id, name, common_name, availability_status:[enum] }`
 
-**Campus** — `{ id, institution:InstitutionBrief, name_en, city, availability_status:[enum], availability_note, is_usable, notes, created_at, updated_at }`
+**Campus** — `{ id, institution:InstitutionBrief, name, city, availability_status:[enum], availability_note, is_usable, notes, created_at, updated_at }`
 
-- No `name_np`: campus names are localities in the destination country.
+- No `name`: campus names are localities in the destination country.
 
-**CampusBrief** — `{ id, name_en, city, availability_status:[enum] }`
+**CampusBrief** — `{ id, name, city, availability_status:[enum] }`
 
-**FieldBrief** — `{ id, code, name_en }`
+**FieldBrief** — `{ id, code, name }`
 
 **Program (list shape)** — `{ id, title, institution:InstitutionBrief, campus?:CampusBrief, country:CountryBrief, qualification_level:[enum], field:FieldBrief, duration_months?, intake_pattern, tuition_amount?, tuition_currency, tuition_fee_period:[enum], tuition_is_indicative, scholarship_available, availability_status:[enum], availability_note, is_usable, created_at, updated_at }`
 
@@ -174,27 +175,27 @@ Field-level validation failures come from the serializer layer and put the offen
   "title": "Master of Information Technology",
   "institution": {
     "id": "2d3e4f50-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
-    "name_en": "University of Melbourne",
+    "name": "University of Melbourne",
     "common_name": "Unimelb",
     "availability_status": "active"
   },
   "campus": {
     "id": "3e4f5061-7b8c-4d9e-af01-2b3c4d5e6f70",
-    "name_en": "Parkville",
+    "name": "Parkville",
     "city": "Melbourne",
     "availability_status": "active"
   },
   "country": {
     "id": "1c2b3a49-5d6e-4f70-8a91-b2c3d4e5f607",
     "code": "au",
-    "name_en": "Australia",
+    "name": "Australia",
     "availability_status": "active"
   },
   "qualification_level": "masters",
   "field": {
     "id": "8f1d9e2a-4c3b-4a71-9f0e-2b6c5d8e1a34",
     "code": "information_technology",
-    "name_en": "Information Technology"
+    "name": "Information Technology"
   },
   "duration_months": 24,
   "intake_pattern": "Feb / Jul",
@@ -225,8 +226,7 @@ Field-level validation failures come from the serializer layer and put the offen
 {
   "id": "1c2b3a49-5d6e-4f70-8a91-b2c3d4e5f607",
   "code": "au",
-  "name_en": "Australia",
-  "name_np": "अस्ट्रेलिया",
+  "name": "Australia",
   "availability_status": "paused",
   "availability_note": "Partner agreement under review until October.",
   "is_usable": false,
@@ -268,8 +268,8 @@ Field-level validation failures come from the serializer layer and put the offen
 - `PATCH /api/v1/catalogue/fields/<field_id>/` — update (permission: `institutions.field.update`, risk: medium)
 
 **Send (create/update):**
-- create: `code` (required), `name_en` (required), `name_np`, `is_active`, `display_order`
-- update: any subset of `name_en`, `name_np`, `is_active`, `display_order` — **not `code`**
+- create: `code` (required), `name` (required), `name`, `is_active`, `display_order`
+- update: any subset of `name`, `name`, `is_active`, `display_order` — **not `code`**
 
 **Returns:** Field for create, retrieve, and update; list[Field] for the list, paginated.
 **Requires state:** nothing.
@@ -278,7 +278,7 @@ Field-level validation failures come from the serializer layer and put the offen
 **Notes:**
 - Query params: `is_active` (bool — omitting it returns both active and inactive), `q` (partial match on either name).
 - `code` is **immutable**. Sending it on update is ignored, not rejected.
-- Ordering is `display_order`, then `name_en`. Not client-controllable.
+- Ordering is `display_order`, then `name`. Not client-controllable.
 - Writes are Admin-only.
 
 **Errors:**
@@ -295,8 +295,8 @@ Field-level validation failures come from the serializer layer and put the offen
 - `PATCH /api/v1/catalogue/countries/<country_id>/` — update (permission: `institutions.country.update`, risk: high)
 
 **Send (create/update):**
-- create: `code` (required), `name_en` (required), `name_np`, `availability_status`, `availability_note`, `notes`, `display_order`
-- update: any subset of `name_en`, `name_np`, `availability_status`, `availability_note`, `notes`, `display_order` — **not `code`**
+- create: `code` (required), `name` (required), `name`, `availability_status`, `availability_note`, `notes`, `display_order`
+- update: any subset of `name`, `name`, `availability_status`, `availability_note`, `notes`, `display_order` — **not `code`**
 
 **Returns:** Country for create, retrieve, and update; list[Country] for the list, paginated.
 **Requires state:** nothing.
@@ -305,7 +305,7 @@ Field-level validation failures come from the serializer layer and put the offen
 **Notes:**
 - Query params: `availability_status` (exact), `usable_only` (bool, default **false** here — a maintenance list shows everything), `q` (partial match on either name).
 - **Setting `availability_status` to anything other than `active` requires a non-empty `availability_note`** in the same request. Patching the status alone fails even if a note is already stored.
-- `name_np` is optional; `name_en` is required. This is the inverse of the convention in `leads` and `applicants`.
+- `name` is optional; `name` is required. This is the inverse of the convention in `leads` and `applicants`.
 - There is no delete. Use `availability_status: "inactive"`.
 
 **Errors:**
@@ -323,7 +323,7 @@ Field-level validation failures come from the serializer layer and put the offen
 - `PATCH /api/v1/catalogue/institutions/<institution_id>/` — update (permission: `institutions.institution.update`, risk: high)
 
 **Send (create/update):**
-- create: `country` (required, UUID), `name_en` (required), `name_np`, `common_name`, `institution_type`, `availability_status`, `availability_note`, `notes`
+- create: `country` (required, UUID), `name` (required), `name`, `common_name`, `institution_type`, `availability_status`, `availability_note`, `notes`
 - update: any subset of the same fields, **including `country`**
 
 **Returns:** Institution for create, retrieve, and update; list[Institution] for the list, paginated.
@@ -333,9 +333,9 @@ Field-level validation failures come from the serializer layer and put the offen
 - **Availability does not cascade** to campuses or programs — but **identity does.** `Program.country` is derived from the institution, so changing an institution's `country` silently rewrites the `country` reported by *every* program under it, and changes which `?country=` filter they answer to. On a large provider that is hundreds of records altered by one `PATCH`, with a single audit event recording it. Warn before submitting a country change on an institution that has programs.
 
 **Notes:**
-- Query params: `country` (exact id), `institution_type` (exact), `availability_status` (exact), `usable_only` (bool, default false), `q` (partial match on `name_en`, `name_np`, or `common_name` — trigram-indexed).
+- Query params: `country` (exact id), `institution_type` (exact), `availability_status` (exact), `usable_only` (bool, default false), `q` (partial match on `name`, `name`, or `common_name` — trigram-indexed).
 - `country` **is** editable, unlike the immutable parents elsewhere in this module: an institution filed under the wrong country is an ordinary correctable mistake.
-- `(country, name_en)` is **not** unique — two genuinely distinct providers may share a name. No duplicate detection exists in Phase 1.
+- `(country, name)` is **not** unique — two genuinely distinct providers may share a name. No duplicate detection exists in Phase 1.
 - Non-active status requires an `availability_note`.
 
 **Errors:**
@@ -352,7 +352,7 @@ Field-level validation failures come from the serializer layer and put the offen
 - `PATCH /api/v1/catalogue/campuses/<campus_id>/` — update (permission: `institutions.campus.update`, risk: medium)
 
 **Send (create/update):**
-- create: `name_en` (required), `city`, `availability_status`, `availability_note`, `notes`
+- create: `name` (required), `city`, `availability_status`, `availability_note`, `notes`
 - update: any subset of the same fields
 
 **Returns:** Campus for create, retrieve, and update; list[Campus] for the list, paginated.
@@ -362,7 +362,7 @@ Field-level validation failures come from the serializer layer and put the offen
 **Notes:**
 - **The list and create routes are nested under the institution; retrieve and update are not.** A campus never moves between providers, so the institution is a path segment on create and carries no information once you hold the campus id.
 - `institution` is **never sent in the body** on either create or update. Sending it is ignored.
-- `(institution, name_en)` **is** unique — unlike institutions, a duplicate campus name within one provider is always an error. Because `name_en` is editable, `INSTITUTIONS_CAMPUS_DUPLICATE` fires on a **rename** as well as a create, unlike `INSTITUTIONS_CODE_DUPLICATE` which is create-only.
+- `(institution, name)` **is** unique — unlike institutions, a duplicate campus name within one provider is always an error. Because `name` is editable, `INSTITUTIONS_CAMPUS_DUPLICATE` fires on a **rename** as well as a create, unlike `INSTITUTIONS_CODE_DUPLICATE` which is create-only.
 - Query params on the list: `availability_status`, `usable_only` (bool, default false), `q` (partial match on name or city).
 - Listing under an institution id that does not exist returns 404 `INSTITUTIONS_INSTITUTION_NOT_FOUND`, not an empty list.
 
@@ -391,7 +391,7 @@ Field-level validation failures come from the serializer layer and put the offen
 
 **Notes:**
 - **Search parameters:** `country`, `institution`, `campus`, `field` (all exact UUIDs), `qualification_level` (exact enum), `availability_status` (exact enum), `usable_only` (bool), `scholarship_available` (bool), `tuition_max` (decimal), `q`.
-- **`q` on this endpoint searches exactly three fields:** `Program.title`, `Institution.name_en`, and `Institution.common_name`. It does **not** search `Institution.name_np`, and `Program` has no Devanagari name at all — so a Nepali-script program search matches nothing. There is also **no `tuition_min` and no range filter**; `tuition_max` is a ceiling only.
+- **`q` on this endpoint searches exactly three fields:** `Program.title`, `Institution.name`, and `Institution.common_name`. There is also **no `tuition_min` and no range filter**; `tuition_max` is a ceiling only.
 - **`usable_only` defaults to `true` on this endpoint** — the only endpoint in the module where it does. The default search returns only programs that can actually be offered, evaluated across the **whole chain**: the program, its campus (if any), its institution, **and** its country must all be `active` or `seasonal`. Pass `usable_only=false` for the maintenance view. **`Field.is_active` is deliberately *not* part of this chain** — deactivating a study field removes it from pickers but does not withdraw the programs filed under it, because a field is a filing label rather than something being offered. A program under an inactive field still appears in search.
 - **`?campus=<id>` returns only programs at that campus.** Programs at the same institution with no campus set are excluded, and there is **no way to query for them** — no `campus=null` or `has_campus=false` parameter exists. Filter client-side on `campus === null`.
 - Passing `availability_status` explicitly **overrides** `usable_only` entirely, and returns exactly that status.
@@ -415,11 +415,11 @@ Field-level validation failures come from the serializer layer and put the offen
 
 **Build the catalogue from empty**
 
-1. `POST /api/v1/catalogue/countries/` with `{ "code": "au", "name_en": "Australia" }` → keep `country_id`.
-2. `POST /api/v1/catalogue/fields/` with `{ "code": "information_technology", "name_en": "Information Technology" }` → keep `field_id`. Independent of step 1; either order works.
-3. `POST /api/v1/catalogue/institutions/` with `{ "country": country_id, "name_en": "University of Melbourne" }` → keep `institution_id`.
+1. `POST /api/v1/catalogue/countries/` with `{ "code": "au", "name": "Australia" }` → keep `country_id`.
+2. `POST /api/v1/catalogue/fields/` with `{ "code": "information_technology", "name": "Information Technology" }` → keep `field_id`. Independent of step 1; either order works.
+3. `POST /api/v1/catalogue/institutions/` with `{ "country": country_id, "name": "University of Melbourne" }` → keep `institution_id`.
    - 400 with `details.country` if `country_id` does not exist.
-4. *(Optional)* `POST /api/v1/catalogue/institutions/<institution_id>/campuses/` with `{ "name_en": "Parkville" }` → keep `campus_id`.
+4. *(Optional)* `POST /api/v1/catalogue/institutions/<institution_id>/campuses/` with `{ "name": "Parkville" }` → keep `campus_id`.
    - 409 `INSTITUTIONS_CAMPUS_DUPLICATE` if that name is already used at this institution.
 5. `POST /api/v1/catalogue/programs/` with `{ "institution": institution_id, "field": field_id, "title": "...", "qualification_level": "masters", "campus": campus_id }`.
    - 400 `INSTITUTIONS_CAMPUS_INSTITUTION_MISMATCH` if `campus_id` belongs to another institution.
@@ -458,11 +458,11 @@ Field-level validation failures come from the serializer layer and put the offen
 - **Tuition is program-level only.** There is no per-campus, per-intake, or per-year tuition. If a program's fee differs by campus, the catalogue cannot express it — a separate program record is the only workaround.
 - **Entry expectations are unstructured free text.** `academic_requirement`, `english_requirement`, and `backlog_tolerance` cannot be filtered or compared. "Programs accepting IELTS 6.0" is not answerable.
 - **No program code.** Programs are identified only by UUID; there is no stable human-readable identifier equivalent to `Field.code` or `Country.code`, and no uniqueness constraint on `(institution, campus, title)`. Two identical programs can be created and nothing flags it.
-- **No duplicate detection on institutions.** `(country, name_en)` is not unique, by design, so the same university can be entered twice.
+- **No duplicate detection on institutions.** `(country, name)` is not unique, by design, so the same university can be entered twice.
 - **No bulk import.** Every record is created one at a time; there is no CSV, feed, or scraping endpoint.
 - **No history endpoint.** Audit events are written for every change, but this module exposes no route to read them — unlike `applicant_journeys`, which has `GET /api/v1/journeys/<id>/history/`. Reading catalogue history means calling the `audit` module's own list endpoint, filtering to `app_label` `institutions` plus the record's entity type and id. **Take the exact query-parameter names from `audit/docs/INTEGRATION.md`** — this contract is authoritative for the *values* below, not for the parameter names that carry them. The five `entity_type` values are `catalogue_field`, `catalogue_country`, `catalogue_institution`, `catalogue_campus`, and `catalogue_program` — all prefixed, because the audit log is shared across every app and a bare `country` would collide. The `action` values are listed per endpoint in §7.
 - **No `?code=` lookup on `Country` or `Field`.** Both have a unique, immutable, human-readable `code`, but neither list endpoint filters on it — `q` searches names only. Resolving `"au"` to a country id means fetching the list and matching client-side.
 - **No way to list programs with no recorded tuition**, and **`tuition_max` does not normalize currency or fee period**. See §7. A budget filter is only meaningful within a single country.
 - **`is_usable` is per-record, not per-chain**, so it disagrees with search results whenever an ancestor is unavailable. See §4. It also cannot be filtered on — use `usable_only` or `availability_status`.
-- **Search is substring-based, not ranked.** `q` performs a case-insensitive partial match with no relevance ordering and no fuzzy tolerance for misspellings, despite being trigram-indexed. It matches the stored strings literally, so a Devanagari `name_np` is **not** found by a romanized query, nor the reverse — searching "Australia" will not match a record whose only Nepali name is "अस्ट्रेलिया". Search each script with a query in that script.
+- **Search is substring-based, not ranked.** `q` performs a case-insensitive partial match with no relevance ordering and no fuzzy tolerance for misspellings, despite being trigram-indexed. It matches the stored strings literally.
 - **No stale-reference handling for the journey copy.** Because shortlisting copies catalogue text into a journey's free-text fields, nothing detects or reconciles the case where the source program is later renamed or withdrawn. The journey keeps whatever string was copied, indefinitely, with no link back to notice the drift.

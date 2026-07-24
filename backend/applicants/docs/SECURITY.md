@@ -73,7 +73,7 @@ This app holds the most sensitive data in the system to date: dates of birth, pa
 ## 7. Input handling
 
 - Every user-entered text field is Unicode-normalized (NFC) in a serializer `validate_<field>()` before reaching a service (§39.2).
-- `full_name_romanized` is derived server-side from `full_name_np` and never accepted on create, so the search field cannot be poisoned to make an applicant unfindable.
+- `full_name` is derived server-side from `full_name` and never accepted on create, so the search field cannot be poisoned to make an applicant unfindable.
 - `passport_number` is upper-cased on write, so lookups do not silently miss on case.
 - Contact numbers use the shared `core.validators.validate_contact_number` — permissive enough for Nepali landlines, mobiles, and international forms, but still refusing free text.
 - `expiry_date` must follow `issued_date`, which catches the common transposition of the two dates at entry time.

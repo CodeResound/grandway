@@ -93,11 +93,8 @@ class ClientListSerializer(serializers.ModelSerializer):
         model = Client
         fields = (
             "id",
-            "name_np",
-            "name_en",
-            "name_romanized",
-            "spokesperson_name_np",
-            "spokesperson_name_en",
+            "name",
+            "spokesperson_name",
             "email",
             "primary_contact_number",
             "status",
@@ -137,12 +134,8 @@ class ClientDetailSerializer(serializers.ModelSerializer):
         model = Client
         fields = (
             "id",
-            "name_np",
-            "name_en",
-            "name_romanized",
-            "spokesperson_name_np",
-            "spokesperson_name_en",
-            "spokesperson_name_romanized",
+            "name",
+            "spokesperson_name",
             "spokesperson_designation",
             "email",
             "website",
@@ -190,23 +183,16 @@ class _ClientWritableSerializer(_NormalizedTextMixin, serializers.Serializer):
     """
 
     text_fields = (
-        "name_np",
-        "name_en",
-        "name_romanized",
-        "spokesperson_name_np",
-        "spokesperson_name_en",
-        "spokesperson_name_romanized",
+        "name",
+        "spokesperson_name",
         "spokesperson_designation",
         "address",
         "notes",
     )
 
-    name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    name_romanized = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    name = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
-    spokesperson_name_np = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    spokesperson_name_en = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    spokesperson_name_romanized = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    spokesperson_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     spokesperson_designation = serializers.CharField(max_length=150, required=False, allow_blank=True)
 
     email = serializers.EmailField(required=False, allow_blank=True)
@@ -221,19 +207,19 @@ class _ClientWritableSerializer(_NormalizedTextMixin, serializers.Serializer):
 class ClientCreateSerializer(_ClientWritableSerializer):
     """A new partner organization being added to the directory.
 
-    ``name_np`` is the one required field. §39.1 applies here as written —
-    unlike ``institutions``, whose foreign universities have no authoritative
-    Devanagari identity, a referral partner of a Nepal consultancy generally
-    does.
+    ``name`` is the one required field. Every other field is optional — a
+    partner may be an organization you deal with before you know who to ask for.
     """
 
-    name_np = serializers.CharField(max_length=255)
+    name = serializers.CharField(max_length=255)
 
 
 class ClientUpdateSerializer(_ClientWritableSerializer):
-    """A correction to a client's identity, contact details, or notes."""
+    """A correction to a client's identity, contact details, or notes.
 
-    name_np = serializers.CharField(max_length=255, required=False)
+    ``name`` stays optional here so a ``PATCH`` can touch only the contact
+    details without re-sending it.
+    """
 
 
 class RetireSerializer(_NormalizedTextMixin, serializers.Serializer):

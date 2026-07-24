@@ -83,7 +83,7 @@
 
 ## 4. Models
 
-**BsDate** — `{ year, month, day, month_name_en, month_name_np, display_en, display_np }`
+**BsDate** — `{ year, month, day, month_name, display }`
 
 **UserBrief** — `{ id, username, display_name }`
 
@@ -101,15 +101,15 @@
 
 **OfferWorkloadRow** — OwnerRow plus `{ awaiting_response }`
 
-**SourceConversionRow** — `{ source_id, source_code, source_name_np, source_name_en, total, converted, lost, in_progress }`
+**SourceConversionRow** — `{ source_id, source_code, source_name, total, converted, lost, in_progress }`
 
 - Only sources with at least one lead in the window appear. `in_progress` is `total - converted - lost`.
 
-**ChecklistItemRow** — `{ id, label, status:[enum], item_type:[enum], is_required, due_at?, due_at_bs?:BsDate, status_note, checklist_id, checklist_title, journey_id, applicant_id, applicant_name, country_name_en, assigned_to?:UserBrief }`
+**ChecklistItemRow** — `{ id, label, status:[enum], item_type:[enum], is_required, due_at?, due_at_bs?:BsDate, status_note, checklist_id, checklist_title, journey_id, applicant_id, applicant_name, country_name, assigned_to?:UserBrief }`
 
-- `country_name_en` is `""` for a checklist built by hand with no country.
+- `country_name` is `""` for a checklist built by hand with no country.
 
-**OfferRow** — `{ id, status:[enum], institution_name_en, program_title, intake_label, response_deadline?, response_deadline_bs?:BsDate, is_response_overdue, journey_id, applicant_id, applicant_name }`
+**OfferRow** — `{ id, status:[enum], institution_name, program_title, intake_label, response_deadline?, response_deadline_bs?:BsDate, is_response_overdue, journey_id, applicant_id, applicant_name }`
 
 **FileRow** — `{ id, original_filename, category:[enum], verification_status:[enum], rejection_reason, created_at, reviewed_at?, applicant_id?, journey_id? }`
 
@@ -123,11 +123,11 @@
 
 - `has_expired` is computed against today in **Nepal**, not UTC. Already-expired passports are included, not filtered out.
 
-**LeadRow** — `{ id, full_name_np, full_name_en, stage:[enum], last_followed_up_at?, created_at, owner_display_name }`
+**LeadRow** — `{ id, full_name, stage:[enum], last_followed_up_at?, created_at, owner_display_name }`
 
-**JourneyRow** — `{ id, stage:[enum], applicant_id, applicant_name, country_id?, country_name_en }`
+**JourneyRow** — `{ id, stage:[enum], applicant_id, applicant_name, country_id?, country_name }`
 
-- `country_name_en` falls back to the journey's free-text destination when there is no catalogue link.
+- `country_name` falls back to the journey's free-text destination when there is no catalogue link.
 
 **ActivityRow** — `{ id, app_label, action, entity_type, entity_id?, actor_type:[enum], actor_label, summary, success, created_at, created_at_bs:BsDate }`
 
@@ -182,8 +182,8 @@
           "due_at": "2026-07-20T10:00:00Z",
           "due_at_bs": {
             "year": 2083, "month": 4, "day": 5,
-            "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-            "display_en": "2083 Shrawan 5", "display_np": "२०८३ श्रावण ५"
+            "month_name": "Shrawan",
+            "display": "2083 Shrawan 5"
           },
           "status_note": "",
           "checklist_id": "aabbccdd-1122-3344-5566-778899aabbcc",
@@ -191,7 +191,7 @@
           "journey_id": "1f2e3d4c-5b6a-7089-9a8b-7c6d5e4f3021",
           "applicant_id": "7c8d9e0f-1a2b-3c4d-5e6f-708192a3b4c5",
           "applicant_name": "Ram Shrestha",
-          "country_name_en": "Australia",
+          "country_name": "Australia",
           "assigned_to": { "id": "aaaa1111-2222-3333-4444-555566667777", "username": "adminuser", "display_name": "Adminuser" }
         }
       ]
@@ -246,8 +246,8 @@
       {
         "source_id": "0f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8",
         "source_code": "walk_in",
-        "source_name_np": "वाक-इन",
-        "source_name_en": "Walk-in",
+        "source_name": "वाक-इन",
+        "source_name": "Walk-in",
         "total": 84, "converted": 41, "lost": 12, "in_progress": 31
       }
     ],
@@ -304,8 +304,8 @@
       "created_at": "2026-07-24T09:15:00Z",
       "created_at_bs": {
         "year": 2083, "month": 4, "day": 9,
-        "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-        "display_en": "2083 Shrawan 9", "display_np": "२०८३ श्रावण ९"
+        "month_name": "Shrawan",
+        "display": "2083 Shrawan 9"
       }
     }
   ],
@@ -528,7 +528,7 @@
 **Unblock a stalled file**
 1. `GET /api/v1/dashboard/blockers/` → read `journeys_without_a_checklist.items[]`.
    - Empty: every destination in play has an authored template. This is the healthy state.
-2. For a row, note `country_id` and `country_name_en` — the destination whose requirements nobody wrote.
+2. For a row, note `country_id` and `country_name` — the destination whose requirements nobody wrote.
 3. `GET /api/v1/checklists/templates/?country=<country_id>` *(external module: `checklists`)* → confirm none is active and default.
 4. `POST /api/v1/checklists/templates/` *(external module: `checklists`)*, then activate it → new journeys to that country inherit it automatically.
    - The already-affected journeys do **not** retroactively gain one; apply a checklist to each by hand.

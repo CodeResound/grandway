@@ -20,7 +20,7 @@
 
 `concepts/notifications.txt` leaves five questions open and names two source apps that do not exist. Each departure below is a decision taken with the user before implementation, not an oversight:
 
-- **`title` and `body` are single fields, not the §39.1 `_np`/`_en`/`_romanized` triple.** They are sentences this system composes from a source record, not a second canonical identity of an entity. §39.1 exists because "गृह मन्त्रालय" and "Ministry of Home Affairs" are two equally legal names for one organization; "Passport expires in 21 days" is not a name at all. Same call `documents.label`, `document_templates.label`, and `checklists.label` already recorded.
+- **`title` and `body` are single English fields.** They are sentences this system composes from a source record — "Passport expires in 21 days" — not names.
 - **The feed is own-recipient only — stricter than any other app in this project.** Every other app lets an Admin read everything. Here an Admin cannot read another user's notifications over the API, because a notification is one person's work queue rather than a record about the business. It costs an Admin nothing operationally — everything a notification points at is readable through the source app's own endpoints — and it removes the ability to read somebody's inbox without leaving a trace. Cross-user inspection stays in Django admin, where it is attributable. Fetching another user's notification by id returns **404, not 403**: a 403 would confirm the id exists on somebody else's feed. See `API.md` §1.
 - **Three type values ship with no generator.** `missing_information`, `appointment_reminder`, and `test_score_expiring` are named in the concept file but have no source: no app defines what "required information" is, and the `appointments` and `test_scores` apps do not exist. The values are declared so the frontend gets the whole vocabulary at once and so adding a generator later is not a schema change. Nothing produces them today.
 - **The concept's `expired` lifecycle state is folded into `resolved`.** The concept lists "resolved, dismissed, or expired" as terminal states. `expired` and `resolved` would be written by the same code path for the same reason — the source condition stopped being true — so a separate value would only ever be a second name for one fact. `resolution = source_cleared` carries the distinction where it matters.
@@ -137,8 +137,8 @@ under an **unconditional** `UniqueConstraint(recipient, dedupe_key)`. Every gene
   "due_at": "2026-07-18T09:00:00Z",
   "due_at_bs": {
     "year": 2083, "month": 4, "day": 2,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 2", "display_np": "२०८३ श्रावण २"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 2"
   },
   "due_bucket": "overdue",
   "is_read": false,

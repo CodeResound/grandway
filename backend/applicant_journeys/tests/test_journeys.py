@@ -113,7 +113,7 @@ class TestJourneyCreate(JourneyApiTestCase):
 
     def test_applicant_cannot_be_reassigned_on_update(self) -> None:
         journey = self.make_journey()
-        other = make_applicant(self.admin, name_np="सीता गुरुङ")
+        other = make_applicant(self.admin)
         self.client.patch(
             self.url("journey-detail", journey),
             {"applicant": str(other.id)},
@@ -401,7 +401,7 @@ class TestJourneyCountryReference(JourneyApiTestCase):
 
         self.country = catalogue_services.create_country(
             actor=self.admin,
-            data={"code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया"},
+            data={"code": "au", "name": "Australia"},
         )
         self.auth(self.admin)
 
@@ -414,7 +414,7 @@ class TestJourneyCountryReference(JourneyApiTestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         ref = response.data["data"]["target_country_ref"]
         self.assertEqual(ref["id"], str(self.country.id))
-        self.assertEqual(ref["name_en"], "Australia")
+        self.assertEqual(ref["name"], "Australia")
 
     def test_an_unknown_country_id_is_rejected_by_name(self) -> None:
         response = self.client.post(
@@ -482,7 +482,7 @@ class TestCountryBackfill(JourneyApiTestCase):
 
         self.country = catalogue_services.create_country(
             actor=self.admin,
-            data={"code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया"},
+            data={"code": "au", "name": "Australia"},
         )
 
     def _run_backfill(self) -> None:
@@ -519,7 +519,7 @@ class TestCountryBackfill(JourneyApiTestCase):
     def test_it_never_overwrites_a_reference_that_is_already_set(self) -> None:
         from institutions import services as catalogue_services
 
-        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name_en": "Canada"})
+        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name": "Canada"})
         journey = self.make_journey(target_country="Australia", target_country_ref=canada)
 
         self._run_backfill()

@@ -1,7 +1,7 @@
 # Integration — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.1.1
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -15,6 +15,7 @@
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the two calls that back an avatar, and the two caveats that still block a simple one |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | List endpoint widened (`applicants.applicant.list` → 1.1.0): `search` now spans email, contact number, and passport number and returns **relevance-ordered** results; new `country`, `country_code`, and `journey_stage` filters; both read shapes gained a `destinations` array. **Added `applicant_journeys` to §2 `Requires`** — the first thing this module needs from another business app, and the reason §3's "ordering is fixed newest-first" is no longer unconditionally true |
 | 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name` on Applicant, FamilyMember, EmergencyContact). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -33,7 +34,7 @@
 | `authenticate` | FK | `created_by` references a user account. | Applicants cannot be created; attribution is unresolvable. |
 | `audit` | service call + read shape | Every mutation appends one immutable event; the history endpoint reads that log back through audit's selector and renders audit's shared entry shape. This module stores no history of its own. | Hard dependency in both directions of use — without it this module does not start. If only the write path failed, `GET /api/v1/applicants/<id>/history/` would return an empty list — the change history disappears, though the applicant itself still works. |
 | `applicant_journeys` | reverse FK read | An applicant has **no destination of its own** — the destination belongs to the study plan. The `destinations` array on both read shapes, and the `country`, `country_code`, and `journey_stage` list filters, are all read back through the journeys that point here. | The three filters always return an empty page and `destinations` is always `[]`. Nothing else degrades: creating, reading, editing, and archiving an applicant work with no journey in the system, and a person with no journey is a normal, fully functional record today. |
-| `institutions` | indirect FK read | `destinations[].country_id` / `country_code` / `country_name_en` are the catalogue country the journey targets. This module never queries the catalogue itself; it reads what the journey already points at. | The three country fields are `null`/`""` and `?country=`/`?country_code=` match nothing. `target_country` — the free text the destination was typed as — still resolves, and is the only destination a pre-catalogue journey ever had. |
+| `institutions` | indirect FK read | `destinations[].country_id` / `country_code` / `country_name` are the catalogue country the journey targets. This module never queries the catalogue itself; it reads what the journey already points at. | The three country fields are `null`/`""` and `?country=`/`?country_code=` match nothing. `target_country` — the free text the destination was typed as — still resolves, and is the only destination a pre-catalogue journey ever had. |
 
 **This module depends on `leads` for nothing.** An applicant can be created, read, edited, and archived with no lead in the system. The relationship runs the other way: `leads` calls this module to create an applicant during conversion, and `leads` owns the link between the two. `originating_lead_id` on the detail response is read back through that link and is simply `null` for a directly created applicant.
 
@@ -75,7 +76,7 @@
 
 ## 4. Models
 
-**BsDate** — `{ year, month, day, month_name_en, month_name_np, display_en, display_np }`
+**BsDate** — `{ year, month, day, month_name, display }`
 
 - Never sent by a client; appears only as the value of a `<field>_bs` key.
 
@@ -92,20 +93,20 @@
 - Has no `id` in the response — it is a one-per-applicant record, not a collection member.
 - `expiry_date` is the operationally important field; an expiring passport can block a visa application.
 
-**FamilyMember** — `{ id, relationship:[enum], full_name_np, full_name_en, occupation, contact_number }`
+**FamilyMember** — `{ id, relationship:[enum], full_name, occupation, contact_number }`
 
-**EmergencyContact** — `{ id, full_name_np, full_name_en, relationship, contact_number, email, address }`
+**EmergencyContact** — `{ id, full_name, relationship, contact_number, email, address }`
 
 - `relationship` here is **free text**, unlike `FamilyMember.relationship` which is an enum — an emergency contact may be a friend, landlord, or colleague.
 
-**Destination** — `{ journey_id, stage:[enum], country_id?, country_code, country_name_en, target_country }`
+**Destination** — `{ journey_id, stage:[enum], country_id?, country_code, country_name, target_country }`
 
 - One entry per journey the applicant holds. **Not owned by this module** — it is a read-only projection of `applicant_journeys`.
 - `stage` is an `applicant_journeys` `JourneyStage` value, not an applicant status. The two lifecycles are independent: a journey reaching `closed` does not archive the applicant.
-- `country_id`, `country_code`, and `country_name_en` are `null`/`""` together for a journey with no catalogue link. In that case `target_country` — free text — is the **only** destination that journey has. Render `country_name_en || target_country`.
+- `country_id`, `country_code`, and `country_name` are `null`/`""` together for a journey with no catalogue link. In that case `target_country` — free text — is the **only** destination that journey has. Render `country_name || target_country`.
 - Use `journey_id` to call the `applicant_journeys` module; this module exposes no journey endpoints.
 
-**Applicant (list shape)** — `{ id, full_name_np, full_name_en, full_name_romanized, date_of_birth?, date_of_birth_bs?:BsDate, gender:[enum], nationality, email, status:[enum], creation_source:[enum], created_by:UserBrief, contact_numbers:[ContactNumber], destinations:[Destination], created_at, updated_at }`
+**Applicant (list shape)** — `{ id, full_name, date_of_birth?, date_of_birth_bs?:BsDate, gender:[enum], nationality, email, status:[enum], creation_source:[enum], created_by:UserBrief, contact_numbers:[ContactNumber], destinations:[Destination], created_at, updated_at }`
 
 **Applicant (detail shape)** — the list shape plus `{ addresses:[Address], passport?:Passport, family_members:[FamilyMember], emergency_contacts:[EmergencyContact], originating_lead_id? }`
 
@@ -127,14 +128,12 @@
 ```json
 {
   "id": "7c8d9e0f-1a2b-3c4d-5e6f-708192a3b4c5",
-  "full_name_np": "राम श्रेष्ठ",
-  "full_name_en": "Ram Shrestha",
-  "full_name_romanized": "raam shrestha",
+  "full_name": "Ram Shrestha",
   "date_of_birth": "2002-05-14",
   "date_of_birth_bs": {
     "year": 2059, "month": 2, "day": 1,
-    "month_name_en": "Jestha", "month_name_np": "जेठ",
-    "display_en": "2059 Jestha 1", "display_np": "२०५९ जेठ १"
+    "month_name": "Jestha",
+    "display": "2059 Jestha 1"
   },
   "gender": "male",
   "nationality": "Nepali",
@@ -165,22 +164,21 @@
     "issued_date": "2022-01-01",
     "issued_date_bs": {
       "year": 2078, "month": 9, "day": 17,
-      "month_name_en": "Poush", "month_name_np": "पुष",
-      "display_en": "2078 Poush 17", "display_np": "२०७८ पुष १७"
+      "month_name": "Poush",
+      "display": "2078 Poush 17"
     },
     "expiry_date": "2032-01-01",
     "expiry_date_bs": {
       "year": 2088, "month": 9, "day": 17,
-      "month_name_en": "Poush", "month_name_np": "पुष",
-      "display_en": "2088 Poush 17", "display_np": "२०८८ पुष १७"
+      "month_name": "Poush",
+      "display": "2088 Poush 17"
     }
   },
   "family_members": [
     {
       "id": "f1f2f3f4-0000-1111-2222-333344445555",
       "relationship": "father",
-      "full_name_np": "हरि श्रेष्ठ",
-      "full_name_en": "Hari Shrestha",
+      "full_name": "Hari Shrestha",
       "occupation": "Teacher",
       "contact_number": "9841111111"
     }
@@ -188,8 +186,7 @@
   "emergency_contacts": [
     {
       "id": "e1e2e3e4-0000-1111-2222-333344445555",
-      "full_name_np": "गीता श्रेष्ठ",
-      "full_name_en": "Gita Shrestha",
+      "full_name": "Gita Shrestha",
       "relationship": "Aunt",
       "contact_number": "9812345678",
       "email": "",
@@ -211,14 +208,12 @@
   "data": [
     {
       "id": "7c8d9e0f-1a2b-3c4d-5e6f-708192a3b4c5",
-      "full_name_np": "राम श्रेष्ठ",
-      "full_name_en": "Ram Shrestha",
-      "full_name_romanized": "raam shrestha",
+      "full_name": "Ram Shrestha",
       "date_of_birth": "2002-05-14",
       "date_of_birth_bs": {
         "year": 2059, "month": 2, "day": 1,
-        "month_name_en": "Jestha", "month_name_np": "जेठ",
-        "display_en": "2059 Jestha 1", "display_np": "२०५९ जेठ १"
+        "month_name": "Jestha",
+        "display": "2059 Jestha 1"
       },
       "gender": "male",
       "nationality": "Nepali",
@@ -235,7 +230,7 @@
           "stage": "offer_stage",
           "country_id": "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9",
           "country_code": "au",
-          "country_name_en": "Australia",
+          "country_name": "Australia",
           "target_country": ""
         },
         {
@@ -243,7 +238,7 @@
           "stage": "closed",
           "country_id": null,
           "country_code": "",
-          "country_name_en": "",
+          "country_name": "",
           "target_country": "Canada"
         }
       ],
@@ -277,8 +272,8 @@
   "created_at": "2026-07-23T06:30:00Z",
   "created_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   }
 }
 ```
@@ -317,7 +312,7 @@
 - `PATCH /api/v1/applicants/<applicant_id>/` — correct one (permission: `applicants.applicant.update`, risk: medium)
 
 **Send (create/update):**
-- create: `full_name_np` (required), `full_name_en`, `date_of_birth`, `gender`, `nationality`, `email`, `contact_numbers` (required, at least one), `addresses`, `passport`, `family_members`, `emergency_contacts`
+- create: `full_name` (required), `full_name`, `date_of_birth`, `gender`, `nationality`, `email`, `contact_numbers` (required, at least one), `addresses`, `passport`, `family_members`, `emergency_contacts`
 - update: any subset of the same fields, all optional
 
 **Returns:** Applicant (detail shape) for create, retrieve, and update; list[Applicant (list shape)] for the list, paginated.
@@ -335,8 +330,8 @@
 - **Creation is Admin-only**, by both paths. Editing is not — a Lead Manager who may not admit someone to the lifecycle may still maintain their file.
 - All five sub-resources are nested in the payload; there are no standalone endpoints for them. Sending a collection **replaces it entirely** — always send the complete intended list, never a delta. Sending `passport` upserts the single record.
 - `status`, `creation_source`, and `created_by` are not writable here; sending them is ignored, not rejected.
-- `full_name_romanized` is generated server-side; sending it has no effect.
-- `search` matches Devanagari, Roman, and romanized names simultaneously, so a user may type in either script — and also the email, any contact number, and the passport number.
+- `full_name` is generated server-side; sending it has no effect.
+- `search` matches the applicant's name, and also the email, any contact number, and the passport number.
 - **A `search` result set is relevance-ordered, not newest-first.** See §3 for the scoring. Every other list is newest-first.
 - **The country filters mean "has *a* journey there", not "is currently going there".** A person who tried for Australia, closed that journey, and is now applying to Canada matches `?country_code=au` **and** `?country_code=ca`. Read `destinations[].stage` to tell which is live; there is no "current destination" field and no filter for one.
 - An applicant with two journeys to the same country is returned **once**, not twice.
@@ -392,7 +387,7 @@
 ## 8. Flows
 
 **Create an applicant directly** *(Admin only)*
-1. `POST /api/v1/applicants/` with `full_name_np` and at least one contact number → capture `applicant.id`. `creation_source` reads `direct_admin`.
+1. `POST /api/v1/applicants/` with `full_name` and at least one contact number → capture `applicant.id`. `creation_source` reads `direct_admin`.
    - `APPLICANTS_ACTOR_FORBIDDEN`: the caller is a Lead Manager — this path is Admin-only.
    - `APPLICANTS_CONTACT_REQUIRED` or a 400 on `contact_numbers`: at least one number is mandatory.
 2. `PATCH /api/v1/applicants/<applicant.id>/` to fill in passport, addresses, and family as they become known. Each collection is sent complete.

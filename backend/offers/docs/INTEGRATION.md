@@ -1,7 +1,7 @@
 # Integration — Offers
 
 **Owner app:** `offers`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 11 endpoints across two resources |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the two calls that back the Offer Detail supporting-files section |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | History entries gained `actor_id` (`offers.offer.list_history` → 1.1.0). The shape is now owned by the `audit` module and shared by all six modules that expose a history endpoint; three of them, this one included, had been omitting `actor_id`. Additive, so no consumer breaks. §2 `Requires` corrected: the `audit` coupling is a read dependency as well as a write one |
+| 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`institution_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 
 ---
 
@@ -108,24 +109,24 @@ Field-level validation failures come from the serializer layer and put the offen
 - **IDs:** UUID strings throughout. There is no human-readable code on any resource. `offer_reference` is the *institution's* own letter number — free text, not unique, not an identifier you can address a record by.
 - **Times.** Two different rules, and the difference matters:
   - System timestamps — `created_at`, `updated_at` — are ISO 8601 UTC with **no** `_bs` sibling.
-  - **User-facing dates carry a Bikram Sambat sibling** (§39.4): `issue_date_bs`, `response_deadline_bs`, `deposit_due_date_bs`, `decided_at_bs`, and on conditions `due_date_bs` and `resolved_at_bs`. Each is an object or `null`, never a string. Shape: `{ year, month, day, month_name_en, month_name_np, display_en, display_np }`. **Write the Gregorian field; read either.** There is no BS input anywhere — `POST`/`PATCH` accept `YYYY-MM-DD` only.
+  - **User-facing dates carry a Bikram Sambat sibling** (§39.4): `issue_date_bs`, `response_deadline_bs`, `deposit_due_date_bs`, `decided_at_bs`, and on conditions `due_date_bs` and `resolved_at_bs`. Each is an object or `null`, never a string. Shape: `{ year, month, day, month_name, display }`. **Write the Gregorian field; read either.** There is no BS input anywhere — `POST`/`PATCH` accept `YYYY-MM-DD` only.
   - `is_response_overdue` is computed in **Nepal time** (UTC+5:45), not UTC. Near midnight NPT a client computing it locally from `response_deadline` may briefly disagree with the server; trust the server's flag.
 - **Money:** decimal **strings**, never numbers — `"49824.00"`. Never parse into a float. Every amount has a separate currency field and is `null` when unrecorded; an empty currency is `""`, not `null`. **Amounts are stored exactly as the institution quoted them and are never converted** — two offers on one journey may be in different currencies, and nothing in this module normalizes them. Render the currency on every figure.
 - **Empty text fields are `""`, never `null`.** Nullable fields are the dates (`issue_date`, `response_deadline`, `deposit_due_date`, `due_date`), the amounts, `decided_at`, `resolved_at`, the three catalogue FKs, and the `*_username` fields.
 
 ## 4. Models
 
-**Offer (list shape)** — `{ id, journey, journey_stage:[enum], applicant_id, applicant_name, institution_name_en, campus_name, program_title, qualification_level:[enum], intake_label, offer_type:[enum], status:[enum], issue_date?, issue_date_bs?:json, response_deadline?, response_deadline_bs?:json, is_response_overdue, has_open_conditions, created_at }`
+**Offer (list shape)** — `{ id, journey, journey_stage:[enum], applicant_id, applicant_name, institution_name, campus_name, program_title, qualification_level:[enum], intake_label, offer_type:[enum], status:[enum], issue_date?, issue_date_bs?:json, response_deadline?, response_deadline_bs?:json, is_response_overdue, has_open_conditions, created_at }`
 
 - `applicant_name` and `journey_stage` are reached **through** the journey and are read-only here. `journey_stage` is `applicant_journeys`' enum, not this module's.
 - `is_response_overdue` is true only when `status` is `issued` **and** the deadline has passed. An overdue `draft` reports `false` — a draft was never issued, so nothing is late.
 - `has_open_conditions` is true when any condition is not `satisfied`, `waived`, or `not_applicable`. It is **independent of `offer_type`**: an `unconditional` offer with a pending condition attached reports `true`.
 
-**Offer (detail shape)** — the list shape plus `{ institution?, campus?, program?, reference_source:[enum], institution_name_np, country_name, offer_reference, tuition_amount?, tuition_currency, tuition_fee_period:[enum], scholarship_amount?, scholarship_currency, scholarship_notes, deposit_amount?, deposit_currency, deposit_due_date?, deposit_due_date_bs?:json, deposit_notes, notes, is_terminal, decided_at?, decided_at_bs?:json, decision_reason, decided_by_username?, deferred_to_intake, created_by_username, conditions:list[Condition], updated_at }`
+**Offer (detail shape)** — the list shape plus `{ institution?, campus?, program?, reference_source:[enum], institution_name, country_name, offer_reference, tuition_amount?, tuition_currency, tuition_fee_period:[enum], scholarship_amount?, scholarship_currency, scholarship_notes, deposit_amount?, deposit_currency, deposit_due_date?, deposit_due_date_bs?:json, deposit_notes, notes, is_terminal, decided_at?, decided_at_bs?:json, decision_reason, decided_by_username?, deferred_to_intake, created_by_username, conditions:list[Condition], updated_at }`
 
 - The detail shape is returned by retrieve, create, update, issue, **and** the decision action. Only the list returns the shorter shape.
 - `institution`, `campus`, and `program` are **bare UUID strings or `null`** — not nested objects. To show the live catalogue record, fetch it from `/api/v1/catalogue/`. They are `null` on a manually recorded offer.
-- **The snapshot fields, not the FKs, are what the offer means.** `institution_name_en`, `campus_name`, `program_title`, `country_name`, `qualification_level`, and `intake_label` are copied at creation and never change afterwards — a program renamed or an institution marked inactive in the catalogue leaves them untouched. Render these, not a freshly-fetched catalogue record, anywhere the offer is displayed.
+- **The snapshot fields, not the FKs, are what the offer means.** `institution_name`, `campus_name`, `program_title`, `country_name`, `qualification_level`, and `intake_label` are copied at creation and never change afterwards — a program renamed or an institution marked inactive in the catalogue leaves them untouched. Render these, not a freshly-fetched catalogue record, anywhere the offer is displayed.
 - `deferred_to_intake` is non-empty only when `status` is `deferred`.
 - `conditions` is always present on the detail shape, `[]` when there are none.
 
@@ -157,8 +158,7 @@ Field-level validation failures come from the serializer layer and put the offen
   "campus": "3e4f5061-7b8c-4d9e-af01-2b3c4d5e6f70",
   "program": "4f506172-8c9d-4e0f-b112-3c4d5e6f7081",
   "reference_source": "catalogue",
-  "institution_name_en": "University of Melbourne",
-  "institution_name_np": "",
+  "institution_name": "University of Melbourne",
   "campus_name": "Parkville",
   "program_title": "Master of Information Technology",
   "country_name": "Australia",
@@ -169,14 +169,14 @@ Field-level validation failures come from the serializer layer and put the offen
   "issue_date": "2026-07-18",
   "issue_date_bs": {
     "year": 2083, "month": 4, "day": 2,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 2", "display_np": "२०८३ श्रावण २"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 2"
   },
   "response_deadline": "2026-09-30",
   "response_deadline_bs": {
     "year": 2083, "month": 6, "day": 14,
-    "month_name_en": "Ashwin", "month_name_np": "आश्विन",
-    "display_en": "2083 Ashwin 14", "display_np": "२०८३ आश्विन १४"
+    "month_name": "Ashwin",
+    "display": "2083 Ashwin 14"
   },
   "is_response_overdue": false,
   "tuition_amount": "49824.00",
@@ -190,8 +190,8 @@ Field-level validation failures come from the serializer layer and put the offen
   "deposit_due_date": "2026-08-29",
   "deposit_due_date_bs": {
     "year": 2083, "month": 5, "day": 13,
-    "month_name_en": "Bhadra", "month_name_np": "भाद्र",
-    "display_en": "2083 Bhadra 13", "display_np": "२०८३ भाद्र १३"
+    "month_name": "Bhadra",
+    "display": "2083 Bhadra 13"
   },
   "deposit_notes": "Non-refundable after the response deadline.",
   "status": "issued",
@@ -214,8 +214,8 @@ Field-level validation failures come from the serializer layer and put the offen
       "due_date": "2026-08-15",
       "due_date_bs": {
         "year": 2083, "month": 4, "day": 30,
-        "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-        "display_en": "2083 Shrawan 30", "display_np": "२०८३ श्रावण ३०"
+        "month_name": "Shrawan",
+        "display": "2083 Shrawan 30"
       },
       "display_order": 0,
       "resolution_note": "",
@@ -244,8 +244,7 @@ Field-level validation failures come from the serializer layer and put the offen
   "campus": null,
   "program": null,
   "reference_source": "manual",
-  "institution_name_en": "Ancient Polytechnic",
-  "institution_name_np": "",
+  "institution_name": "Ancient Polytechnic",
   "campus_name": "",
   "program_title": "Diploma in Hospitality",
   "country_name": "",
@@ -276,8 +275,8 @@ Field-level validation failures come from the serializer layer and put the offen
   "decided_at": "2026-07-24T10:02:00Z",
   "decided_at_bs": {
     "year": 2083, "month": 4, "day": 8,
-    "month_name_en": "Shrawan", "month_name_np": "श्रावण",
-    "display_en": "2083 Shrawan 8", "display_np": "२०८३ श्रावण ८"
+    "month_name": "Shrawan",
+    "display": "2083 Shrawan 8"
   },
   "decision_reason": "Applicant chose a different destination.",
   "decided_by_username": "adminuser",
@@ -330,7 +329,7 @@ Field-level validation failures come from the serializer layer and put the offen
 - `PATCH /api/v1/offers/<offer_id>/` — update (permission: `offers.offer.update`, risk: medium)
 
 **Send (create/update):**
-- create: `journey` (required, UUID); **the reference, one of two ways** — either `program` (UUID, which implies its own institution and campus) or the snapshot text `institution_name_en` + `program_title`; plus optionally `institution`, `campus`, `institution_name_np`, `campus_name`, `country_name`, `qualification_level`, `intake_label`, `offer_type`, `offer_reference`, `issue_date`, `response_deadline`, `tuition_amount`, `tuition_currency`, `tuition_fee_period`, `scholarship_amount`, `scholarship_currency`, `scholarship_notes`, `deposit_amount`, `deposit_currency`, `deposit_due_date`, `deposit_notes`, `notes`, and `conditions` (an array of `{condition_type, description, due_date?, display_order?}`)
+- create: `journey` (required, UUID); **the reference, one of two ways** — either `program` (UUID, which implies its own institution and campus) or the snapshot text `institution_name` + `program_title`; plus optionally `institution`, `campus`, `institution_name`, `campus_name`, `country_name`, `qualification_level`, `intake_label`, `offer_type`, `offer_reference`, `issue_date`, `response_deadline`, `tuition_amount`, `tuition_currency`, `tuition_fee_period`, `scholarship_amount`, `scholarship_currency`, `scholarship_notes`, `deposit_amount`, `deposit_currency`, `deposit_due_date`, `deposit_notes`, `notes`, and `conditions` (an array of `{condition_type, description, due_date?, display_order?}`)
 - update: any subset of `offer_type`, `offer_reference`, `issue_date`, `response_deadline`, the nine money fields, and `notes` — **and nothing else**
 
 **Returns:** Offer (detail shape) for create, retrieve, and update; list[Offer (list shape)] for the list, paginated.
@@ -502,7 +501,7 @@ Field-level validation failures come from the serializer layer and put the offen
 **Compare competing offers on one journey**
 
 1. `GET /api/v1/offers/?journey=<journey_id>` → every offer, newest first.
-2. Render `institution_name_en`, `program_title`, `intake_label`, `status`, `response_deadline`, and `is_response_overdue` per row.
+2. Render `institution_name`, `program_title`, `intake_label`, `status`, `response_deadline`, and `is_response_overdue` per row.
    - **Render `tuition_currency` beside every `tuition_amount`.** Amounts are never converted, so two rows may be in different currencies and are not directly comparable.
 3. Accept one — `POST /api/v1/offers/<id>/decision/` with `accepted`.
 4. Resolve the others — `POST /api/v1/offers/<other_id>/decision/` with `rejected` and a reason.
@@ -511,7 +510,7 @@ Field-level validation failures come from the serializer layer and put the offen
 
 **Record a historical offer with no catalogue record**
 
-1. `POST /api/v1/offers/` with `journey`, `institution_name_en`, `program_title`, and whatever else is known — **no `program`**. → `reference_source: "manual"`, all three catalogue FKs `null`.
+1. `POST /api/v1/offers/` with `journey`, `institution_name`, `program_title`, and whatever else is known — **no `program`**. → `reference_source: "manual"`, all three catalogue FKs `null`.
 2. Optionally `POST /api/v1/offers/<id>/decision/` straight away with the outcome it actually had. **No issue step is required** — a decision may be recorded on a draft.
 3. The offer will not appear under `?institution=` or `?program=` filters, by design. It has no catalogue link to filter on.
 
