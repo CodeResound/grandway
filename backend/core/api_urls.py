@@ -12,4 +12,5 @@ urlpatterns: list = [
     path("catalogue/", include("institutions.urls", namespace="catalogue")),
     path("offers/", include("offers.urls", namespace="offers")),
     path("clients/", include("clients.urls", namespace="clients")),
+    path("documents/", include("documents.urls", namespace="documents")),
 ]

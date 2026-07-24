@@ -1,7 +1,7 @@
 # Integration — Grandway Backend
 
 **Owner app:** `core`
-**Version:** 1.4.0
+**Version:** 1.5.0
 **Status:** Active
 **Created:** 2026-07-21
 **Purpose:** The entry point for anyone — human or AI — integrating a client against this backend from outside the repository. Read this file first, then the per-app `INTEGRATION.md` for each app you consume.
@@ -17,6 +17,7 @@
 | 1.2.0 | 2026-07-24 | AI (Claude) | Backfilled the rows missing for `audit`, `leads`, `applicants`, and `applicant_journeys`, which had entered the inventory and dependency graph without a change-history entry. Added `institutions` (`/api/v1/catalogue/`) to both, noted it as the first app whose read and write populations differ, completed the global error-code list, and warned that an app may replace a global code with its own |
 | 1.3.0 | 2026-07-24 | AI (Claude) | Added `offers` (`/api/v1/offers/`) to the inventory and dependency graph. **Retracted the "`institutions` is deliberately an island" claim in §7** — `offers` is the first app to reference both the catalogue and a journey, so the statement is no longer true. Noted in §10 that immutable-field handling now differs per app (`institutions` ignores, `offers` rejects) |
 | 1.4.0 | 2026-07-24 | AI (Claude) | Added `clients` (`/api/v1/clients/`) to the inventory and dependency graph — the only app with no business-app edge in either direction. Recorded that it is the second app with the read-shared/write-Admin split, and that its concept's attribution flow has no endpoints behind it |
+| 1.5.0 | 2026-07-24 | AI (Claude) | Added `documents` (`/api/v1/documents/`) to the inventory and dependency graph. **A third distinct access model now exists** — Admin-only, reads included — so §10's access warning is rewritten around three shapes rather than two. Recorded that three named document domains remain unbuilt, and that `documents` is the first app to store a client-owned opaque body |
 
 ---
 
@@ -178,6 +179,7 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 | `applicant_journeys` | `/api/v1/journeys/` | One overseas-study objective pursued by one applicant: destination, level, field, intake, budget, nine-stage lifecycle, deferment, closure, and outcome. One applicant may hold many. Shared, like applicants | `applicant_journeys/docs/INTEGRATION.md` |
 | `institutions` | `/api/v1/catalogue/` | The study-opportunity catalogue: countries, providers, campuses, and programs with tuition, entry expectations, and availability, plus an admin-managed study-field reference table. Read-shared, **write Admin-only** — the inverse split from every other app. Nothing is ever deleted; records are marked unavailable. Note the base path differs from the app name | `institutions/docs/INTEGRATION.md` |
 | `clients` | `/api/v1/clients/` | The B2B partner directory: the agencies, schools, and companies that refer applicants, with spokesperson, contact numbers, address, website, and logo link. Read-shared, **write Admin-only** — the same split as `institutions`. Retired rather than deleted. **No business-app dependency in either direction**, and note that the attribution it was built to support is not wired up yet | `clients/docs/INTEGRATION.md` |
+| `documents` | `/api/v1/documents/` | The editable document working record: ownership (applicant or standalone), template family + slug, status, and the entered source data as an opaque JSON body stored verbatim. **The backend is not the rendering engine** — every derived value is computed by the client at render. **Admin only, reads included** — the one app a Lead Manager cannot see at all. Archived, never deleted | `documents/docs/INTEGRATION.md` |
 | `offers` | `/api/v1/offers/` | Institutions' formal admission decisions against applicant journeys: offer type, dates, money terms, conditions, and the accept/reject/withdraw/defer/expire outcome. Each offer carries an immutable **snapshot** of the institution and program as they stood when the decision was made, so later catalogue edits never rewrite history. Shared, like journeys. A decision is final — there is no reopen, and nothing is ever deleted | `offers/docs/INTEGRATION.md` |
 
 **Routes outside `/api/v1/`.** `core` exposes three, and they are deliberately outside the registry-completeness guarantee in §9 (which covers `/api/v1/` only). They have no permission key and are not client API surface:
@@ -201,6 +203,7 @@ Assembled from each app's `INTEGRATION.md` §2 `Requires`. Use it to determine i
 - `institutions` → `core` (framework), `authenticate` (framework — supplies the access token and the `authority_type` that decides read-vs-write; **no FK**, since catalogue records have no owner), `audit` (service call — every create and update appends one event carrying the changed fields' previous and new values)
 - `offers` → `core` (framework), `applicant_journeys` (FK — every offer belongs to exactly one journey; also the route to the applicant's identity), `institutions` (FK, optional — the catalogue records an offer is built from and snapshots its names out of), `authenticate` (framework; FK — `created_by`, `decided_by`, and each condition's `resolved_by`), `audit` (service call — every mutation, including every condition change, appends one event)
 - `clients` → `core` (framework), `authenticate` (framework — access token and the `authority_type` that decides read-vs-write; FK — `created_by`, `retired_by`), `audit` (service call — every mutation appends one event). **No business-app edge at all.**
+- `documents` → `core` (framework), `applicants` (FK, optional — an applicant-owned document points at one; a standalone document points at nothing; also a service call to resolve the id on create), `authenticate` (framework; FK — `created_by`, `archived_by`), `audit` (service call — every mutation appends one event, with the document body redacted)
 
 Each edge appears in **both** apps' §2 sections — the depended-on app records what would break, the depending app records why it needs it.
 
@@ -240,7 +243,18 @@ Generated from the endpoint registry, committed, and CI-checked for drift — th
 
 - Request/response body schemas are not machine-readable (see §8).
 - Permission-key-based authorization is not yet enforced in the request path (see §4); `authenticate`'s own protected endpoints are authenticated self-service, `core.policy_engine` and `audit` use `is_staff`, and `leads`, `applicants`, and `applicant_journeys` each use their own inline authority rules (see each app's `SECURITY.md` §1). Every endpoint has a registered permission key ready for that wiring, but no view consults one yet.
-- **Access models differ per app and cannot be assumed.** `leads` is owner-scoped and reports out-of-scope records as 404; `applicants`, `applicant_journeys`, `institutions`, `offers`, and `clients` are shared, so their 404s always mean genuinely absent. Creation authority differs too: only an Admin may create an applicant, while any lead actor may create a journey or an offer. **Two apps — `institutions` and `clients` — split the read population from the write population** (everyone reads, only Admins write); the other four grant both rights to the same set. Each app's `INTEGRATION.md` §3 states its own access rule; that is the consumer-facing source. The app's `SECURITY.md` §1 carries the same rule plus the reasoning behind it, and is maintainer-facing — useful, but not part of the contract set in §6.
+- **Access models differ per app and cannot be assumed. There are now three distinct shapes:**
+
+  | Shape | Apps | Lead Manager reads | Lead Manager writes |
+  |---|---|---|---|
+  | Shared | `applicants`, `applicant_journeys`, `offers` | yes | yes |
+  | Read-shared, write-Admin | `institutions`, `clients` | yes | no |
+  | **Admin-only** | **`documents`** | **no** | **no** |
+
+  `leads` sits outside the table: it is owner-scoped, and reports out-of-scope records as 404. Every other app's 404 means genuinely absent. Creation authority varies within the shared group too — only an Admin may create an applicant, while any lead actor may create a journey or an offer.
+
+  **`documents` is the case most likely to break a client**, because it is the only app where a Lead Manager cannot even list. A documents panel must be *hidden* for them, not rendered read-only or shown empty — an empty panel asserts "this applicant has no documents", which is false. Each app's `INTEGRATION.md` §3 states its own rule; that is the consumer-facing source. The app's `SECURITY.md` §1 carries the same rule plus the reasoning, and is maintainer-facing — useful, but not part of the contract set in §6.
+- **Three named document domains are unbuilt, and `documents` depends on all three for its full feature set.** `document_history` (print snapshots), `document_templates` (template definitions and signatory records), and `uploaded_files` (supporting files) have no code and, for the first two, no concept file. A client integrating `documents` can create, edit, archive, and restore — but cannot print, cannot resolve a signatory reference, and cannot attach a file. See `documents/docs/INTEGRATION.md` §2 and §9.
 - **Immutable-field handling on `PATCH` differs per app — this one will break a shared edit form.** `institutions` **silently ignores** an immutable field, so reading an object and PATCHing the whole thing back succeeds. `offers` (`OFFERS_REFERENCE_IMMUTABLE`) and `clients` (`CLIENTS_STATUS_IMMUTABLE`) **reject** one with 400, listing every offending field in `details` — in both cases because the field carries accountability, and a silent no-op would let a client believe it had rewritten history or retired a partner when it had not. A generic read-modify-write-the-whole-object form carried from `institutions` to either of the others will fail on every save. Send only the fields the user actually changed.
 - **No host is published here.** Every path in this documentation set is relative to a base URL you must obtain from the deploying team (locally, `http://localhost:8000`). There is no public sandbox environment.
 - **The first account requires shell access.** Token issuance exists (`authenticate`), but the initial superadmin is created by the `bootstrap_superadmin` management command, and there is no self-service signup — so the very first credential must be provisioned server-side (§4).

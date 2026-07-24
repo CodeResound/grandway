@@ -23,6 +23,10 @@
       "display_name": "Clients"
     },
     {
+      "app_key": "documents",
+      "display_name": "Documents"
+    },
+    {
       "app_key": "institutions",
       "display_name": "Institutions"
     },
@@ -65,6 +69,10 @@
       "display_name": "Client Management"
     },
     {
+      "category_key": "document_management",
+      "display_name": "Document Management"
+    },
+    {
       "category_key": "journey_management",
       "display_name": "Journey Management"
     },
@@ -89,7 +97,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 101,
+  "endpoint_count": 110,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -1173,6 +1181,229 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The client must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.archive",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-archive",
+      "display_name": "Archive Document",
+      "description": "Retire a document from active work with a mandatory reason. Nothing is deleted.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/documents/<document_id>/archive/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The document must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.change_status",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-change-status",
+      "display_name": "Change Document Status",
+      "description": "Move a document between draft and ready. Cannot set archived.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/documents/<document_id>/status/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The document must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.create",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-create",
+      "display_name": "Create Document",
+      "description": "Open a new editable document against an applicant, or as a standalone record.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/documents/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Creating documents requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.list",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-list",
+      "display_name": "List Documents",
+      "description": "List document working records across applicants and standalone documents. Admin only.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/documents/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.list_history",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-history",
+      "display_name": "View Document History",
+      "description": "List a document's chronological history. Body changes appear as a marker, not as content.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/documents/<document_id>/history/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The document must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.list_workspaces",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-workspaces",
+      "display_name": "List Document Workspaces",
+      "description": "List applicants with live documents, each with a count and the most recent edit.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/documents/workspaces/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The workspace summary is an aggregate of the list."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.read",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-read",
+      "display_name": "View Document",
+      "description": "Retrieve one document including its full body. The only endpoint that returns content.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/documents/<document_id>/",
+      "operation_type": "read",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a document requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.restore",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-restore",
+      "display_name": "Restore Document",
+      "description": "Return an archived document to draft so it can be edited again.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/documents/<document_id>/restore/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.archive",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Restoring only applies to a document that was archived."
+        },
+        {
+          "target_permission_key": "documents.document.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The document must be readable before it can be restored."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.document.update",
+      "app_key": "documents",
+      "model_key": "document",
+      "endpoint_key": "document-update",
+      "display_name": "Edit Document",
+      "description": "Save the workspace — label, body, notes. Owner, family, template, and status are unaffected.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/documents/<document_id>/",
+      "operation_type": "update",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The document must be readable before it can be acted on."
         }
       ]
     },

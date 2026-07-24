@@ -1,7 +1,7 @@
 # Data Contract — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns the permanent, authoritative identity of a person the consultancy works with — name, date of birth, contact numbers, addresses, passport, family, emergency contacts, and standing. It does **not** own study objectives (`applicant_journeys`), academic history (`education`, not built), test attempts (`test_scores`, not built), or any file. It owns no history table either — an applicant's history is the central `audit` log filtered to that applicant. It carries **no reference to the originating lead**: `leads.Lead` owns that link, so this app has no dependency on `leads`.
@@ -13,6 +13,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial contract — six models, shared (non-owner-scoped) access |
+| 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the inbound nullable `documents.Document.applicant` FK and the access asymmetry it introduces: applicants are readable by any Admin or Lead Manager, their documents are Admin-only |
 
 ---
 
@@ -95,6 +96,7 @@
 - `audit` — runtime service/selector dependency. Every mutation calls `audit.services.record_event`; the history endpoint reads `audit.selectors.get_events`.
 - **Inbound:** `leads.Lead.converted_applicant` is a `OneToOneField` pointing here, and `leads` calls `applicants.services.create_applicant` at conversion. This app does **not** reference `leads` — the dependency runs one direction only.
 - **Inbound:** `applicant_journeys.ApplicantJourney.applicant` is a `PROTECT` FK pointing here.
+- **Inbound:** `documents.Document.applicant` is a **nullable** `PROTECT` FK pointing here (`related_name="documents"`), and `documents` calls `applicants.selectors.get_applicant_by_id` when a document is created against a person. Nullable because a document may be standalone — belonging to no applicant at all. This app does **not** reference `documents`, and creating or archiving a document never touches the applicant's status. **Note the access asymmetry:** applicants are readable by any Admin or Lead Manager, but their documents are **Admin-only**, so a Lead Manager's view of an applicant file is legitimately incomplete (see `documents/docs/SECURITY.md` §1).
 
 **Security Notes:** Applicants are **shared, not owner-scoped** — any Admin or Lead Manager may read and edit any applicant. This is a deliberate departure from `leads`; see `SECURITY.md` §1. Superadmin is denied entirely. Creation is Admin-only.
 
