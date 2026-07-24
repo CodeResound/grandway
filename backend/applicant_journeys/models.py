@@ -39,9 +39,22 @@ class ApplicantJourney(BaseModel):
 
     # --- The objective -----------------------------------------------------
     target_country = models.CharField(max_length=100, blank=True)
-    # Free text until the institutions module exists — a nullable FK still needs
-    # a target table, and there is nothing to point at yet. Migrating these into
-    # real references is future work (see docs/DATA_CONTRACT.md).
+    # Free text from the days before the institutions catalogue existed. It is
+    # kept, not dropped: journeys created back then have no other record of
+    # their destination, and it is still what a client displays when
+    # ``target_country_ref`` is null.
+    target_country_ref = models.ForeignKey(
+        "institutions.Country",
+        on_delete=models.PROTECT,
+        related_name="journeys",
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "The catalogue country this journey targets. Setting it is what makes the destination "
+            "machine-readable — and what triggers checklist inheritance in the checklists app."
+        ),
+    )
     target_institution_name = models.CharField(max_length=255, blank=True)
     target_program_name = models.CharField(max_length=255, blank=True)
     study_level = models.CharField(max_length=30, choices=StudyLevel.choices, blank=True)
@@ -108,8 +121,19 @@ class ApplicantJourney(BaseModel):
         ]
 
     def __str__(self) -> str:
-        destination = self.target_country or "unspecified destination"
-        return f"{destination} ({self.stage})"
+        return f"{self.destination_label} ({self.stage})"
+
+    @property
+    def destination_label(self) -> str:
+        """The destination to show, catalogue name first, typed name second.
+
+        Reads ``target_country_ref`` only when it is already loaded, so the
+        admin changelist and any list serializer stay at one query — every
+        selector in this app that returns more than one row joins it.
+        """
+        if self.target_country_ref_id and "target_country_ref" in self._state.fields_cache:
+            return self.target_country_ref.name_en
+        return self.target_country or "unspecified destination"
 
     @property
     def is_completed(self) -> bool:

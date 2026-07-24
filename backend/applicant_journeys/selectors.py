@@ -17,13 +17,19 @@ from applicant_journeys.models import ApplicantJourney
 
 def get_journeys() -> QuerySet[ApplicantJourney]:
     """Every journey, newest first, with the applicant joined (§6, N+1 prevention)."""
-    return ApplicantJourney.objects.select_related("applicant", "created_by")
+    return ApplicantJourney.objects.select_related("applicant", "created_by", "target_country_ref")
 
 
 def get_journey_by_id(journey_id: str) -> ApplicantJourney | None:
     """One journey with its detail relations, or None."""
     return (
-        ApplicantJourney.objects.select_related("applicant", "created_by", "closed_by", "deferred_by")
+        ApplicantJourney.objects.select_related(
+            "applicant",
+            "created_by",
+            "closed_by",
+            "deferred_by",
+            "target_country_ref",
+        )
         .filter(pk=journey_id)
         .first()
     )
@@ -40,8 +46,9 @@ def filter_journeys(
 ) -> QuerySet[ApplicantJourney]:
     """Apply the documented list filters.
 
-    Recognised keys: ``applicant``, ``stage``, ``target_country``, and
-    ``fiscal_year`` (``YYYY/YY``, Nepali fiscal year — §39.4).
+    Recognised keys: ``applicant``, ``stage``, ``target_country``,
+    ``target_country_ref``, and ``fiscal_year`` (``YYYY/YY``, Nepali fiscal
+    year — §39.4).
     """
     filters = filters or {}
 
@@ -56,6 +63,12 @@ def filter_journeys(
     target_country = filters.get("target_country")
     if target_country:
         queryset = queryset.filter(target_country__icontains=target_country)
+
+    # The exact filter, separate from the free-text one above: a client that
+    # holds a catalogue id should never have to guess how the name was typed.
+    target_country_ref = filters.get("target_country_ref")
+    if target_country_ref:
+        queryset = queryset.filter(target_country_ref_id=target_country_ref)
 
     fiscal_year = filters.get("fiscal_year")
     if fiscal_year:

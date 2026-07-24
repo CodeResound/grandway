@@ -1,7 +1,7 @@
 # API Documentation — Applicant Journeys
 
 **App:** `applicant_journeys`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Base prefix:** `/api/v1/journeys/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Journeys are **shared**, not owner-scoped; see `SECURITY.md` §1.
 **Throttle:** Project DRF defaults only. No custom scopes.
@@ -14,6 +14,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial API documentation — 9 endpoints |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint added, changed, or retired. `target_country_ref` (optional catalogue country) is accepted on create and update, returned as a nested object, and filterable exactly — additive, so non-breaking under §22. New error code `JOURNEYS_COUNTRY_NOT_FOUND`. **Recorded the cross-app side effect** setting it now carries: an applicant's checklist appears |
 
 ---
 
@@ -48,7 +49,7 @@
 ### 1.1 List — `GET /api/v1/journeys/`
 
 **Policy key(s):** `applicant_journeys.journey.list` (risk: low)
-**Request query params:** `applicant` (id), `stage`, `target_country` (partial match), `fiscal_year` (`YYYY/YY`), `page`, `page_size`.
+**Request query params:** `applicant` (id), `stage`, `target_country` (partial match on the typed string), `target_country_ref` (exact catalogue id), `fiscal_year` (`YYYY/YY`), `page`, `page_size`.
 **Response:** paginated array of the journey **list** shape — `DATA_CONTRACT.md` §1, minus `notes` and all lifecycle-state fields. Newest first.
 **Business rules:** every Admin and Lead Manager sees every journey. Filtering by `applicant` gives the per-person view; filtering by `stage` gives the operational worklist.
 **Query access pattern:** `selectors.get_journeys` applies `select_related("applicant", "created_by")`, so a page costs a constant number of queries despite embedding applicant identity in every row. `applicant` and `stage` filters are served by `journey_applicant_recent_idx` and `journey_stage_recent_idx`.
@@ -62,6 +63,7 @@
 {
   "applicant": "7c8d9e0f-1a2b-3c4d-5e6f-708192a3b4c5",
   "target_country": "Australia",
+  "target_country_ref": "3a7c1d90-5b2e-4f81-9a03-6c4d8e2b7f15",
   "target_institution_name": "University of Melbourne",
   "study_level": "masters",
   "field_of_study": "Computer Science",
@@ -75,6 +77,7 @@
 **Validation rules:** only `applicant` is required — a journey often begins as little more than an intention. `stage` is not accepted; a new journey always starts at `planning`.
 **Error codes:**
 - `JOURNEYS_APPLICANT_NOT_FOUND` (400) — no applicant with that id.
+- `JOURNEYS_COUNTRY_NOT_FOUND` (400) — `target_country_ref` names no catalogue country. Returned identically by create and update, so a client cannot learn one code from `POST` and a different one from `PATCH` for the same bad id.
 **Business rules:** recorded as `creation_source: "manual"`. The conversion path (`POST /api/v1/leads/<id>/convert/`) calls the same service with `creation_source: "lead_conversion"`. Unlike applicant creation, this is **not** Admin-only — adding an objective for an existing client is ordinary work. Writes one `journey_created` event.
 
 ### 1.3 Retrieve — `GET /api/v1/journeys/<journey_id>/`

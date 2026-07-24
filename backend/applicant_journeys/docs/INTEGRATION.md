@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 9 endpoints |
+| 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint added, changed, or retired. Added the optional `target_country_ref` catalogue reference to the model shape, the create/update fields, and the list filters, plus the `CountryBrief` shape and the `JOURNEYS_COUNTRY_NOT_FOUND` error. **Documented the cross-app side effect it triggers** — setting it creates the applicant's checklist in the `checklists` module, asynchronously and invisibly from this app's responses |
 
 ---
 
@@ -64,7 +65,7 @@
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). `meta` carries `count`, `page`, `page_size`, `next`, `previous`. Applied to the journey list and the history list — the only two list endpoints here.
 - **IDs:** UUID strings.
 - **Times:** ISO 8601 UTC. `closed_at` and `deferred_at` carry a `<field>_bs` sibling holding a Bikram Sambat object; `created_at` and `updated_at` do not.
-- **List/search/filter/order params:** on `GET /api/v1/journeys/` only — `applicant` (exact id), `stage` (exact), `target_country` (partial, case-insensitive), `fiscal_year` (`YYYY/YY`). There is **no** free-text search endpoint and no client-controlled ordering; results are always newest first.
+- **List/search/filter/order params:** on `GET /api/v1/journeys/` only — `applicant` (exact id), `stage` (exact), `target_country` (partial, case-insensitive, against the typed string), `target_country_ref` (exact catalogue country id), `fiscal_year` (`YYYY/YY`). There is **no** free-text search endpoint and no client-controlled ordering; results are always newest first.
 
 ## 4. Models
 
@@ -72,11 +73,15 @@
 
 **UserBrief** — `{ id, username, display_name }`
 
+**CountryBrief** — `{ id, code, name_en, name_np }`
+
+- The nested read shape of `target_country_ref`. Written as a bare UUID, read back as this object — the same asymmetry `applicant` has. `null` on any journey whose destination was never resolved to a catalogue country.
+
 **ApplicantBrief** — `{ id, full_name_np, full_name_en, status }`
 
 - Just enough of the applicant to label the journey. The journey never duplicates the person's contact details — fetch the applicant from the `applicants` module for those.
 
-**Journey (list shape)** — `{ id, applicant:ApplicantBrief, target_country, target_institution_name, target_program_name, study_level:[enum], field_of_study, preferred_intake, budget_amount?, budget_currency, scholarship_interest, stage:[enum], creation_source:[enum], created_by:UserBrief, created_at, updated_at }`
+**Journey (list shape)** — `{ id, applicant:ApplicantBrief, target_country, target_country_ref?:CountryBrief, target_institution_name, target_program_name, study_level:[enum], field_of_study, preferred_intake, budget_amount?, budget_currency, scholarship_interest, stage:[enum], creation_source:[enum], created_by:UserBrief, created_at, updated_at }`
 
 - `budget_amount` is a decimal **string** or `null`.
 
@@ -209,7 +214,7 @@
 - `Journey.study_level`: `school` | `certificate` | `diploma` | `bachelors` | `postgraduate_diploma` | `masters` | `phd` | `other` | `""`
 - `HistoryEntry.actor_type`: `superadmin` | `admin` | `lead_manager` | `system` | `ai`
 - `HistoryEntry.action`: `journey_created` | `journey_updated` | `journey_stage_changed` | `journey_deferred` | `journey_closed` | `journey_reopened`
-- `target_country`, `target_institution_name`, `target_program_name`, `preferred_intake`, `deferred_to_intake`: **not enums** — unvalidated free text (see §9).
+- `target_country`, `target_institution_name`, `target_program_name`, `preferred_intake`, `deferred_to_intake`: **not enums** — unvalidated free text (see §9). `target_country_ref` is the validated alternative for the country alone.
 
 ## 6. Dependency order
 
@@ -233,7 +238,7 @@
 - `PATCH /api/v1/journeys/<journey_id>/` — correct one (permission: `applicant_journeys.journey.update`, risk: medium)
 
 **Send (create/update):**
-- create: `applicant` (required), `target_country`, `target_institution_name`, `target_program_name`, `study_level`, `field_of_study`, `preferred_intake`, `budget_amount`, `budget_currency`, `scholarship_interest`, `notes`
+- create: `applicant` (required), `target_country` (free text), `target_country_ref` (catalogue country **id** — written as a bare UUID, read back as an object), `target_institution_name`, `target_program_name`, `study_level`, `field_of_study`, `preferred_intake`, `budget_amount`, `budget_currency`, `scholarship_interest`, `notes`
 - update: any subset of the same fields **except `applicant`**, which is immutable
 
 **Returns:** Journey (detail shape) for create, retrieve, and update; list[Journey (list shape)] for the list, paginated.
@@ -241,6 +246,7 @@
 **Side effects:**
 - create — appends `journey_created` to the audit log. Does **not** touch the applicant's status.
 - update — appends `journey_updated` when something moved. A no-op `PATCH` writes no event.
+- **create or update with `target_country_ref` set — that applicant's document checklist is created, in the `checklists` module** (cross-app: `checklists`). This response says nothing about it: that module watches journey saves, and this app does not know it exists. The checklist is written **after this request's transaction commits**, so a read issued immediately afterwards may not see it yet; retry. Nothing happens if the country has no authored checklist template, which is not an error — `GET /api/v1/checklists/?journey_missing_checklist=true` lists those journeys. Re-saving never produces a second checklist.
 
 **Notes:**
 - **Shared, not owner-scoped.** Every Admin and Lead Manager sees and edits every journey.
@@ -255,6 +261,7 @@
 - `JOURNEYS_ACTOR_FORBIDDEN` (403) — the caller is a Superadmin
 - `JOURNEYS_JOURNEY_NOT_FOUND` (404) — no journey with that id
 - `JOURNEYS_APPLICANT_NOT_FOUND` (400) — the `applicant` id on create does not exist
+- `JOURNEYS_COUNTRY_NOT_FOUND` (400) — `target_country_ref` names no catalogue country. Identical on create and update
 
 ### Journey stage change — `POST /api/v1/journeys/<journey_id>/stage/`
 

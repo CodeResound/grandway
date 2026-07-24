@@ -1,7 +1,7 @@
 # Data Contract — Applicant Journeys
 
 **Owner app:** `applicant_journeys`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns one overseas-study objective pursued by one applicant — destination, level, field, intake, financial preferences, stage, deferment, closure, and outcome. It does **not** own the person (`applicants`), the enquiry that preceded them (`leads`), offers, documents, or institution data. It owns no history table — a journey's history is the central `audit` log filtered to that journey.
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial contract — one model, nine-stage lifecycle |
 | 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the inbound `offers.Offer.journey` FK and stated explicitly that the two lifecycles are independent in both directions: offers never move a journey's stage, and a journey's stage never gates what offers may be recorded |
+| 1.2.0 | 2026-07-24 | AI (Claude Opus 4.8) | **Added `target_country_ref`** — a nullable `PROTECT` FK to `institutions.Country`, alongside the free-text `target_country`, which is unchanged. Additive only; migration `0002` backfills it by exact case-insensitive name match and leaves unmatched rows null. Recorded the inbound `checklists.Checklist.journey` FK and, more consequentially, the **`post_save` side effect** it carries: saving a journey with this field set creates that applicant's checklist, invisibly from this app |
 
 ---
 
@@ -39,7 +40,8 @@
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
 | applicant | FK → applicants.Applicant | Yes | No | No | The person pursuing this objective (`PROTECT`). Immutable — never transferred |
-| target_country | CharField(100) | No | No | No | One country per journey |
+| target_country | CharField(100) | No | No | No | The typed destination. Kept for journeys created before the catalogue existed, and still the display fallback when `target_country_ref` is null |
+| target_country_ref | FK → institutions.Country | No | Yes | No | The catalogue destination (`PROTECT`, `related_name="journeys"`, indexed). **Setting it is what gives the applicant their document checklist** — see Cross-App Dependencies |
 | target_institution_name | CharField(255) | No | No | No | Free text until the institutions module exists |
 | target_program_name | CharField(255) | No | No | No | Free text, same reason |
 | study_level | CharField(30) | No | No | No | Blank when unknown |
@@ -126,6 +128,8 @@
 - `core.constants.StudyLevel` — shared enum, not a duplicate.
 - `audit` — runtime service/selector dependency for history.
 - **Inbound:** `leads.Lead.converted_journey` points here, and `leads` calls `applicant_journeys.services.create_journey` at conversion. This app does **not** reference `leads`.
+- `institutions.Country` — one nullable `PROTECT` FK (`target_country_ref`, `related_name="journeys"`). Model-level reference only; the view resolves the id through `institutions.selectors.get_country_by_id`. A country named by any journey cannot be removed.
+- **Inbound:** `checklists.Checklist.journey` is a `PROTECT` FK pointing here (`related_name="checklists"`), and `checklists` reads journeys through `applicant_journeys.selectors.get_journey_by_id`. This app does **not** reference `checklists` and must not: the coupling is one-way by design. **But there is a side effect this app cannot see.** `checklists` connects a `post_save` receiver to `ApplicantJourney`, so **saving a journey whose `target_country_ref` is set creates that country's checklist for the applicant** — automatically, once, after the transaction commits. Nothing in this app's code, response shapes, or audit events mentions it. Anyone changing how journeys are saved should know the behaviour exists; anyone changing *this* app should not start calling into `checklists` to preserve it.
 - **Inbound:** `offers.Offer.journey` is a `PROTECT` FK pointing here (`related_name="offers"`), and `offers` reads journeys through `applicant_journeys.selectors.get_journey_by_id`. This app does **not** reference `offers`, and the dependency is read-only in both directions that matter: **recording, issuing, or deciding an offer never changes a journey's stage**, and a journey's stage never constrains what offers may be recorded against it — an offer can be added to a journey at any stage, including a closed or completed one. The two lifecycles are deliberately independent (`concepts/project_overview.txt` — "Explicit lifecycle states"). A journey with any offer cannot be removed.
 
 **Security Notes:** Journeys are shared, exactly as applicants are — any Admin or Lead Manager may read and write any journey. Superadmin is denied. Unlike `applicants`, **creation is not Admin-restricted**: adding a second objective for an existing client is ordinary operational work, not an entry decision. See `SECURITY.md` §1.

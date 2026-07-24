@@ -105,7 +105,7 @@ def create_journey(
         action=JourneyAuditAction.JOURNEY_CREATED,
         actor=actor,
         journey=journey,
-        summary=f"Journey created for {journey.target_country or 'an unspecified destination'}.",
+        summary=f"Journey created for {journey.destination_label}.",
         metadata={"creation_source": creation_source, "applicant_id": str(applicant.id)},
         ip_address=ip_address,
     )

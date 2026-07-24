@@ -33,6 +33,22 @@ def get_user_by_username(username: str) -> User | None:
     return User.objects.filter(username=normalized).select_related("security_state").first()
 
 
+def get_active_user_by_id(user_id: str) -> User | None:
+    """Return the active user with this id, or None.
+
+    Added for the apps that assign work to a member of staff (``checklists`` is
+    the first). Deliberately excludes deactivated accounts: a record whose owner
+    can no longer log in is unowned in every sense that matters, and a client
+    that assigned it would get a 200 back for work nobody will do.
+
+    Authority-tier rules are the caller's business, not this selector's — one
+    app may want to exclude Superadmins from an assignee picker while another
+    does not, and encoding either preference here would push one app's policy
+    onto the next.
+    """
+    return User.objects.filter(pk=user_id, is_active=True).first()
+
+
 def get_active_sessions_for_user(user: User) -> QuerySet[AuthSession]:
     """All currently-active sessions for a user (one per device)."""
     return AuthSession.objects.filter(user=user, is_active=True).order_by("last_used_at")

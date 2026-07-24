@@ -63,6 +63,19 @@ Institution and program are free text for now. Grandway has no institution
 catalogue yet, so there is nothing to point at; when the institutions module
 exists these become proper references and the free text is migrated into them.
 
+Update — the target country is now both. The journey keeps the typed country
+name it has always had, and additionally carries a reference to the real
+`institutions` catalogue country. New work sets the reference; the typed name
+remains for journeys created before the catalogue existed, and is still what a
+screen displays when no reference is set.
+
+The reference is not cosmetic. **Setting it is the act that gives the applicant
+their document checklist** — `checklists` watches for a journey naming a
+catalogue country and creates that country's requirement list for the applicant
+automatically. A typed string could not be trusted for that: a spelling variant
+would silently produce no checklist at all, and nobody would know until the
+paperwork was already late.
+
 ## Journey stages
 
 The journey stage should be selected manually from a dropdown, as lead stages

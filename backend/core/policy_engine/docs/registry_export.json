@@ -19,6 +19,10 @@
       "display_name": "Authenticate"
     },
     {
+      "app_key": "checklists",
+      "display_name": "Checklists"
+    },
+    {
       "app_key": "clients",
       "display_name": "Clients"
     },
@@ -77,6 +81,10 @@
       "display_name": "Catalogue Management"
     },
     {
+      "category_key": "checklist_management",
+      "display_name": "Checklist Management"
+    },
+    {
       "category_key": "client_management",
       "display_name": "Client Management"
     },
@@ -113,7 +121,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 136,
+  "endpoint_count": 154,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -1022,6 +1030,494 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Editing requires read access to the account."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.activate",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-activate",
+      "display_name": "Activate Checklist",
+      "description": "Put a draft checklist into active work. Inherited checklists arrive active already.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/activate/",
+      "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.archive",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-archive",
+      "display_name": "Archive Checklist",
+      "description": "Take a checklist out of active work. A reason is required. An archived checklist no longer blocks re-applying its template, so this is also how staff ask for a fresh copy.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/archive/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.complete",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-complete",
+      "display_name": "Complete Checklist",
+      "description": "Declare an applicant's requirements met. Refused while any required item is pending or blocked, and the refusal names every offending item. Completion is derived, never asserted.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/complete/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        },
+        {
+          "target_permission_key": "checklists.item.status",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Completion presupposes the ability to resolve the items."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.create",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-create",
+      "display_name": "Create Checklist",
+      "description": "Apply a template to a journey by hand, or start a blank checklist. The automatic path needs no endpoint — setting a journey's country inherits its country's list on its own.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicant_journeys.journey.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A checklist must be attached to an existing journey."
+        },
+        {
+          "target_permission_key": "checklists.checklist.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Acting on checklists requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.list",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-list",
+      "display_name": "List Checklists",
+      "description": "List checklists with their progress counts. Filter by applicant, journey, status, origin, assignee, country, template, or overdue. journey_missing_checklist=true switches to the safety net: journeys naming a country nobody has authored requirements for.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/checklists/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.read",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-read",
+      "display_name": "View Checklist",
+      "description": "Retrieve one checklist with every item, its progress counts, and its lifecycle stamps.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/",
+      "operation_type": "read",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Acting on checklists requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.reopen",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-reopen",
+      "display_name": "Reopen Checklist",
+      "description": "Return a completed checklist to active work and clear its completion stamps. The completion itself survives in the audit log.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/reopen/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.complete",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reopening reverses completion, so it presupposes it."
+        },
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.restore",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-restore",
+      "display_name": "Restore Checklist",
+      "description": "Return an archived checklist to work — active if it was ever activated, draft otherwise.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/restore/",
+      "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.archive",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Restoring reverses archival, so it presupposes it."
+        },
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.checklist.update",
+      "app_key": "checklists",
+      "model_key": "checklist",
+      "endpoint_key": "checklist-update",
+      "display_name": "Edit Checklist",
+      "description": "Correct a checklist's title, owner, due date, or notes. Status is refused here — it moves only through the lifecycle actions, so completion cannot bypass the required-items check.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/",
+      "operation_type": "update",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.item.create",
+      "app_key": "checklists",
+      "model_key": "item",
+      "endpoint_key": "checklist-item-create",
+      "display_name": "Add Checklist Item",
+      "description": "Add a requirement to one applicant's checklist for the case the template did not anticipate. It never travels back to the template, so the next applicant is unaffected.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/items/",
+      "operation_type": "create",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.item.status",
+      "app_key": "checklists",
+      "model_key": "item",
+      "endpoint_key": "checklist-item-status",
+      "display_name": "Set Checklist Item Status",
+      "description": "Mark a requirement completed, waived, blocked, or not applicable, with an optional uploaded file as evidence. Waiving or blocking requires a note; evidence must belong to this applicant.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/items/<item_id>/status/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        },
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "An item may cite an uploaded file as evidence, which must be resolvable."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.item.update",
+      "app_key": "checklists",
+      "model_key": "item",
+      "endpoint_key": "checklist-item-update",
+      "display_name": "Edit Checklist Item",
+      "description": "Correct an item's label, owner, due date, or description. Status is refused here — it moves only through the status endpoint, where the note and evidence rules live.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/checklists/<checklist_id>/items/<item_id>/",
+      "operation_type": "update",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.checklist.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The checklist must be readable before it can be acted on."
+        },
+        {
+          "target_permission_key": "checklists.item.create",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "An item must exist before it can be edited."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.template.create",
+      "app_key": "checklists",
+      "model_key": "template",
+      "endpoint_key": "template-create",
+      "display_name": "Create Checklist Template",
+      "description": "Author a country's requirement list. Marking it the active default makes it the list every future applicant bound for that country inherits automatically. Admin authority only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/templates/",
+      "operation_type": "create",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.template.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Authoring templates requires the ability to list them."
+        },
+        {
+          "target_permission_key": "institutions.country.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A template is scoped to a catalogue country."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.template.list",
+      "app_key": "checklists",
+      "model_key": "template",
+      "endpoint_key": "template-list",
+      "display_name": "List Checklist Templates",
+      "description": "List the country requirement lists. Filter by country, status, default flag, or label. Readable by Admin and Lead Manager; only an Admin may author one.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/checklists/templates/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.template.read",
+      "app_key": "checklists",
+      "model_key": "template",
+      "endpoint_key": "template-read",
+      "display_name": "View Checklist Template",
+      "description": "Retrieve one template with every requirement it defines, retired ones included.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/checklists/templates/<template_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.template.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Authoring templates requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.template.update",
+      "app_key": "checklists",
+      "model_key": "template",
+      "endpoint_key": "template-update",
+      "display_name": "Edit Checklist Template",
+      "description": "Correct a template's label, country, default flag, or status. Applicants already holding a copy are untouched — instantiation is a snapshot. The key is immutable. Admin authority only.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/checklists/templates/<template_id>/",
+      "operation_type": "update",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.template.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The template must be readable before it can be edited."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.template_item.create",
+      "app_key": "checklists",
+      "model_key": "template_item",
+      "endpoint_key": "template-item-create",
+      "display_name": "Add Template Requirement",
+      "description": "Add one requirement to a country's list — a document to collect, a stage to reach, or a task to perform. Affects who inherits it next, never anyone already holding a copy. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/checklists/templates/<template_id>/items/",
+      "operation_type": "create",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.template.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The template must be readable before it can be edited."
+        }
+      ]
+    },
+    {
+      "permission_key": "checklists.template_item.update",
+      "app_key": "checklists",
+      "model_key": "template_item",
+      "endpoint_key": "template-item-update",
+      "display_name": "Edit Template Requirement",
+      "description": "Correct a requirement definition, or retire it with is_active=false. Never deleted: live checklist items point back at the definition they were copied from. Admin authority only.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/checklists/templates/<template_id>/items/<item_id>/",
+      "operation_type": "update",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "checklist_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "checklists.template.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The template must be readable before it can be edited."
+        },
+        {
+          "target_permission_key": "checklists.template_item.create",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A requirement must exist before it can be edited."
         }
       ]
     },

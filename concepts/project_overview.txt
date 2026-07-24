@@ -117,6 +117,10 @@ Core domains (apps)
   offer type, dates, conditions, tuition, scholarship, deposit information,
   acceptance, rejection, withdrawal, deferment, and final offer status.
 
+- clients - Keeps basic records of the B2B clients. Basically a contact directory to manage relations.
+| The data includes client company name, spokesperson, contact, logo, email, address,
+| website and basic information only. This module is basic and for record keeping purpose. 
+
 - documents — Owns editable document records, applicant or standalone
   ownership, document type, label, status, template association, and the saved
   input data used by the document workspace.
@@ -134,14 +138,13 @@ Core domains (apps)
   ownership, version, verification state, replacement, rejection, archival,
   and restoration history.
 
-- checklists — Owns structured completion lists for applicant profiles,
-  documents, institution-related needs, offer conditions, and internal
-  processing, including required items, optional items, due dates, ownership,
-  and completion state.
+- checklists — Owns the country requirement lists and each applicant's copy of
+  one. An Admin authors, per destination country, the documents to collect and
+  the stages to reach; when an applicant's journey names that country, the list
+  is inherited automatically and tracked individually from then on. Holds
+  required and optional items, item type, ownership, due dates, evidence
+  references, and completion state.
 
-- appointments — Owns scheduled activities for leads and applicants, including
-  meetings, counselling sessions, interviews, reviews, deadlines, attendance,
-  cancellation, rescheduling, location, and no-show status.
 
 - dashboards — Owns summarized operational views and reporting across lead
   funnels, sources, conversions, applicant volumes, journey stages, offers,
@@ -217,6 +220,15 @@ Journey separation
 An applicant is not the same thing as a study journey. One person may pursue
 multiple countries, programs, institutions, or intakes over time. Each journey
 must retain its own state and outcome.
+
+One destination at a time
+
+A lead may be interested in several countries. An applicant is not: once a
+person converts, they are working towards one destination, and the office
+prepares accordingly. If they change their mind about the country, the current
+profile is closed and they register again rather than the existing journey being
+repointed. This is what makes country-driven behaviour — the document checklist
+above all — unambiguous for any live applicant.
 
 Document data and document presentation are distinct
 
@@ -393,14 +405,23 @@ File version
 A preserved revision of an uploaded file. Replacing a file should not silently
 erase the earlier version when history is required.
 
+Checklist template
+
+A destination country's requirement list, authored once by an Admin. One active
+template per country is the default — the list that country's applicants
+inherit.
+
 Checklist
 
-A structured set of required or optional items that must be completed for an
-applicant, journey, offer, document process, or internal operation.
+One applicant's own copy of a country's requirement list, attached to their
+journey and tracked independently of every other applicant's. Created
+automatically when the journey's destination country is set, or applied by staff
+by hand.
 
 Checklist item
 
-One individually trackable requirement within a checklist.
+One individually trackable requirement within a checklist — a document to
+collect, a stage to reach, or a task to perform.
 
 Appointment
 
@@ -503,7 +524,10 @@ Open questions
   print snapshots?
 - Which uploaded file types and maximum sizes are permitted?
 - What verification states are required for uploaded files?
-- Which checklist families are required at launch?
+- Which countries need their checklist template authored before the first
+  operational release? (The checklist family itself is settled: one per
+  destination country, authored by an Admin. Which destinations are covered on
+  day one is a data question, not a design one.)
 - Which events should create notifications automatically?
 - Which reports are essential for the first operational release?
 - What data-retention period applies to lost leads, withdrawn applicants,

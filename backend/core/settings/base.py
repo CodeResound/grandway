@@ -43,7 +43,14 @@ INSTALLED_APPS = [
     "document_history",
     "document_templates",
     "uploaded_files",
+    "checklists",
 ]
+
+# Switch off every app's signal side effects for this process (§11). Set it for
+# bulk imports that would otherwise fire one handler per imported row inside the
+# import's own transaction; rebuild afterwards with the owning app's command
+# (today: `python manage.py apply_country_checklists`).
+DISABLE_SIGNALS = False
 
 # The authenticate app owns the platform's identity layer with a custom user model.
 AUTH_USER_MODEL = "authenticate.User"

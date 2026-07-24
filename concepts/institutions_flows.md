@@ -109,6 +109,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** the journey, and the chosen program's details from step 4.
    - **Side effects:** appends `journey_updated` to the audit log.
    - **The client copies the strings across.** Write the program's institution and title into the journey's `target_institution_name` and `target_program_name`. There is **no endpoint in either app** that links a journey to a catalogue record, and nothing keeps the copied text in sync if the catalogue is later edited.
+   - **The country is the exception — send it as a reference, not a string.** The journey's `target_country_ref` takes the catalogue country's id, and setting it **creates this applicant's document checklist** (cross-app: `checklists`), asynchronously and invisibly from this response. Send it in the same `PATCH`. Writing only the free-text `target_country` leaves the applicant with no checklist and no error.
 
 ## Flow: Withdraw a record from use
 
@@ -188,7 +189,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 
 ## Cross-app dependencies
 
-- **This app references (outbound):** `applicant_journeys.journey.read` and `applicant_journeys.journey.update`, both in the shortlisting flow only. Neither is a runtime dependency of this app's code — the *client* calls them; the backend has no coupling to `applicant_journeys` at all.
+- **This app references (outbound):** `applicant_journeys.journey.read` and `applicant_journeys.journey.update`, both in the shortlisting flow only. Neither is a runtime dependency of this app's code — the *client* calls them; the backend has no coupling to `applicant_journeys` at all. Note that step 6's `PATCH` now carries a cross-app consequence in a **third** app: writing `target_country_ref` creates the applicant's checklist in `checklists`.
 - **Referenced by other apps (inbound):** none yet. No other app's flow file references an `institutions.*` permission key.
 
 **The shortlisting flow is a client-side join, not a backend integration.** It appears here rather than in `concepts/project_flows.md` because its primary resource is the catalogue — the user is searching programs. When the journey↔catalogue link is eventually built, step 5 changes from "copy the strings across" to a real reference, and that will ripple into `concepts/applicant_journeys_flows.md` as well as this file.

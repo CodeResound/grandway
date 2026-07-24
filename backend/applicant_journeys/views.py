@@ -12,6 +12,7 @@ from typing import Any
 from applicants.selectors import get_applicant_by_id
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
+from institutions.selectors import get_country_by_id
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -86,6 +87,33 @@ def _invalid_transition() -> Response:
     )
 
 
+def _resolve_country(data: dict[str, Any]) -> Response | None:
+    """Swap a ``target_country_ref`` id in ``data`` for the catalogue row itself.
+
+    Mutates ``data`` in place and returns an error response when the id names no
+    country. An explicit ``null`` clears the reference and is left as ``None``.
+
+    Written once and called from both create and update so a client cannot learn
+    one error code from ``POST`` and a different one from ``PATCH`` for the same
+    bad id.
+    """
+    if "target_country_ref" not in data:
+        return None
+    country_id = data["target_country_ref"]
+    if country_id is None:
+        return None
+    country = get_country_by_id(str(country_id))
+    if country is None:
+        return error_response(
+            ErrorCode.COUNTRY_NOT_FOUND,
+            "Country not found in the catalogue.",
+            details={"target_country_ref": ["No country with that id."]},
+            http_status=status.HTTP_400_BAD_REQUEST,
+        )
+    data["target_country_ref"] = country
+    return None
+
+
 def _paginated(request: Request, queryset: Any, serializer_class: Any, message: str) -> Response:
     paginator = StandardPagination()
     page = paginator.paginate_queryset(queryset, request)
@@ -127,6 +155,7 @@ class JourneyListCreateView(APIView):
                 "applicant": request.query_params.get("applicant"),
                 "stage": request.query_params.get("stage"),
                 "target_country": request.query_params.get("target_country"),
+                "target_country_ref": request.query_params.get("target_country_ref"),
                 "fiscal_year": request.query_params.get("fiscal_year"),
             },
         )
@@ -149,6 +178,10 @@ class JourneyListCreateView(APIView):
                 details={"applicant": ["No applicant with that id."]},
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
+
+        err = _resolve_country(data)
+        if err:
+            return err
 
         journey = services.create_journey(
             actor=request.user,
@@ -178,10 +211,14 @@ class JourneyDetailView(JourneyScopedView):
             return err
         serializer = JourneyUpdateSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        fields = dict(serializer.validated_data)
+        err = _resolve_country(fields)
+        if err:
+            return err
         updated = services.update_journey(
             actor=request.user,
             journey=journey,
-            fields=dict(serializer.validated_data),
+            fields=fields,
             ip_address=_client_ip(request),
         )
         return success_response(data=JourneyDetailSerializer(updated).data, message="Journey updated.")

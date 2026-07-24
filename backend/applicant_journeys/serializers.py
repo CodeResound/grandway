@@ -43,11 +43,27 @@ class ApplicantBriefSerializer(serializers.Serializer):
     status = serializers.CharField(read_only=True)
 
 
+class CountryBriefSerializer(serializers.Serializer):
+    """Just enough of the catalogue country to label the destination.
+
+    Declared here rather than imported from ``institutions``: §4 permits
+    importing another app's selectors and services, not its serializers, and a
+    response shape silently inherited across a boundary is exactly the coupling
+    that makes a later divergence invisible.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    code = serializers.CharField(read_only=True)
+    name_en = serializers.CharField(read_only=True)
+    name_np = serializers.CharField(read_only=True)
+
+
 class JourneyListSerializer(serializers.ModelSerializer):
     """The journey as it appears in a list."""
 
     applicant = ApplicantBriefSerializer(read_only=True)
     created_by = UserBriefSerializer(read_only=True)
+    target_country_ref = CountryBriefSerializer(read_only=True)
 
     class Meta:
         model = ApplicantJourney
@@ -55,6 +71,7 @@ class JourneyListSerializer(serializers.ModelSerializer):
             "id",
             "applicant",
             "target_country",
+            "target_country_ref",
             "target_institution_name",
             "target_program_name",
             "study_level",
@@ -110,6 +127,10 @@ class JourneyCreateSerializer(serializers.Serializer):
 
     applicant = serializers.UUIDField()
     target_country = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    # Written as a bare id and read back as an object, the same asymmetry
+    # ``applicant`` already has. ``allow_null`` because clearing the destination
+    # is a legitimate correction; the view resolves the id to a catalogue row.
+    target_country_ref = serializers.UUIDField(required=False, allow_null=True)
     target_institution_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     target_program_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     study_level = serializers.ChoiceField(choices=StudyLevel.choices, required=False, allow_blank=True)

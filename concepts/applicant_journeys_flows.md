@@ -66,8 +66,9 @@ Screen names below are quoted from `concepts/applicant_journeys.txt` → `UI scr
 4. **Journey Detail** — the user corrects the objective as it firms up →
    `PATCH /api/v1/journeys/<journey_id>/` (`applicant_journeys.journey.update`)
    - **Requires state:** the journey must exist.
-   - **Side effects:** one history entry when something actually moved.
+   - **Side effects:** one history entry when something actually moved. **Setting `target_country_ref` additionally creates this applicant's document checklist** (cross-app: `checklists`) — automatically, after the request commits, and with nothing about it in this response. Refresh any checklist panel on the screen; a read issued immediately may still be empty. See `concepts/checklists_flows.md` → "An applicant receives their checklist".
    - *Note:* the applicant cannot be changed here. A journey belongs to one person and is never transferred; the edit form must not offer a person picker.
+   - *Note:* `target_country` (free text) and `target_country_ref` (catalogue id) are both accepted. **Only the reference triggers the checklist** — a country picker bound to the free-text field alone will leave every applicant without one.
 
 ---
 
@@ -146,7 +147,7 @@ Screen names below are quoted from `concepts/applicant_journeys.txt` → `UI scr
 | `applicant_journeys.journey.list` | `GET /api/v1/journeys/` | Record a new objective; Work an objective forward | Serves both the per-person panel and the worklist |
 | `applicant_journeys.journey.create` | `POST /api/v1/journeys/` | Record a new study objective | Open to Lead Managers, unlike applicant creation |
 | `applicant_journeys.journey.read` | `GET /api/v1/journeys/<journey_id>/` | Work an objective forward | |
-| `applicant_journeys.journey.update` | `PATCH /api/v1/journeys/<journey_id>/` | Work an objective forward | Applicant is immutable |
+| `applicant_journeys.journey.update` | `PATCH /api/v1/journeys/<journey_id>/` | Work an objective forward | Applicant is immutable. **Setting `target_country_ref` creates the applicant's checklist** (cross-app: `checklists`) |
 | `applicant_journeys.journey.change_stage` | `POST /api/v1/journeys/<journey_id>/stage/` | Work an objective forward | Active stages only |
 | `applicant_journeys.journey.defer` | `POST /api/v1/journeys/<journey_id>/defer/` | Pause and resume an objective | Not an outcome |
 | `applicant_journeys.journey.close` | `POST /api/v1/journeys/<journey_id>/close/` | End an objective | Outcome mandatory |

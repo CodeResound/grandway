@@ -383,3 +383,146 @@ class TestJourneyHistory(JourneyApiTestCase):
             entry["changes"]["stage"],
             {"from": JourneyStage.PLANNING, "to": JourneyStage.APPLYING},
         )
+
+
+class TestJourneyCountryReference(JourneyApiTestCase):
+    """The catalogue reference beside the free text.
+
+    ``target_country`` has always been a typed string. ``target_country_ref``
+    points at the real catalogue row, and it is what makes the destination
+    machine-readable — downstream, it is the field that decides which document
+    checklist an applicant inherits. Both are kept: journeys created before the
+    catalogue existed have nothing but the typed name.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        from institutions import services as catalogue_services
+
+        self.country = catalogue_services.create_country(
+            actor=self.admin,
+            data={"code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया"},
+        )
+        self.auth(self.admin)
+
+    def test_create_accepts_a_country_id_and_reads_it_back_as_an_object(self) -> None:
+        response = self.client.post(
+            self.list_url,
+            {"applicant": str(self.applicant.id), "target_country_ref": str(self.country.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        ref = response.data["data"]["target_country_ref"]
+        self.assertEqual(ref["id"], str(self.country.id))
+        self.assertEqual(ref["name_en"], "Australia")
+
+    def test_an_unknown_country_id_is_rejected_by_name(self) -> None:
+        response = self.client.post(
+            self.list_url,
+            {
+                "applicant": str(self.applicant.id),
+                "target_country_ref": "2b3c4d5e-6f70-4819-a2b3-c4d5e6f70819",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], ErrorCode.COUNTRY_NOT_FOUND)
+        self.assertIn("target_country_ref", response.data["error"]["details"])
+
+    def test_patch_sets_and_clears_the_reference(self) -> None:
+        journey = self.make_journey()
+
+        set_response = self.client.patch(
+            self.url("journey-detail", journey),
+            {"target_country_ref": str(self.country.id)},
+            format="json",
+        )
+        self.assertEqual(set_response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(set_response.data["data"]["target_country_ref"])
+
+        cleared = self.client.patch(
+            self.url("journey-detail", journey),
+            {"target_country_ref": None},
+            format="json",
+        )
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertIsNone(cleared.data["data"]["target_country_ref"])
+
+    def test_the_free_text_field_still_works_on_its_own(self) -> None:
+        """Backward compatibility: nothing about the old field changed."""
+        response = self.client.post(
+            self.list_url,
+            {"applicant": str(self.applicant.id), "target_country": "Somewhere Uncatalogued"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["data"]["target_country"], "Somewhere Uncatalogued")
+        self.assertIsNone(response.data["data"]["target_country_ref"])
+
+    def test_the_exact_filter_is_separate_from_the_text_filter(self) -> None:
+        matched = self.make_journey(target_country_ref=self.country)
+        self.make_journey(target_country="Australia")
+
+        response = self.client.get(self.list_url, {"target_country_ref": str(self.country.id)})
+        ids = [row["id"] for row in response.data["data"]]
+        self.assertEqual(ids, [str(matched.id)])
+
+
+class TestCountryBackfill(JourneyApiTestCase):
+    """The 0002 data migration's matching rule, exercised directly.
+
+    Deliberately exact, not fuzzy: "UK" does not become "United Kingdom" here.
+    A wrong country on a journey is worse than no country at all, because
+    downstream it decides which requirements an applicant is measured against.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        from institutions import services as catalogue_services
+
+        self.country = catalogue_services.create_country(
+            actor=self.admin,
+            data={"code": "au", "name_en": "Australia", "name_np": "अष्ट्रेलिया"},
+        )
+
+    def _run_backfill(self) -> None:
+        """Call the migration's own function, not a copy of its logic.
+
+        Imported by path because a module name starting with a digit cannot be
+        written as an ``import`` statement. The live app registry stands in for
+        the historical one: the two models this touches have the same fields at
+        0002 as they do today, so the substitution changes nothing the function
+        can observe.
+        """
+        import importlib
+
+        from django.apps import apps
+
+        module = importlib.import_module("applicant_journeys.migrations.0002_target_country_ref")
+        module.backfill_country_ref(apps, None)
+
+    def test_it_matches_case_insensitively_and_leaves_the_rest_alone(self) -> None:
+        matched = self.make_journey(target_country="australia")
+        by_code = self.make_journey(target_country="AU")
+        unmatched = self.make_journey(target_country="Wakanda")
+        blank = self.make_journey(target_country="")
+
+        self._run_backfill()
+
+        for journey in (matched, by_code, unmatched, blank):
+            journey.refresh_from_db()
+        self.assertEqual(matched.target_country_ref_id, self.country.id)
+        self.assertEqual(by_code.target_country_ref_id, self.country.id)
+        self.assertIsNone(unmatched.target_country_ref_id)
+        self.assertIsNone(blank.target_country_ref_id)
+
+    def test_it_never_overwrites_a_reference_that_is_already_set(self) -> None:
+        from institutions import services as catalogue_services
+
+        canada = catalogue_services.create_country(actor=self.admin, data={"code": "ca", "name_en": "Canada"})
+        journey = self.make_journey(target_country="Australia", target_country_ref=canada)
+
+        self._run_backfill()
+
+        journey.refresh_from_db()
+        self.assertEqual(journey.target_country_ref_id, canada.id)
