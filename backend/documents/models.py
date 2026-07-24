@@ -34,9 +34,10 @@ class Document(BaseModel):
     (``concepts/documents.txt`` — "Relationship to other records"). It is the
     *editable business object*: identity, ownership, status, template
     association, and the entered source data. The immutable copy captured at
-    print time belongs to ``document_history``; the template definition and its
+    print time belongs to ``document_history``, which now exists and holds
+    ``PROTECT`` foreign keys to this model; the template definition and its
     signatories to ``document_templates``; supporting files to
-    ``uploaded_files``. None of those three exists yet.
+    ``uploaded_files``. The latter two do not exist yet.
 
     The ``archived_*`` fields are denormalized *current state*, mirroring the
     pattern in ``leads``, ``applicant_journeys``, ``offers``, and ``clients``

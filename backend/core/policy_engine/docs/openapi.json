@@ -2646,6 +2646,316 @@
         ]
       }
     },
+    "/api/v1/document-history/documents/{document_id}/snapshots/": {
+      "get": {
+        "operationId": "document_history.snapshot.list",
+        "summary": "List Document Snapshots",
+        "description": "List one document's print snapshots, newest version first. Bodies are omitted.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "document_history"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "document_history.snapshot.list",
+        "x-risk-level": "medium",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "document_history.snapshot.capture",
+        "summary": "Capture Document Snapshot",
+        "description": "Freeze the document's current body and render context as a new immutable version.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "document_history"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "document_history.snapshot.capture",
+        "x-risk-level": "medium",
+        "x-operation-type": "create",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/document-history/documents/{document_id}/timeline/": {
+      "get": {
+        "operationId": "document_history.print_event.list",
+        "summary": "List Print Events",
+        "description": "List one document's print timeline: captures, reprints, and recoveries, newest first.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "document_history"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "document_history.print_event.list",
+        "x-risk-level": "medium",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/document-history/snapshots/{snapshot_id}/": {
+      "get": {
+        "operationId": "document_history.snapshot.read",
+        "summary": "View Document Snapshot",
+        "description": "Retrieve one frozen snapshot in full. The only endpoint that returns a snapshot body.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "document_history"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "document_history.snapshot.read",
+        "x-risk-level": "high",
+        "x-operation-type": "read",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/document-history/snapshots/{snapshot_id}/recover/": {
+      "post": {
+        "operationId": "document_history.snapshot.recover",
+        "summary": "Recover Document Snapshot",
+        "description": "Restore a frozen body into the working document. The snapshot itself is never altered.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "document_history"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "document_history.snapshot.recover",
+        "x-risk-level": "high",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/document-history/snapshots/{snapshot_id}/reprint/": {
+      "post": {
+        "operationId": "document_history.print_event.reprint",
+        "summary": "Reprint Document Snapshot",
+        "description": "Record a reprint of an existing snapshot. Creates a print event, never a new snapshot.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "document_history"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "document_history.print_event.reprint",
+        "x-risk-level": "medium",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/documents/": {
       "get": {
         "operationId": "documents.document.list",

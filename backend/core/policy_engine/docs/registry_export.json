@@ -23,6 +23,10 @@
       "display_name": "Clients"
     },
     {
+      "app_key": "document_history",
+      "display_name": "Document History"
+    },
+    {
       "app_key": "documents",
       "display_name": "Documents"
     },
@@ -97,7 +101,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 110,
+  "endpoint_count": 116,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -1181,6 +1185,157 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The client must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_history.print_event.list",
+      "app_key": "document_history",
+      "model_key": "print_event",
+      "endpoint_key": "print-event-list",
+      "display_name": "List Print Events",
+      "description": "List one document's print timeline: captures, reprints, and recoveries, newest first.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/document-history/documents/<document_id>/timeline/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "History is always scoped to one document, which must be readable first."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_history.print_event.reprint",
+      "app_key": "document_history",
+      "model_key": "print_event",
+      "endpoint_key": "print-event-reprint",
+      "display_name": "Reprint Document Snapshot",
+      "description": "Record a reprint of an existing snapshot. Creates a print event, never a new snapshot.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/document-history/snapshots/<snapshot_id>/reprint/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_history.snapshot.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The snapshot must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_history.snapshot.capture",
+      "app_key": "document_history",
+      "model_key": "snapshot",
+      "endpoint_key": "snapshot-capture",
+      "display_name": "Capture Document Snapshot",
+      "description": "Freeze the document's current body and render context as a new immutable version.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/document-history/documents/<document_id>/snapshots/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_history.snapshot.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Capturing snapshots requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_history.snapshot.list",
+      "app_key": "document_history",
+      "model_key": "snapshot",
+      "endpoint_key": "snapshot-list",
+      "display_name": "List Document Snapshots",
+      "description": "List one document's print snapshots, newest version first. Bodies are omitted.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/document-history/documents/<document_id>/snapshots/",
+      "operation_type": "list",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "documents.document.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "History is always scoped to one document, which must be readable first."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_history.snapshot.read",
+      "app_key": "document_history",
+      "model_key": "snapshot",
+      "endpoint_key": "snapshot-read",
+      "display_name": "View Document Snapshot",
+      "description": "Retrieve one frozen snapshot in full. The only endpoint that returns a snapshot body.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/document-history/snapshots/<snapshot_id>/",
+      "operation_type": "read",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_history.snapshot.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a snapshot requires list access to the chain it belongs to."
+        }
+      ]
+    },
+    {
+      "permission_key": "document_history.snapshot.recover",
+      "app_key": "document_history",
+      "model_key": "snapshot",
+      "endpoint_key": "snapshot-recover",
+      "display_name": "Recover Document Snapshot",
+      "description": "Restore a frozen body into the working document. The snapshot itself is never altered.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/document-history/snapshots/<snapshot_id>/recover/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "document_history.snapshot.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The snapshot must be readable before its body can be recovered."
+        },
+        {
+          "target_permission_key": "documents.document.update",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Recovery writes the frozen body into the working document through the documents app."
         }
       ]
     },

@@ -1,7 +1,7 @@
 # Security — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial security notes — Admin-only access, audit redaction of the document body |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No behaviour change. Recorded that `document_history` inherits this access model and redacts two fields |
 
 ---
 
@@ -85,8 +86,19 @@ number appears nowhere in `changes`, `metadata`, or `summary` across the whole a
 
 **Corollary: a document's history cannot be used to reconstruct a previous body.** There is no field
 history and no versioning here. Recovering what a document said before an edit is what
-`document_history` print snapshots are for, and that app does not exist. Editing a document today
-loses its previous contents irrecoverably.
+`document_history` print snapshots are for — and that app now exists, which narrows this gap without
+closing it. **A body is recoverable only if someone captured a snapshot of it.** Editing a document
+that was never printed still loses its previous contents irrecoverably; `document_history` is a
+print log, not an autosave.
+
+**`document_history` inherits this app's access model wholesale, and this section is the reasoning
+for both.** A snapshot holds the same bank statement, account number, and transaction history a
+working document does; freezing a body does not make it less sensitive, so the app storing the
+frozen copies is Admin-only on every route including reads, exactly as this one is. That app
+publishes no `SECURITY.md` of its own because it makes no security decision of its own — it adds one
+consequence, recorded here: **`document_history` redacts *two* fields from the audit log rather than
+one**, since its `render_context` carries the frontend-computed closing balances alongside the
+frozen `content`.
 
 ## 3. Search and admin are scoped away from the body
 

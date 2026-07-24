@@ -57,10 +57,13 @@ class DocumentStatus(models.TextChoices):
     """Where a document stands in its working lifecycle.
 
     Three values, not the concept's five. ``active`` is dropped as a synonym for
-    ``draft``, and ``printed`` is deliberately absent: nothing in this
-    deployment can set it, because print snapshots belong to the unbuilt
-    ``document_history`` app. A status no code writes is a lie in the schema.
-    Adding it later, derived from snapshot existence, is additive.
+    ``draft``, and ``printed`` is **still** deliberately absent, now for a
+    different reason than when this app shipped. Print snapshots exist —
+    ``document_history`` was built — but capturing one deliberately does not
+    touch this field. "Has been printed" is derivable from the existence of a
+    snapshot, and duplicating it here would create a second, denormalized
+    answer that can drift from the first. A client that wants it asks
+    ``document_history`` for the version chain.
 
     The frontend's ``submitted`` is mapped to ``READY``. Nothing in Grandway
     submits a document anywhere — there is no review step and no recipient — so

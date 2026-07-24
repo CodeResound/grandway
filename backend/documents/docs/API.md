@@ -1,7 +1,7 @@
 # API — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/documents/`
@@ -16,6 +16,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 9 endpoints across one resource |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Corrected the history endpoint's note now that `document_history` exists |
 
 ---
 
@@ -225,6 +226,6 @@ These hold on every endpoint below and are not repeated per endpoint.
 
 **Query access pattern.** `selectors.get_history_for_document` delegates to `audit.selectors.get_events` filtered on `app_label="documents"`, `entity_type="document"`, `entity_id=<id>` — the audit table's own index serves it.
 
-**Business rules:** **a body change appears as the `<changed>` marker, never as content.** This endpoint answers "who changed this document and when", never "what did it say before". Reconstructing a previous body is what `document_history` print snapshots will be for; that app does not exist, so **editing a document loses its previous contents irrecoverably.**
+**Business rules:** **a body change appears as the `<changed>` marker, never as content.** This endpoint answers "who changed this document and when", never "what did it say before". Reconstructing a previous body is what `document_history` print snapshots are for — so **editing a document that was never printed loses its previous contents irrecoverably.** A snapshot is captured by an explicit print action, not automatically on save.
 
 **Error codes:** `DOCUMENTS_DOCUMENT_NOT_FOUND`, `DOCUMENTS_ACTOR_FORBIDDEN`.

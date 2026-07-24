@@ -1,10 +1,10 @@
 # Data Contract — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-24
-**Purpose:** Owns the editable document working record — identity, ownership, template association, status, and the entered source data. It does **not** own the immutable print snapshot (`document_history`), the template definition or its signatories (`document_templates`), supporting files (`uploaded_files`), or the person (`applicants`). None of the first three exists yet. It owns no history table — a document's history is the central `audit` log filtered to that document.
+**Purpose:** Owns the editable document working record — identity, ownership, template association, status, and the entered source data. It does **not** own the immutable print snapshot (`document_history`), the template definition or its signatories (`document_templates`), supporting files (`uploaded_files`), or the person (`applicants`). `document_history` now exists and consumes this app; the other two do not. It owns no history table — a document's history is the central `audit` log filtered to that document.
 
 ---
 
@@ -13,6 +13,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — one model, `Document` |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No schema change. Recorded `document_history` as an inbound dependency and restated why `printed` stays absent |
 
 ---
 
@@ -30,12 +31,12 @@ Nothing in `services.py` reads inside `content`. The only two things checked are
 
 - **Access is Admin-only, reads included — a deliberate override of the concept file.** Flow 1 of `concepts/documents.txt` says "An Admin or Lead Manager opens an applicant record". The project owner has since ruled that Lead Managers get no visibility into document content whatsoever. That instruction supersedes the concept (§36 — concept files are a living draft, not a rulebook), and the concept file carries a correction note. This makes `documents` the **first app in the project where a Lead Manager is denied outright**. See `docs/SECURITY.md` §1.
 - **The 42 frontend slugs are not a backend enum.** The concept's final open question asks whether they are canonical types or template keys; they are template keys. The backend owns a stable six-value `family` enum and stores `template_key` as a format-validated string. Onboarding a new bank partner is a row, not a migration — and when `document_templates` ships and takes over the slug registry, that is an additive change rather than a breaking one to a shipped 42-value enum. The two must agree (`bank-vyas-statement` requires family `bank_statement`), checked by prefix and, for the two bank families, suffix.
-- **Three statuses, not the concept's five.** `active` is dropped as a synonym for `draft`. **`printed` is deliberately absent**: nothing in this deployment can set it, because print snapshots belong to the unbuilt `document_history`. A status no code writes is a lie in the schema; adding it later, derived from snapshot existence, is additive. The frontend's `submitted` maps to `ready` — nothing in Grandway submits a document anywhere.
+- **Three statuses, not the concept's five.** `active` is dropped as a synonym for `draft`. **`printed` is deliberately absent**, and remains so now that `document_history` is built. When this app shipped the reason was that nothing could set it; the reason now is that nothing *should*. Capturing a snapshot does not touch this field: "has been printed" is derivable from the version chain, and storing a second denormalized answer here would create something that can drift from the first. The frontend's `submitted` maps to `ready` — nothing in Grandway submits a document anywhere.
 - **`content` is an unvalidated JSON object.** §5 requires a contract for every data object, and this one cannot have a *server-enforced* one: 42 template shapes, every one open (`Record<string, unknown> &`) and required to preserve unknown keys. The per-family shapes are documented below for reference and enforced by the frontend that renders them. A serializer that named fields would silently drop the keys a template it has never heard of depends on.
 - **Derived values are neither computed nor stripped.** If a client posts `statement_debit_total`, it is stored and returned. Stripping would violate "preserve any extra keys" and would require the backend to know all 42 shapes. Recorded as a real gap in `docs/INTEGRATION.md` §9 — such a value must not be trusted as truth.
 - **`label` is a single field, not a §39.1 bilingual pair, and has no `_romanized` sibling.** A label is operational shorthand chosen from a template picker ("Vyas Statement", "Certificate"), not a person's or organization's identity; §39.1's premise that the two names are "equally canonical legally authoritative identities" does not hold. Requiring a Devanagari label would force invented text on every record. **Unicode normalization (§39.2) still applies in full**, and `label` is trigram-indexed for search.
 - **No history table**, for the same reason as every other app: `audit` already provides an immutable append-only log and §4 forbids duplicating it.
-- **No supporting-file link, no signature FK, no print snapshot.** All three belong to apps that do not exist. `content.instructorId` and `content.directorId` arrive from the frontend as references into a Signature table that has not been built; they round-trip as opaque strings inside the JSON, unvalidated.
+- **No supporting-file link, no signature FK, and no snapshot field.** The first two belong to apps that do not exist; `content.instructorId` and `content.directorId` arrive from the frontend as references into a Signature table that has not been built, and round-trip as opaque strings inside the JSON, unvalidated. The third is different: `document_history` **does** exist, and the absence of a field here is the design. The FK points the other way — snapshots reference documents, not the reverse — so this table carries no snapshot count, no `last_printed_at`, and no `printed` status. Everything about a document's print history is answered by asking that app.
 - **No delete.** The frontend's `DELETE /documents/:id` has no counterpart — `concepts/documents.txt`: "No document deletion that erases history. Retire, archive, or restore instead."
 
 ---
@@ -98,7 +99,7 @@ Ordering is `-updated_at` — a worklist reads most-recently-touched first, and 
 - `applicants.Applicant` — nullable `PROTECT` FK, `related_name="documents"`. Read only: this app never writes to an applicant, and creating or archiving a document does not touch their status.
 - `authenticate.User` — FKs for `created_by` (`PROTECT`) and `archived_by` (`SET_NULL`).
 - `audit` — service call. Every mutation appends one event. **The document body never appears in it** — see below.
-- **Referenced by: nothing.** `document_history` will eventually point here for print snapshots; it does not exist.
+- **Referenced by: `document_history`.** Both of its models hold `PROTECT` FKs to `Document` (`related_name="snapshots"` and `related_name="print_events"`), so **a document with print history cannot be deleted** — which changes nothing today, since this app has no delete at all. It also **writes** to this app: `document_history.services.recover_snapshot` calls this app's `update_document` to push a frozen `label` and `content` back into the working record. That write goes through the service rather than the model, so this app's archive lock, size cap, and redacted audit event all still apply, and a recovery appears in this app's history as an ordinary `document_updated` event. The full account is in `document_history/docs/DATA_CONTRACT.md` §3.
 
 **Audit redaction — a contract detail, not an implementation note.** Every mutation appends one `audit.AuditEvent`, and the `changes` map records each changed field's previous and new value **except `content`**, which is replaced by the literal marker `<changed>`. The document body routinely holds bank balances, account numbers, and full transaction histories, and the audit log is readable by every Admin and Superadmin through the `audit` app — a change map carrying the old and new body would leak it there (§17). The history therefore records *that* the body changed and who changed it, never what it said. Covered by `tests/test_services.py::ContentNeverReachesTheAuditLogTests`.
 

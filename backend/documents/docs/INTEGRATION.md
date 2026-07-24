@@ -1,7 +1,7 @@
 # Integration — Documents
 
 **Owner app:** `documents`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 9 endpoints, one resource |
+| 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. `document_history` moved from "missing" to a documented consumer; print/recover gaps closed |
 
 ---
 
@@ -33,13 +34,31 @@
 
 **This module writes to nothing outside itself.** Creating, editing, or archiving a document does not touch the applicant's status or any other record.
 
-**Three apps this module deliberately does not contain, and which do not exist yet:**
+**Two apps this module deliberately does not contain, and which do not exist yet:**
 
 | Missing app | What it would own | What you cannot do today |
 |---|---|---|
-| `document_history` | Immutable print snapshots, print events | Capture a print snapshot, list print logs, or recover a document's previous body |
 | `document_templates` | Template definitions, versions, signatory records + signature images | Fetch the signatory list, or validate `content.instructorId` / `content.directorId` |
-| `uploaded_files` | File storage, verification, versioning | Attach a supporting file to a document |
+| `uploaded_files` | File storage, verification, versioning | Attach a supporting file to a document, or store a generated PDF anywhere |
+
+**One app this module deliberately does not contain, and which now exists:** `document_history`
+(`/api/v1/document-history/`) owns immutable print snapshots and print events. It **consumes** this
+module — it holds `PROTECT` foreign keys to `Document` and performs a recovery through this module's
+own update service rather than writing directly — and this module depends on it for nothing.
+Printing, print history,
+reprinting, and recovering a previous body all live there; none of it is reachable from a
+`/api/v1/documents/` route.
+
+**Consequences for a client of *this* module:**
+
+- **A document may be referenced by snapshots you cannot see from here.** No field on the `Document`
+  resource reports whether it has ever been printed, or how many times. Ask `document_history`.
+- **`POST /api/v1/document-history/snapshots/<id>/recover/` can change a document underneath you**,
+  writing its `label` and `content`. It appears in this module's history endpoint as an ordinary
+  `document_updated` event, indistinguishable from a manual edit except by its timing next to the
+  recovery. Refetch after a recovery rather than trusting a cached copy.
+- **`PROTECT` now runs both ways.** A document with print history cannot be deleted — which changes
+  nothing today, since this module has no delete at all.
 
 ## 3. Conventions
 
@@ -218,7 +237,7 @@
   - **This is the backend's type vocabulary — not the 42 slugs.** The slug lives in `template_key` and is a validated string, not an enum, so a new bank partner needs no backend deploy.
   - Bank documents are **two** families, not one: a statement and a certificate have different content shapes and different screens.
 - `Document.status`: `draft` | `ready` | `archived`
-  - **There is no `printed`.** Nothing can set it until `document_history` exists. Use the absence or presence of a print snapshot once that ships.
+  - **There is no `printed`, and there will not be one.** Print snapshots exist (`document_history`), but capturing one deliberately does not touch this field — "has been printed" is derivable from the version chain, and a second denormalized answer here could drift from it. Ask `GET /api/v1/document-history/documents/<document_id>/snapshots/` instead.
   - **There is no `submitted`** — the frontend's third value maps to `ready`. Nothing in Grandway submits a document anywhere.
   - `archived` is **not** reachable through the status action; it requires the archive endpoint and a reason.
 - `template_key`: **not an enum** — a lowercase ASCII slug matching `^[a-z0-9]+(?:-[a-z0-9]+)*$`, up to 100 characters, which must agree with `family` by prefix (`student-`, `woda-`, `lor-`, `moi-`, `bank-`) and, for the two bank families, by suffix (`-statement`, `-certificate`).
@@ -385,7 +404,7 @@
 
 **Notes:**
 - Never empty for an existing document — creation always writes one event.
-- **A body change is recorded as a marker, not as content.** This endpoint tells you *that* the document changed and who changed it, never what it said. **You cannot reconstruct a previous body from it** — that is what `document_history` print snapshots will be for.
+- **A body change is recorded as a marker, not as content.** This endpoint tells you *that* the document changed and who changed it, never what it said. **You cannot reconstruct a previous body from it** — that is what `document_history` print snapshots are for, and only for edits somebody captured a snapshot of.
 
 **Errors:**
 - `DOCUMENTS_DOCUMENT_NOT_FOUND` (404)
@@ -402,7 +421,7 @@
 4. `PATCH /api/v1/documents/<id>/` with `content` on each save. **Send the complete body**; it is replaced wholesale, not merged.
    - Send only the input fields. Do not send computed balances, totals, or amounts-in-words — the backend stores whatever it is given, and a stored derived value will be stale the moment the inputs change.
 5. `POST /api/v1/documents/<id>/status/` with `ready` when the document is finished.
-6. **Printing is not available.** The snapshot step needs `document_history`, which is not built.
+6. **Print** — save first, then `POST /api/v1/document-history/documents/<document_id>/snapshots/` (module: `document_history`). Capture reads the *committed* row, so an unsaved workspace is not what gets frozen.
 
 **Create a standalone document** *(Admin)*
 
@@ -429,7 +448,6 @@
 
 ### Blocking — features the concept describes that have no endpoints
 
-- **No print snapshot, and no print log.** `concepts/documents.txt` flow 3 ends with capturing an immutable snapshot; that belongs to `document_history`, which does not exist. There is no way to record that a document was printed, and no way to recover what it said at that moment.
 - **No signatory list, and signature references are unvalidated.** `content.instructorId` / `content.directorId` on certificate templates point at a Signature table owned by the unbuilt `document_templates`. They round-trip as opaque strings; a document may name a signatory that never existed.
 - **No supporting files.** `uploaded_files` does not exist, so nothing can be attached to a document.
 - **No template registry.** `template_key` is format-checked and family-checked but not checked against a list of real templates. A typo that happens to match the family prefix — `bank-vyass-statement` — is accepted.
@@ -438,7 +456,7 @@
 
 - **A client-supplied derived value is stored, not stripped.** Posting `statement_debit_total` gets it persisted and returned. The backend cannot strip it without knowing all 42 shapes, and stripping would break "preserve any extra keys". **Never read a derived value back from the API as truth** — recompute from the inputs.
 - **`content` is replaced wholesale on `PATCH`, not merged.** Sending `{"content": {"a": 1}}` on a document whose body had ten keys leaves it with one. Send the complete body.
-- **A previous body cannot be recovered.** No field history, no versioning, and the audit log redacts the body. Editing a document loses its previous contents irrecoverably until `document_history` ships.
+- **A previous body is recoverable only if somebody printed it.** This module has no field history, no versioning, and its audit log redacts the body. `document_history` snapshots are the only record of a previous body — so editing a document that was never printed still loses its previous contents irrecoverably. It is a print log, not an autosave.
 - **`content` is not sanitized or escaped.** It is returned exactly as stored; escaping on render is the frontend's responsibility.
 - **`?search=` matches `label` only** — not the body, not the applicant's name, not `template_key`.
 - **No cascade from applicants.** `applicant` is `PROTECT`: an applicant with documents cannot be deleted, and no document is ever removed as a side effect of anything.
@@ -462,7 +480,7 @@ The uploaded `frontend_api-used.md` and `frontend_data-contract.md` describe a *
 | `status: draft \| submitted \| archived` | `draft \| ready \| archived` — `submitted` becomes `ready` |
 | `GET /documents/workspaces` | `GET /api/v1/documents/workspaces/` — note the trailing slash |
 | `DocumentWorkspaceSummary.studentId` / `.studentName` | `applicant_id` / `applicant_name` |
-| `GET /documents/:id/print-logs`, `POST` the same | **Not built** — needs `document_history` |
+| `GET /documents/:id/print-logs`, `POST` the same | Built, in a **different module and at a different path**: `GET /api/v1/document-history/documents/<document_id>/timeline/` and `POST /api/v1/document-history/documents/<document_id>/snapshots/` |
 | `GET /signatures?active=true` | **Not built** — needs `document_templates` |
 | Any authenticated user reaches these screens | **Admin only.** A Lead Manager gets 403 on every route, reads included |
 

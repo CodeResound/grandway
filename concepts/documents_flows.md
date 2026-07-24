@@ -194,30 +194,40 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 
 ---
 
-## Flow: Review and print — NOT DELIVERABLE
+## Flow: Review and print — delegated to `document_history`
 
 `concepts/documents.txt` flow 3 ends with "the system captures a print snapshot in the document
-history app", and the Print Preview / History handoff screen exists in its wireframe notes.
+history app". **That app now exists**, so the flow is deliverable — but not one step of it lives in
+this file. See **`concepts/document_history_flows.md` → "Capture a print snapshot"**, which begins
+where this app's workspace flow ends.
 
-**No endpoint in this project supports it.** There is no print-log endpoint, no snapshot storage, and
-no way to record that a document was printed. That work belongs to `document_history`, which has **no
-concept file** and therefore could not be built (CLAUDE.md §36 requires one first).
+What a client of *this* module needs to know about it:
 
-Two related gaps travel with it:
+- **The print button posts to a different base path**, `/api/v1/document-history/`, not to
+  `/api/v1/documents/`. There is no print endpoint under this app and there will not be one.
+- **Save before printing.** Capture reads the *committed* document row, so an unsaved workspace
+  freezes the old body and nobody is told. Sequence step 4 of the applicant flow above before the
+  capture, always.
+- **Printing changes nothing here.** No status moves, `updated_at` does not shift, and no field on
+  the `Document` resource reports that a snapshot exists. "Has this been printed?" is a question for
+  `document_history.snapshot.list`.
+- **A recovery can rewrite a document behind your back.** `document_history.snapshot.recover` writes
+  `label` and `content` into the working record and surfaces here as an ordinary `document_updated`
+  history event. Refetch the workspace after one rather than trusting a cached copy.
+
+Two related gaps still travel with it, both unchanged:
 
 - **Signatory selection is unbacked.** Certificate templates read `content.instructorId` and
   `content.directorId`, which reference a Signature table owned by the unbuilt
   `document_templates`. There is no endpoint to populate those dropdowns, and the ids round-trip as
   **unvalidated opaque strings** — a document may name a signatory that never existed.
 - **Supporting files are unbacked.** Flow 2's "attaches supporting files when needed" needs
-  `uploaded_files`, which does not exist. Nothing can be attached to a document.
+  `uploaded_files`, which does not exist. Nothing can be attached to a document, and **no generated
+  PDF can be stored anywhere** — a snapshot has no file field either.
 
-**Do not ship UI that implies any of this works** — no print button that only renders locally and
-claims to have saved history, no signatory dropdown backed by hardcoded data, no file-attach control.
-Each would need an API that is not there.
-
-This is listed rather than omitted because a frontend author reading the concept file will look for
-these endpoints and needs to know they are absent rather than conclude they missed them.
+**Do not ship UI that implies either of those works** — no signatory dropdown backed by hardcoded
+data, no file-attach control, no "download the saved PDF" link on a history row. Each would need an
+API that is not there.
 
 ---
 
@@ -243,7 +253,8 @@ these endpoints and needs to know they are absent rather than conclude they miss
 - **Standalone Documents list** — backed via `?standalone=true`.
 - **Document Workspace** — backed for the header, source-data form, and save actions. **Its
   supporting-files section has no endpoint**, and its live preview is entirely client-side by design.
-- **Print Preview / History handoff** — **not backed.** See the unbacked flow above.
+- **Print Preview / History handoff** — **backed, by `document_history`.** Not by any endpoint in
+  this app. See `concepts/document_history_flows.md`.
 
 ## Cross-app dependencies
 
@@ -251,11 +262,15 @@ these endpoints and needs to know they are absent rather than conclude they miss
   whose file it is working in before creating a document. The backend also holds a nullable FK and
   calls `applicants.selectors.get_applicant_by_id` on create; see
   `backend/documents/docs/INTEGRATION.md` §2.
-- **Referenced by other apps (inbound):** none. No other app's flow file references a `documents.*`
-  permission key.
-- **Blocked on (not yet existing):** `document_history` (print snapshots), `document_templates`
-  (templates and signatories), `uploaded_files` (supporting files). All three are named domains in
-  `concepts/project_overview.txt`; the first two have no concept file.
+- **Referenced by other apps (inbound):** `concepts/document_history_flows.md` — its capture flow
+  calls `documents.document.read` and `documents.document.update`, and its recovery flow calls
+  `documents.document.restore` on the 409 path. That app also **writes** to this one: its
+  `document_history.snapshot.recover` endpoint pushes a frozen `label` and `content` into a document
+  through this app's own update service.
+- **Blocked on (not yet existing):** `document_templates` (templates and signatories),
+  `uploaded_files` (supporting files, and any generated PDF). Both are named domains in
+  `concepts/project_overview.txt` and neither has a concept file. `document_history` is no longer on
+  this list — it shipped, and its flow file is the third leg of the frontend handoff for printing.
 
 **Note the access asymmetry with `applicants`.** An applicant is readable by any Admin or Lead
 Manager, but their documents are Admin-only. A Lead Manager's applicant file view is legitimately
