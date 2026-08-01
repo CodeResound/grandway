@@ -1,7 +1,7 @@
 # Data Contract — Leads
 
 **Owner app:** `leads`
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns the enquiry record and everything that happens to it before conversion — identity, contact numbers, source attribution, preliminary study interest, stage, manual follow-up, notes, and loss/reopen state. It does **not** own the applicant, the applicant journey, or any post-conversion data; those belong to the `applicants` and `applicant_journeys` apps. It owns no history table either — a lead's chronological history is the central `audit` log filtered to that lead.
@@ -15,6 +15,7 @@
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial contract — six models, lead lifecycle without conversion |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Two search indexes added (no column change): GIN trigram on `Lead.email` and B-tree on `LeadContactNumber.number`, both supporting the widened `search_leads` |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.3.0 | 2026-08-02 | AI (Claude Opus 5) | One search index added (no column change): GIN trigram on `LeadContactNumber.number`. Corrects `1.1.0` — the B-tree it added cannot serve the leading-wildcard `icontains` that `search_leads` issues, so phone search was scanning. Added for the `search` app's lead bucket |
 
 ---
 
@@ -215,6 +216,7 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 **Indexes:**
 - `uniq_lead_contact_number` — unique constraint on `(lead, number)`
 - `lead_contact_number_idx` — B-tree on `number` alone. The unique constraint's leading column is the lead, so it cannot serve `search_leads`, which knows the number and not the lead (migration `0004_search_indexes`).
+- `lead_contact_num_trgm_idx` — GIN `gin_trgm_ops` on `number`. The B-tree above serves equality and prefix lookups but **cannot** serve the one `search_leads` actually issues: `number__icontains` has a leading wildcard, and a B-tree has no way in. Until this index existed, every phone search — the most common way a lead is found, since a lead is usually a number in a call log before anyone agrees how to spell the name — was a sequential scan. Both indexes are kept; the B-tree stays cheaper for exact matching (migration `0006_trigram_search_indexes`).
 
 **Soft Delete:** N/A — contact numbers are replaced wholesale on update and cascade-deleted with their lead (which itself is never deleted). Removal of a number is a correction, not a lifecycle event, so no history of removed numbers is kept beyond the `lead_contact_changed` audit event.
 
