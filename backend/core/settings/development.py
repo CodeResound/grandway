@@ -12,11 +12,20 @@ from .base import *  # noqa: F401, F403, E402
 
 DEBUG = True
 
-# Dev-only: allow any origin so a local frontend on any port can call the API.
-# Never set this alongside CORS_ALLOW_CREDENTIALS=True (django-cors-headers
-# rejects that combination). Staging/production get no override here and so
-# default to allowing zero cross-origin requests until explicitly configured.
-CORS_ALLOW_ALL_ORIGINS = True
+# Dev-only: allow the known frontend origins explicitly so browser requests
+# work from the LAN IP used in local development as well as localhost.
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = decouple.config(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:3000,http://127.0.0.1:3000,http://192.168.110.58:3000",
+    cast=decouple.Csv(),
+)
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = decouple.config(
+    "CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:3000,http://127.0.0.1:3000,http://192.168.110.58:3000",
+    cast=decouple.Csv(),
+)
 
 # In development, JWT tokens are returned in the response body (not HttpOnly cookie).
 # Cookie-based auth for production is configured in the auth app when introduced.

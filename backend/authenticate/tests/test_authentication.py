@@ -72,3 +72,53 @@ class TestSessionBoundAuth(APITestCase):
         state.save(update_fields=["password_changed_at"])
         self._auth()
         self.assertEqual(self.client.get(self.me_url).status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class TestAuthenticationQueryCost(APITestCase):
+    """Authenticating a request is the hottest query path in the project.
+
+    Every authenticated call to every endpoint in every app runs
+    ``SessionBoundJWTAuthentication.get_user`` first, so a stray query here is
+    multiplied by the whole request volume of the system rather than by one
+    endpoint's.
+
+    Two queries, and both are load-bearing: SimpleJWT's own user lookup (which
+    validates the subject claim and ``is_active``), and the session lookup that
+    makes revocation take effect immediately. The security state comes back
+    joined onto the second — reading it off the *first* user instance instead
+    would silently add a third.
+    """
+
+    def setUp(self) -> None:
+        self.user = make_user()
+        self.session, _ = services.issue_session(user=self.user, device_id="dev-a")
+        self.access = services.build_access_token(self.user, self.session, must_change_password=False)
+
+    def test_get_user_costs_two_queries(self) -> None:
+        from rest_framework_simplejwt.tokens import AccessToken
+
+        from authenticate.authentication import SessionBoundJWTAuthentication
+
+        validated = AccessToken(self.access)
+        auth = SessionBoundJWTAuthentication()
+
+        with self.assertNumQueries(2):
+            user = auth.get_user(validated)
+
+        self.assertEqual(user.id, self.user.id)
+
+    def test_forced_password_change_flag_is_read_without_an_extra_query(self) -> None:
+        """The flag is what pulls the security state in — assert it still works."""
+        from rest_framework_simplejwt.tokens import AccessToken
+
+        from authenticate.authentication import SessionBoundJWTAuthentication
+
+        state = self.user.security_state
+        state.must_change_password = True
+        state.save(update_fields=["must_change_password"])
+
+        validated = AccessToken(self.access)
+        with self.assertNumQueries(2):
+            user = SessionBoundJWTAuthentication().get_user(validated)
+
+        self.assertTrue(user.must_change_password)

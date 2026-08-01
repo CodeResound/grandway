@@ -296,3 +296,60 @@ class ResolveSafetyTests(TransactionTestCase):
 
         overdue = Notification.objects.get(notification_type=NotificationType.CHECKLIST_ITEM_OVERDUE)
         self.assertEqual(overdue.status, NotificationStatus.ACTIVE)
+
+
+class SweepQueryCostTests(TransactionTestCase):
+    """The sweep's query count must not grow with the size of the backlog.
+
+    Every alert whose source record carries no owner falls back to the Admin
+    fan-out, and today that is every offer deadline and every expiring passport
+    — neither model has an owner field anywhere in the project. Resolving
+    "every active Admin" per source row made a quiet nightly job issue one extra
+    query for each row it looked at, on exactly the tables that grow (§6, N+1
+    prevention).
+
+    Asserted as a *relationship* between two backlog sizes rather than as an
+    absolute number: the constant per-run cost is an implementation detail that
+    may legitimately move, while the per-row cost must stay flat.
+    """
+
+    ADMIN_COUNT = 4
+
+    def setUp(self) -> None:
+        self.admin = make_admin("sweepadmin0")
+        for index in range(1, self.ADMIN_COUNT):
+            make_admin(f"sweepadmin{index}")
+        self.next_applicant = 0
+
+    def _add_expiring_passports(self, count: int) -> None:
+        for _ in range(count):
+            applicant = make_applicant(self.admin, name=f"Applicant {self.next_applicant}")
+            give_passport(self.admin, applicant, expires_in_days=30)
+            self.next_applicant += 1
+
+    def _admin_lookups_during_sweep(self) -> int:
+        """How many times the sweep asked the database who the Admins are.
+
+        Counted specifically rather than measuring total queries: the alert
+        write itself costs a fixed handful of statements per recipient
+        (``get_or_create`` plus its savepoints), and pinning that total would
+        make this test fail on an unrelated change to the write path. The
+        property under test is narrower — the Admin fan-out is resolved once per
+        run, not once per source row.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        # Cleared so each measurement writes every alert rather than finding
+        # some already present — otherwise the two runs would not be comparable.
+        Notification.objects.all().delete()
+        with CaptureQueriesContext(connection) as captured:
+            sweep(only_type=NotificationType.PASSPORT_EXPIRING)
+        return sum(1 for query in captured.captured_queries if "authenticate_user" in query["sql"])
+
+    def test_admin_fan_out_is_resolved_once_per_run(self) -> None:
+        self._add_expiring_passports(2)
+        self.assertEqual(self._admin_lookups_during_sweep(), 1)
+
+        self._add_expiring_passports(4)
+        self.assertEqual(self._admin_lookups_during_sweep(), 1)

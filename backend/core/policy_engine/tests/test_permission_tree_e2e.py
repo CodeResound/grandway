@@ -320,3 +320,35 @@ class UIPermissionTreeSelectorTest(APITestCase):
 
         with self.assertNumQueries(3):
             get_ui_permission_tree(app_key="extra")
+
+    def test_query_count_does_not_scale_with_app_count(self):
+        """Regression test: the unfiltered tree costs the same as one app's.
+
+        The per-app fan-out is the one that actually grows in this project —
+        ``INSTALLED_APPS`` gains a module far more often than a single app gains
+        an endpoint. Fetching the category maps and the dependency edges once
+        for every app and grouping them in Python keeps this at three queries;
+        looping the two queries per app made the admin permission screen cost
+        two round trips for every module ever added (§6, N+1 prevention).
+        """
+        for app_index in range(5):
+            run_endpoint_lifecycle(
+                config={
+                    "app_key": f"app{app_index}",
+                    "app_display_name": f"App {app_index}",
+                    "endpoint_key": "thing-read",
+                    "permission_key": f"app{app_index}.thing.read",
+                    "display_name": "Read Thing",
+                    "operation_type": OperationType.READ,
+                    "risk_level": RiskLevel.LOW,
+                    "version": "1.0.0",
+                    "category_key": f"app{app_index}_category",
+                    "category_display_name": f"App {app_index} Category",
+                },
+                created_by_type=CreatedByType.SYSTEM,
+            )
+
+        with self.assertNumQueries(3):
+            tree = get_ui_permission_tree()
+
+        self.assertGreaterEqual(len(tree), 5)
