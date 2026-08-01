@@ -18,6 +18,7 @@ from typing import Any
 
 from checklists.constants import ItemStatus
 from django.urls import reverse
+from rest_framework import status
 from rest_framework.test import APITestCase
 
 from dashboards.tests.factories import (
@@ -445,15 +446,43 @@ class TestActivityFeed(SeededDashboardTestCase):
         self.assertIn("entity_id", row)
         self.assertIn("created_at_bs", row)
 
-    def test_the_feed_is_not_narrowed_by_authority(self) -> None:
-        """Consistent with the audit module, which these users may already call."""
-        admin_count = self.client.get(url_for("dashboard-activity")).data["meta"]["count"]
+    def test_the_feed_is_refused_to_a_lead_manager(self) -> None:
+        """The feed *is* the audit log, so it carries the audit log's access rule.
 
+        This test previously asserted the opposite — that an Admin and a Lead
+        Manager see the same row count — on the stated grounds that the audit
+        module is one "which these users may already call". That was never true
+        of a Lead Manager: `audit/views.py` gates every route on `is_staff` and
+        refuses them with a 403, while this endpoint served them the same rows
+        with a 200, administrative password resets included. The old assertion
+        was a faithful description of a leak.
+        """
         manager = make_lead_manager("mgr_feed")
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_for(manager)}")
-        manager_count = self.client.get(url_for("dashboard-activity")).data["meta"]["count"]
 
-        self.assertEqual(admin_count, manager_count)
+        resp = self.client.get(url_for("dashboard-activity"))
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_the_feed_is_not_narrowed_for_a_reader_who_may_see_it(self) -> None:
+        """The half of the original property that survives: no per-actor filtering.
+
+        The audit log is not owner-scoped anywhere in the project, so a reader
+        who passes the access check sees every row — including events whose
+        actor was somebody else. Access is binary here; it is not a scope.
+        """
+        from audit.services import record_event
+
+        record_event(
+            app_label="leads",
+            action="lead_created",
+            actor_label="someone.else",
+            summary="a lead created by another member of staff",
+        )
+
+        rows = self.client.get(url_for("dashboard-activity")).data["data"]
+
+        self.assertIn("someone.else", {row.get("actor_label") for row in rows})
 
 
 class TestSummaryAgreesWithItsSections(SeededDashboardTestCase):

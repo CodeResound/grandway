@@ -87,6 +87,31 @@ def get_active_session_by_refresh_hash(refresh_hash: str) -> AuthSession | None:
     )
 
 
+def get_active_session_by_refresh_hash_for_update(refresh_hash: str) -> AuthSession | None:
+    """As above, but locking the session row for the caller's transaction.
+
+    Rotation is a read-then-write: refresh reads the active session, retires it,
+    and inserts its replacement. Without a lock two requests carrying the same
+    token both read the row as active, both retire it, and both insert — and the
+    second insert violates ``uniq_active_session_per_device``, surfacing as a 500
+    and logging the user out. That is not an exotic interleaving: an expired
+    access token makes every in-flight request 401 at once, and a client that
+    refreshes on 401 fires several rotations for one token as a matter of course.
+
+    ``of=("self",)`` locks the session row alone. ``select_related`` pulls
+    ``user__security_state`` through a LEFT OUTER JOIN (a reverse one-to-one),
+    and PostgreSQL refuses ``FOR UPDATE`` against the nullable side of an outer
+    join — so an unqualified lock here would fail on the production engine while
+    passing on SQLite. Must be called inside ``transaction.atomic()``.
+    """
+    return (
+        AuthSession.objects.select_related("user", "user__security_state")
+        .select_for_update(of=("self",))
+        .filter(refresh_token_hash=refresh_hash, is_active=True)
+        .first()
+    )
+
+
 def get_session_by_refresh_hash(refresh_hash: str) -> AuthSession | None:
     """Any session (active or not) for a refresh hash — used for reuse detection."""
     return AuthSession.objects.filter(refresh_token_hash=refresh_hash).first()
@@ -97,19 +122,39 @@ def get_session_by_id(session_id: str) -> AuthSession | None:
     return AuthSession.objects.select_related("user", "user__security_state").filter(pk=session_id).first()
 
 
+def get_confirmed_totp_devices(user: User) -> QuerySet[TOTPDevice]:
+    """Every confirmed TOTP device for this user, whatever its name.
+
+    **Deliberately not scoped to ``TOTP_DEVICE_NAME``.** This app's own
+    enrollment only ever creates ``"default"``, but ``django_otp.plugins.otp_totp``
+    is installed and registers ``TOTPDevice`` in the Django admin, so a device
+    can arrive under another name. Scoping the *detection* of MFA to one name
+    while ``reset_mfa``/``disable_mfa`` delete across all names left the two
+    disagreeing in the dangerous direction: a confirmed device the user could
+    see in the admin, believed was protecting the account, and which login
+    silently ignored. Asking "does any confirmed device exist" fails closed.
+    """
+    return TOTPDevice.objects.filter(user=user, confirmed=True)
+
+
 def get_confirmed_totp_device(user: User) -> TOTPDevice | None:
-    """The user's active, confirmed TOTP device, or None."""
-    return TOTPDevice.objects.filter(user=user, name=TOTP_DEVICE_NAME, confirmed=True).first()
+    """The user's active, confirmed TOTP device, or None (see above on naming)."""
+    return get_confirmed_totp_devices(user).first()
 
 
 def get_unconfirmed_totp_device(user: User) -> TOTPDevice | None:
-    """The user's pending (unconfirmed) TOTP device, or None."""
+    """The user's pending (unconfirmed) TOTP device, or None.
+
+    Name-scoped, unlike the confirmed lookups: this addresses the enrollment
+    *this app* started, and picking up a half-finished device from somewhere
+    else would let ``mfa/verify/`` confirm a secret the user never scanned here.
+    """
     return TOTPDevice.objects.filter(user=user, name=TOTP_DEVICE_NAME, confirmed=False).first()
 
 
 def has_confirmed_mfa(user: User) -> bool:
     """Whether the user has completed MFA enrollment (derived — never stored)."""
-    return TOTPDevice.objects.filter(user=user, name=TOTP_DEVICE_NAME, confirmed=True).exists()
+    return get_confirmed_totp_devices(user).exists()
 
 
 def get_manageable_users(actor: User) -> QuerySet[User]:

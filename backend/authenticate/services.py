@@ -50,9 +50,10 @@ from authenticate.managers import UserManager
 from authenticate.models import AuthEvent, AuthSession, User, UserSecurityState
 from authenticate.selectors import (
     TOTP_DEVICE_NAME,
-    get_active_session_by_refresh_hash,
+    get_active_session_by_refresh_hash_for_update,
     get_active_sessions_for_user,
     get_confirmed_totp_device,
+    get_confirmed_totp_devices,
     get_manageable_user,
     get_session_by_refresh_hash,
     get_unconfirmed_totp_device,
@@ -140,25 +141,37 @@ def _emit_to_central_audit(
     ip_address: str | None,
     device_id: str,
 ) -> None:
-    """Best-effort federated emit to the central audit log (never raises)."""
+    """Best-effort federated emit to the central audit log (never raises).
+
+    The ``record_event`` call is wrapped in its own ``atomic`` block, which is
+    what actually makes "never raises" true. Five of this module's callers are
+    ``@transaction.atomic`` and this runs inline inside them, so on PostgreSQL a
+    failed INSERT here aborts the *enclosing* transaction: every later statement
+    errors, and the eventual COMMIT silently degrades to a ROLLBACK. Catching the
+    exception does not undo that — the account creation would be discarded while
+    the endpoint still answered 201. The savepoint contains the damage to this
+    statement, so the promise the docstring makes holds on the production engine
+    and not only on SQLite, where the abort semantics differ and the suite runs.
+    """
     try:
         from audit.services import record_event
 
-        record_event(
-            app_label="authenticate",
-            action=event_type,
-            actor_type=actor.authority_type if actor else "system",
-            actor_id=str(actor.id) if actor else None,
-            actor_label=(actor.username if actor else subject_username),
-            entity_type="authenticate.user",
-            entity_id=str(subject.id) if subject else None,
-            reason=reason,
-            source="authenticate",
-            ip_address=ip_address,
-            success=success,
-            summary=f"{event_type} for {subject_username}",
-            metadata={"device_id": device_id} if device_id else {},
-        )
+        with transaction.atomic():
+            record_event(
+                app_label="authenticate",
+                action=event_type,
+                actor_type=actor.authority_type if actor else "system",
+                actor_id=str(actor.id) if actor else None,
+                actor_label=(actor.username if actor else subject_username),
+                entity_type="authenticate.user",
+                entity_id=str(subject.id) if subject else None,
+                reason=reason,
+                source="authenticate",
+                ip_address=ip_address,
+                success=success,
+                summary=f"{event_type} for {subject_username}",
+                metadata={"device_id": device_id} if device_id else {},
+            )
     except Exception:  # noqa: BLE001 — audit emission must never break auth
         logger.warning("Failed to emit auth event to central audit", exc_info=True)
 
@@ -339,11 +352,10 @@ def login(
 
     # MFA step — only reachable AFTER a correct password, so it never leaks MFA
     # status to an attacker who does not already hold valid credentials.
-    totp_device = get_confirmed_totp_device(user)
-    if totp_device is not None:
+    if has_confirmed_mfa(user):
         if not otp_code:
             raise MfaRequiredError
-        if not totp_device.verify_token(otp_code):
+        if not verify_totp_code(user, otp_code):
             record_auth_event(
                 event_type=AuthEventType.MFA_VERIFICATION_FAILURE,
                 actor=user,
@@ -417,74 +429,110 @@ def refresh_session(
     Reuse of a retired token revokes the whole family (``RefreshTokenReuseError``).
     """
     token_hash = hash_refresh_token(raw_token)
-    session = get_active_session_by_refresh_hash(token_hash)
-    if session is None:
-        stale = get_session_by_refresh_hash(token_hash)
-        # Reuse detection fires only for a *rotated* (retired-by-refresh) token.
-        # A token whose session was revoked for any other reason (logout, block,
-        # a prior family kill) is simply invalid — not a fresh reuse event.
-        if stale is not None and not stale.is_active and stale.revoked_reason == SessionRevocationReason.ROTATED:
-            revoke_family(stale.family_id, SessionRevocationReason.ROTATED_REUSE)
-            record_auth_event(
-                event_type=AuthEventType.SESSION_REVOKED,
-                subject=stale.user,
-                subject_username=stale.user.username,
-                success=False,
-                reason="refresh_reuse_detected",
-                ip_address=ip_address,
-                user_agent=user_agent,
-                device_id=stale.device_id,
-            )
-            raise RefreshTokenReuseError
-        raise InvalidRefreshTokenError
 
+    # The rotation runs inside one transaction holding a row lock on the session
+    # (see ``get_active_session_by_refresh_hash_for_update``). The audit write
+    # and the token build are deliberately left outside it: neither needs the
+    # lock, and holding a row lock across them would serialize every refresh for
+    # a device behind an ``AuthEvent`` insert.
+    with transaction.atomic():
+        session = get_active_session_by_refresh_hash_for_update(token_hash)
+        if session is None:
+            rotated = _handle_missing_active_session(token_hash)
+        else:
+            rotated = _rotate_locked_session(session, ip_address=ip_address, user_agent=user_agent)
+
+    if rotated is None:
+        # ``_handle_missing_active_session`` decided this is a reuse; the family
+        # is already dead. Audited out here so the write is not holding a lock.
+        stale = get_session_by_refresh_hash(token_hash)
+        record_auth_event(
+            event_type=AuthEventType.SESSION_REVOKED,
+            subject=stale.user if stale else None,
+            subject_username=stale.user.username if stale else "",
+            success=False,
+            reason="refresh_reuse_detected",
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_id=stale.device_id if stale else "",
+        )
+        raise RefreshTokenReuseError
+
+    old_session, new_session, new_raw = rotated
+
+    security_state = _get_or_create_security_state(new_session.user)
+    must_change = security_state.must_change_password
+    record_auth_event(
+        event_type=AuthEventType.SESSION_REFRESHED,
+        actor=new_session.user,
+        subject=new_session.user,
+        subject_username=new_session.user.username,
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_id=old_session.device_id,
+    )
+    return {
+        "access": build_access_token(new_session.user, new_session, must_change),
+        "refresh": new_raw,
+        "session": new_session,
+        "user": new_session.user,
+        "must_change_password": must_change,
+    }
+
+
+def _handle_missing_active_session(token_hash: str) -> None:
+    """Classify a token with no active session: reuse, or simply invalid.
+
+    Returns ``None`` to mean "reuse — the family has been revoked, the caller
+    should raise ``RefreshTokenReuseError``", and raises
+    ``InvalidRefreshTokenError`` otherwise. Reuse detection fires only for a
+    *rotated* (retired-by-refresh) token: a session revoked for any other reason
+    (logout, block, a prior family kill) is simply invalid, not a fresh reuse.
+    """
+    stale = get_session_by_refresh_hash(token_hash)
+    if stale is not None and not stale.is_active and stale.revoked_reason == SessionRevocationReason.ROTATED:
+        revoke_family(stale.family_id, SessionRevocationReason.ROTATED_REUSE)
+        return None
+    raise InvalidRefreshTokenError
+
+
+def _rotate_locked_session(
+    session: AuthSession,
+    *,
+    ip_address: str | None,
+    user_agent: str,
+) -> tuple[AuthSession, AuthSession, str]:
+    """Retire ``session`` and insert its replacement. Caller holds the row lock.
+
+    Returns ``(old_session, new_session, raw_refresh_token)``.
+    """
     now = timezone.now()
     if now >= session.expires_at or now >= session.idle_expires_at or not session.user.is_active:
         revoke_session(session, SessionRevocationReason.ADMIN_REVOKED)
         raise InvalidRefreshTokenError
 
-    with transaction.atomic():
-        # Retire the old session FIRST so the one-active-session-per-device unique
-        # constraint is never momentarily violated by two active rows.
-        session.is_active = False
-        session.revoked_at = now
-        session.revoked_reason = SessionRevocationReason.ROTATED
-        session.save(update_fields=["is_active", "revoked_at", "revoked_reason", "updated_at"])
+    # Retire the old session FIRST so the one-active-session-per-device unique
+    # constraint is never momentarily violated by two active rows.
+    session.is_active = False
+    session.revoked_at = now
+    session.revoked_reason = SessionRevocationReason.ROTATED
+    session.save(update_fields=["is_active", "revoked_at", "revoked_reason", "updated_at"])
 
-        new_raw = generate_refresh_token()
-        idle_expires_at = now + settings.AUTH_SESSION_IDLE_LIFETIME
-        new_session = AuthSession.objects.create(
-            user=session.user,
-            device_id=session.device_id,
-            device_name=session.device_name,
-            refresh_token_hash=hash_refresh_token(new_raw),
-            family_id=session.family_id,
-            previous_session=session,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            idle_expires_at=idle_expires_at,
-            expires_at=session.expires_at,
-        )
-
-    security_state = _get_or_create_security_state(session.user)
-    must_change = security_state.must_change_password
-    record_auth_event(
-        event_type=AuthEventType.SESSION_REFRESHED,
-        actor=session.user,
-        subject=session.user,
-        subject_username=session.user.username,
-        success=True,
+    new_raw = generate_refresh_token()
+    new_session = AuthSession.objects.create(
+        user=session.user,
+        device_id=session.device_id,
+        device_name=session.device_name,
+        refresh_token_hash=hash_refresh_token(new_raw),
+        family_id=session.family_id,
+        previous_session=session,
         ip_address=ip_address,
         user_agent=user_agent,
-        device_id=session.device_id,
+        idle_expires_at=now + settings.AUTH_SESSION_IDLE_LIFETIME,
+        expires_at=session.expires_at,
     )
-    return {
-        "access": build_access_token(session.user, new_session, must_change),
-        "refresh": new_raw,
-        "session": new_session,
-        "user": session.user,
-        "must_change_password": must_change,
-    }
+    return session, new_session, new_raw
 
 
 def logout(session: AuthSession, *, ip_address: str | None = None, user_agent: str = "") -> None:
@@ -562,6 +610,20 @@ def change_own_password(
 # ---------------------------------------------------------------------------
 # MFA (TOTP via django-otp)
 # ---------------------------------------------------------------------------
+
+
+def verify_totp_code(user: User, code: str) -> bool:
+    """True when ``code`` is current for any of the user's confirmed devices.
+
+    Checks every confirmed device rather than only the first, because
+    ``get_confirmed_totp_devices`` no longer restricts itself to this app's own
+    device name — and a user holding two confirmed devices must be able to
+    authenticate with either, not only whichever the database returned first.
+
+    Each ``verify_token`` carries django-otp's own throttling and replay
+    protection, so iterating does not widen the guessing window per device.
+    """
+    return any(device.verify_token(code) for device in get_confirmed_totp_devices(user))
 
 
 def is_mfa_mandatory(user: User) -> bool:
@@ -653,7 +715,7 @@ def disable_mfa(
         raise MfaNotEnrolledError
     if not user.check_password(current_password):
         raise PasswordIncorrectError
-    if not device.verify_token(code):
+    if not verify_totp_code(user, code):
         record_auth_event(
             event_type=AuthEventType.MFA_VERIFICATION_FAILURE,
             actor=user,
@@ -679,7 +741,14 @@ def disable_mfa(
     )
 
 
-def reset_mfa(user: User, *, actor: User | None = None, reason: str = "") -> int:
+def reset_mfa(
+    user: User,
+    *,
+    actor: User | None = None,
+    reason: str = "",
+    ip_address: str | None = None,
+    user_agent: str = "",
+) -> int:
     """Remove all of a user's TOTP devices and revoke their sessions (recovery path).
 
     Used by the deployment-level superadmin MFA recovery command and (later) admin
@@ -695,6 +764,8 @@ def reset_mfa(user: User, *, actor: User | None = None, reason: str = "") -> int
         subject_username=user.username,
         success=True,
         reason=reason[:100],
+        ip_address=ip_address,
+        user_agent=user_agent,
     )
     return removed
 
@@ -905,7 +976,13 @@ def admin_reset_mfa(
     user_agent: str = "",
 ) -> int:
     """Administratively remove a managed account's MFA (reuses ``reset_mfa``)."""
-    return reset_mfa(target, actor=actor, reason="admin_reset")
+    return reset_mfa(
+        target,
+        actor=actor,
+        reason="admin_reset",
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
 
 
 def revoke_target_sessions(

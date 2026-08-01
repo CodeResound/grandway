@@ -439,8 +439,18 @@ def get_activity(*, actor: Any, filters: dict[str, Any]) -> Any:
     the shared paginator; every other section returns an assembled dict, and
     this one is the single exception because it is genuinely a list.
 
-    **Not narrowed by actor.** The audit log is not owner-scoped anywhere in the
-    project, and inventing scoping here would make this endpoint disagree with
-    `GET /api/v1/audit/events/`, which any of these users may already call.
+    **Not narrowed by actor, and that is safe only because the view now gates
+    it.** The audit log is not owner-scoped anywhere in the project, so there is
+    no per-actor narrowing to apply here — the access question is binary, and
+    `DashboardActivityView.resolve` answers it with `require_activity_reader`
+    (the same `is_staff` rule `audit/views.py` applies to `GET
+    /api/v1/audit/events/`).
+
+    This docstring previously justified going unnarrowed on the grounds that the
+    audit endpoint is one "which any of these users may already call". That was
+    assumed rather than checked, and it was false: a Lead Manager is refused
+    there with a 403 and was served the same rows here with a 200. If this
+    function ever grows a caller that is not access-checked, that leak returns —
+    the safety lives in the view, not here.
     """
     return get_events({"fiscal_year": filters.get("fiscal_year")})

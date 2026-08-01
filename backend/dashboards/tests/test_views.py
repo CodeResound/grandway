@@ -66,12 +66,32 @@ class TestDashboardAccess(DashboardApiTestCase):
             with self.subTest(section=name):
                 self.assertEqual(self.client.get(url_for(name)).status_code, status.HTTP_200_OK)
 
-    def test_lead_manager_may_read_every_section(self) -> None:
-        """Same endpoints for both authorities — the scoping happens in the data."""
+    def test_lead_manager_may_read_every_section_except_activity(self) -> None:
+        """Same endpoints for both authorities, with one documented exception.
+
+        For every summarising section the scoping happens in the data — a Lead
+        Manager calls the same URL as an Admin and legitimately sees different
+        numbers. `dashboard-activity` is the exception because it summarises
+        nothing: it returns rows from the central audit log, which is
+        `is_staff`-only at `GET /api/v1/audit/events/` and is now equally
+        `is_staff`-only here. Before that check existed this loop asserted a 200
+        for activity too, which made it a test that the leak stayed open.
+        """
         self.auth(self.manager)
         for name in SECTION_NAMES:
+            if name == "dashboard-activity":
+                continue
             with self.subTest(section=name):
                 self.assertEqual(self.client.get(url_for(name)).status_code, status.HTTP_200_OK)
+
+    def test_lead_manager_is_refused_the_activity_feed(self) -> None:
+        """The audit log's access rule holds whichever door it is read through."""
+        self.auth(self.manager)
+
+        resp = self.client.get(url_for("dashboard-activity"))
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.data["error"]["code"], ErrorCode.ACTOR_FORBIDDEN)
 
 
 class TestEnvelopeConsistency(DashboardApiTestCase):

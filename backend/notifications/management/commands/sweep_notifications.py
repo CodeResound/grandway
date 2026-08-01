@@ -87,7 +87,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--limit",
             type=int,
-            help="Stop each generator after this many source rows. For a cautious first pass on a large database.",
+            help=(
+                "Stop each generator after this many source rows. For a cautious first pass on a large "
+                "database. Implies --no-resolve: a truncated run has only a partial view of what is "
+                "still true, and resolving against it would close live alerts."
+            ),
         )
         parser.add_argument(
             "--dry-run",
@@ -100,7 +104,11 @@ class Command(BaseCommand):
             help="Raise only. Leaves alerts active whose source condition has already cleared.",
         )
 
+    #: ``(due_within_days, overdue, approaching)`` for this run — see ``_split_offers``.
+    _offer_split: tuple[int, list[Any], list[Any]] | None = None
+
     def handle(self, *args: Any, **options: Any) -> None:
+        self._offer_split = None
         only_type: str | None = options.get("only_type")
         due_within_days: int = options["due_within_days"]
         passport_horizon: int = options["passport_horizon_days"]
@@ -124,18 +132,37 @@ class Command(BaseCommand):
         # resolving against an incomplete one would close live alerts.
         examined: list[str] = []
 
-        for notification_type, generate in generators.items():
-            try:
-                created, keys = generate(limit=limit, dry_run=dry_run)
-            except Exception as exc:  # noqa: BLE001 — one broken generator must not stop the others.
-                services.record_generation_failure(notification_type, exc)
-                self.stderr.write(self.style.ERROR(f"  ! {notification_type}: {type(exc).__name__} — skipped"))
-                continue
+        # One Admin lookup for the whole run rather than one per source row.
+        # Every ownerless alert — offers and passports, today — falls back to
+        # the Admin fan-out, so without this the query count grows with the
+        # size of the backlog instead of with the number of generators.
+        with services.cached_admin_recipients():
+            for notification_type, generate in generators.items():
+                try:
+                    created, keys = generate(limit=limit, dry_run=dry_run)
+                except Exception as exc:  # noqa: BLE001 — one broken generator must not stop the others.
+                    services.record_generation_failure(notification_type, exc)
+                    self.stderr.write(self.style.ERROR(f"  ! {notification_type}: {type(exc).__name__} — skipped"))
+                    continue
 
-            raised[notification_type] = created
-            live_keys |= keys
-            examined.append(notification_type)
-            self.stdout.write(f"  {notification_type}: {created} raised ({len(keys)} conditions true)")
+                raised[notification_type] = created
+                live_keys |= keys
+                examined.append(notification_type)
+                self.stdout.write(f"  {notification_type}: {created} raised ({len(keys)} conditions true)")
+
+        # A limited run must never resolve. ``--limit`` truncates each generator's
+        # source rows and its key set with them, so ``live_keys`` is a *partial*
+        # picture of what is true — and the resolve pass treats every key it does
+        # not contain as a condition that has cleared. Left to run, `--limit 5`
+        # over 50 live alerts resolves 45 of them as SOURCE_CLEARED. The flag is
+        # documented as "a cautious first pass on a large database", which is
+        # precisely the situation with the most alerts to destroy, so this is
+        # enforced here rather than left to the operator to remember.
+        if limit is not None and not no_resolve:
+            no_resolve = True
+            self.stderr.write(
+                self.style.WARNING("--limit given: skipping the resolve pass (a truncated run cannot resolve safely).")
+            )
 
         resolved = 0
         if not no_resolve and examined and not dry_run:
@@ -226,10 +253,10 @@ class Command(BaseCommand):
         that alert alive.
 
         ``--limit`` truncates the source rows, and the key set with them — which
-        is why a limited run must not be trusted to resolve. The command as a
-        whole still calls ``resolve_cleared``, so a limited run is a raise-only
-        tool in practice; ``--no-resolve`` makes that explicit and the help text
-        for ``--limit`` names it as a first-pass tool for that reason.
+        is why a limited run must not be trusted to resolve. ``handle`` enforces
+        that by turning ``--no-resolve`` on whenever ``--limit`` is given, so a
+        limited run is a raise-only tool by construction rather than by
+        convention.
         """
         created = 0
         keys: set[str] = set()
@@ -257,22 +284,43 @@ class Command(BaseCommand):
     # ``nepal_today()`` boundary the selector itself uses (§39.5). Re-querying
     # with a narrower filter would have re-implemented that app's definition of
     # "overdue" in a second place.
+    #
+    # **The selector runs once per command, not once per alert type.** Both offer
+    # generators need the same rows, and asking for them twice fetched every
+    # awaiting-response offer and all of its joined relations a second time to
+    # produce the complement of a list already in memory.
+
+    def _split_offers(self, due_within_days: int) -> tuple[list[Any], list[Any]]:
+        """``(overdue, approaching)`` offers, from a single pass over the selector.
+
+        Memoized on the horizon it was computed for. One command run has one
+        ``--due-within-days``, so the memo can only ever be hit with the same
+        value; keying on it anyway means a future caller that varies the horizon
+        gets a correct answer rather than a stale one.
+        """
+        cached = self._offer_split
+        if cached is not None and cached[0] == due_within_days:
+            return cached[1], cached[2]
+
+        today = self._today()
+        overdue: list[Any] = []
+        approaching: list[Any] = []
+        for offer in get_offers_awaiting_response(due_within_days=due_within_days):
+            if not offer.response_deadline:
+                continue
+            if offer.response_deadline < today:
+                overdue.append(offer)
+            else:
+                approaching.append(offer)
+
+        self._offer_split = (due_within_days, overdue, approaching)
+        return overdue, approaching
 
     def _overdue_offers(self, due_within_days: int) -> list[Any]:
-        today = self._today()
-        return [
-            offer
-            for offer in get_offers_awaiting_response(due_within_days=due_within_days)
-            if offer.response_deadline and offer.response_deadline < today
-        ]
+        return self._split_offers(due_within_days)[0]
 
     def _approaching_offers(self, due_within_days: int) -> list[Any]:
-        today = self._today()
-        return [
-            offer
-            for offer in get_offers_awaiting_response(due_within_days=due_within_days)
-            if offer.response_deadline and offer.response_deadline >= today
-        ]
+        return self._split_offers(due_within_days)[1]
 
     @staticmethod
     def _today() -> Any:

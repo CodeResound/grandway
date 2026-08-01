@@ -71,12 +71,32 @@ class TestAccountCreate(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(resp.data["error"]["code"], ErrorCode.USERNAME_TAKEN)
 
-    def test_lead_manager_sees_empty_list(self) -> None:
+    def test_lead_manager_is_refused_the_account_list(self) -> None:
+        """An authority that manages nobody is denied, not handed an empty page.
+
+        This previously asserted `200 []`, which a Lead Manager holds no
+        authority to receive: `get_manageable_users` returns `none()` for them,
+        so the endpoint answered success for a request it should refuse. Nothing
+        leaked — the queryset really was empty — but it was the one route in this
+        app whose denial was indistinguishable from a permitted empty result,
+        and a client could not tell the two apart.
+        """
         lm = make("lm", AuthorityType.LEAD_MANAGER)
         self._as(lm)
         resp = self.client.get(self.url)
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["data"], [])
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_lead_manager_is_refused_before_field_validation(self) -> None:
+        """Denial must not describe the endpoint it is refusing.
+
+        Posting garbage as a Lead Manager used to return 400 with the serializer's
+        field errors — enumerating the shape of an endpoint the caller may not
+        use — because validation ran before the authority check.
+        """
+        lm = make("lm2", AuthorityType.LEAD_MANAGER)
+        self._as(lm)
+        resp = self.client.post(self.url, {}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class TestAccountManagement(APITestCase):

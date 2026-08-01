@@ -86,17 +86,26 @@ def inherit_country_checklist(journey_id: Any) -> None:
             "checklist inheritance failed",
             extra={"journey_id": str(journey_id), "country_id": str(journey.target_country_ref_id)},
         )
-        record_event(
-            app_label=AUDIT_APP_LABEL,
-            action=ChecklistAuditAction.CHECKLIST_INHERIT_FAILED,
-            entity_type=AUDIT_ENTITY_CHECKLIST,
-            success=False,
-            summary="Automatic checklist inheritance failed for this journey.",
-            metadata={
-                "journey_id": str(journey_id),
-                "country_id": str(journey.target_country_ref_id),
-            },
-        )
+        try:
+            record_event(
+                app_label=AUDIT_APP_LABEL,
+                action=ChecklistAuditAction.CHECKLIST_INHERIT_FAILED,
+                entity_type=AUDIT_ENTITY_CHECKLIST,
+                success=False,
+                summary="Automatic checklist inheritance failed for this journey.",
+                metadata={
+                    "journey_id": str(journey_id),
+                    "country_id": str(journey.target_country_ref_id),
+                },
+            )
+        except Exception:  # noqa: BLE001 — the audit write is itself best-effort here.
+            # Nested deliberately. This runs from an on_commit callback, where a
+            # raised exception propagates out of the commit and stops every
+            # callback queued behind it — so an audit write failing while
+            # reporting an inheritance failure would take unrelated post-commit
+            # work down with it. The log line above has already recorded the
+            # original failure; losing its audit row is the lesser loss.
+            logger.exception("failed to audit checklist inheritance failure", extra={"journey_id": str(journey_id)})
         return
 
     if checklist is not None:

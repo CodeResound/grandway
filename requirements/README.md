@@ -33,18 +33,48 @@ The mechanical gates in this project are enforced in two places:
 Both call the single shared runner **`scripts/ci.sh`** so local and CI enforcement can never drift:
 
 ```bash
-scripts/ci.sh            # all stages: lint, policy, test
+scripts/ci.sh            # all stages: lint, export, docs, policy, test
 scripts/ci.sh lint       # ruff check + ruff format --check on backend/
-scripts/ci.sh test       # pytest against PostgreSQL (--ds=core.settings.ci)
+scripts/ci.sh export     # export_policy_registry --check (registry + OpenAPI artifacts)
+scripts/ci.sh docs       # validate_integration_docs --strict
+scripts/ci.sh test       # pytest (core.settings.testing — in-memory SQLite)
 scripts/ci.sh policy     # migrate -> sync_policy_registry -> validate_policy_engine --strict
 ```
 
-Both the `test` and `policy` stages need a reachable PostgreSQL — supply `DB_*` + `SECRET_KEY` via
-the environment or your local `.env.development`. Tests run against Postgres (via the
-`core.settings.ci` settings module), not the SQLite `core.settings.testing`, because the migrations
-include Postgres-only SQL (`pg_trgm`) and several tests depend on the real migrated schema. Only the
-`lint` stage runs without a database. Run `scripts/ci.sh` from the repo root with your `.venv`
-activated before opening a PR.
+**Only the `policy` stage needs a database.** `lint`, `export`, `docs`, and `test` all run without
+one. Supply `DB_*` + `SECRET_KEY` via the environment or your local `.env.development` for `policy`.
+Run `scripts/ci.sh` from the repo root with your `.venv` activated before opening a PR.
+
+> **The test suite runs on SQLite, not PostgreSQL, and that is a real coverage gap.**
+> `pytest.ini` sets `DJANGO_SETTINGS_MODULE = core.settings.testing`, which is in-memory SQLite.
+> Production is PostgreSQL, and the two differ on things the suite therefore cannot see:
+> `select_for_update` compiles to nothing on SQLite (so row-locking bugs and their fixes are both
+> invisible), a failed statement does not abort the surrounding transaction, and `pg_trgm`,
+> collation, and `FOR UPDATE ... OF` behaviour have no SQLite equivalent. An authorization and
+> correctness audit on 2026-08-01 found two defects of exactly this shape that a green suite had
+> been reporting as healthy. Treat a passing run as necessary, not sufficient, for anything touching
+> locking or transaction state; the `policy` stage against real Postgres is the only stage that
+> exercises the production engine.
+>
+> *This section previously described the `test` stage as running "against PostgreSQL (via the
+> `core.settings.ci` settings module)". No such module exists, and no stage has ever run the suite
+> on Postgres — the claim would have retired exactly the suspicion this gap warrants.*
+
+## Deployment environment variables
+
+Beyond `SECRET_KEY`, `ALLOWED_HOSTS`, and the `DB_*` set, two variables must be set correctly per
+environment or a security control silently degrades. Both are read in `core/settings/base.py`, which
+carries the full reasoning.
+
+| Variable | Default | Why it matters |
+|---|---|---|
+| `NUM_PROXIES` | `0` | How many reverse proxies sit in front of the app. Feeds **both** DRF's rate limiting and django-axes' lockout, so the two can never count different client identities. `0` means `X-Forwarded-For` is ignored in favour of `REMOTE_ADDR` — correct when nothing proxies the app. Set it to the real hop count (1 for a single nginx, 2 behind nginx + a load balancer) when deploying behind one; leaving it at `0` there makes every user share the proxy's address, and because axes locks on `ip_address`, one attacker can lock out everyone. Too low is safe, too high trusts a client-supplied header. |
+| `CACHE_BACKEND` / `CACHE_LOCATION` | `LocMemCache` | DRF keeps its throttle counters in Django's cache, so this **is** the rate limiter's memory. `LocMemCache` is per-process: under gunicorn with N workers every configured limit becomes N× and all counters reset on each restart. A multi-worker deployment must point these at a shared backend (Redis/Valkey — a derived, rebuildable store per CLAUDE.md §37) or its rate limits are decorative. |
+
+Staging and production additionally **require** `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS`
+(comma-separated). They have no defaults on purpose: django-cors-headers denies every cross-origin
+request when unset, so a missing value fails loudly at startup rather than silently breaking every
+browser call.
 
 ## Adding a new dependency
 
@@ -91,7 +121,7 @@ python manage.py seed_document_templates --activate
 | `reset_superadmin_mfa` | `authenticate` | Deployment-level MFA recovery for a superadmin who has lost their authenticator: removes the superadmin's `django-otp` TOTP device(s) and revokes their sessions so they can log in with password alone and re-enroll. There are no recovery/backup codes by design, so this shell command is the only superadmin MFA recovery path. Refuses to run against a non-superadmin account. Not part of the fresh-init sequence above. Flags: `--username` (falls back to `SUPERADMIN_USERNAME` env var, then `superadmin`). |
 | `seed_document_templates` | `document_templates` | Populates the document template catalogue with the 53 template slugs transcribed from the frontend's own contract (`document_templates/seed_data.py`), so the New Document picker has something to offer on a fresh database. Part of fresh-environment initialization — needs `bootstrap_superadmin` first, since `created_by` is a non-null `PROTECT` foreign key. **Idempotent and non-destructive:** an existing row is left completely untouched, including a label an Admin has renamed and a template someone retired, so a re-run never reverts curation. Validates every transcribed slug against `documents`' key/family rule before writing anything. Flags: `--dry-run` (report what would be created; write nothing), `--activate` (create rows as `active` rather than `draft`, so the picker is usable immediately), `--username` (attribute created rows to this user instead of the first superadmin). |
 | `apply_country_checklists` | `checklists` | Applies each country's default checklist template to journeys that name that country but hold no checklist. Automatic inheritance (a `post_save` receiver on `ApplicantJourney`) covers every journey saved *after* its country's template was authored; this command covers the three populations it cannot reach — journeys that named their country before anyone wrote its requirements (the common case, since the catalogue fills in over time), journeys written by a bulk import that ran with `DISABLE_SIGNALS`, and journeys whose inheritance failed once and was logged rather than retried. **Idempotent and safe on a live system:** it uses the same existence check the signal does, so a second run is a no-op and no existing checklist is ever touched. Not part of fresh-init — there are no journeys yet on a fresh database. Flags: `--country` (restrict to one catalogue country id; errors if that country has no active default template), `--dry-run` (report what would be created; write nothing), `--limit` (stop after N journeys, for a cautious first pass on a large database). |
-| `sweep_notifications` | `notifications` | Raises deadline notifications — overdue and due-soon checklist items, offer response deadlines already passed or approaching, expiring passports, and checklists holding uncollected documents nobody set a date on — and resolves alerts whose source condition has since cleared. **Intended to run nightly from cron**, which is the whole reason it is a command rather than a Celery task: only "must run outside the request cycle" applies, and cron already provides that without a broker, a worker, and a result backend. Reads each owning app's own selectors and never re-implements another app's definition of "overdue". **Idempotent and safe on a live database** — every write goes through `get_or_create` on a `(recipient, dedupe_key)` unique constraint, so a second run in the same minute creates nothing and two concurrent runs race into the database rather than into each other. A generator that fails is logged and audited, the remaining generators still run, and **the failed generator's types are withheld from the resolve pass** so a transient error can never read as "nothing is overdue any more". Not part of fresh-init — there are no deadlines yet on a fresh database. Flags: `--type` (run one generator; the resolve pass is narrowed to match), `--due-within-days` (horizon for due-soon items and offer deadlines, default 7), `--passport-horizon-days` (default 180 — renewing a Nepali passport is not a same-week errand), `--limit` (stop each generator after N source rows, for a cautious first pass; pair with `--no-resolve`, since a truncated run has an incomplete picture of what is still true), `--dry-run` (report and write nothing), `--no-resolve` (raise only). |
+| `sweep_notifications` | `notifications` | Raises deadline notifications — overdue and due-soon checklist items, offer response deadlines already passed or approaching, expiring passports, and checklists holding uncollected documents nobody set a date on — and resolves alerts whose source condition has since cleared. **Intended to run nightly from cron**, which is the whole reason it is a command rather than a Celery task: only "must run outside the request cycle" applies, and cron already provides that without a broker, a worker, and a result backend. Reads each owning app's own selectors and never re-implements another app's definition of "overdue". **Idempotent and safe on a live database** — every write goes through `get_or_create` on a `(recipient, dedupe_key)` unique constraint, so a second run in the same minute creates nothing and two concurrent runs race into the database rather than into each other. A generator that fails is logged and audited, the remaining generators still run, and **the failed generator's types are withheld from the resolve pass** so a transient error can never read as "nothing is overdue any more". Not part of fresh-init — there are no deadlines yet on a fresh database. Flags: `--type` (run one generator; the resolve pass is narrowed to match), `--due-within-days` (horizon for due-soon items and offer deadlines, default 7), `--passport-horizon-days` (default 180 — renewing a Nepali passport is not a same-week errand), `--limit` (stop each generator after N source rows, for a cautious first pass; **implies `--no-resolve`** — a truncated run has an incomplete picture of what is still true, and resolving against it would close live alerts, so the command enforces this rather than relying on the operator to pair the flags), `--dry-run` (report and write nothing), `--no-resolve` (raise only). |
 | `reset_dev_data` | `core` | Dev-only teardown tool: deletes all data except the Core Policy Engine registry (`core.policy_engine`, needed for the platform to run and regenerable from `registry.py` via `sync_policy_registry` anyway), so a developer can clear out hoax/test data without losing the permission registry. Also never touches any model that enforces its own append-only protection (e.g. `authenticate.AuthEvent`, `organization.OrganizationEventLog`) — detected generically, not by a hardcoded list. Refuses to run unless `ENVIRONMENT=development`. Clears `authenticate.User` including the superadmin account — re-run `bootstrap_superadmin` afterward. Not part of the fresh-init sequence above. Flags: `--dry-run` (preview row counts only), `--force` (required to actually delete unless `--dry-run` is passed). |
 
 When you add a new management command, add a row here in the same commit (see CLAUDE.md §12).

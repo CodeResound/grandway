@@ -14,6 +14,7 @@ from core.responses import error_response, success_response
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -41,6 +42,7 @@ from authenticate.selectors import (
     get_active_sessions_for_user,
     get_events_for_user,
     get_manageable_users,
+    managed_tier_for,
 )
 from authenticate.serializers import (
     AccountCreateSerializer,
@@ -417,6 +419,13 @@ class AccountListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request) -> Response:
+        if managed_tier_for(request.user) is None:
+            # An authority that manages nobody is refused, not handed an empty
+            # page. `get_manageable_users` returns none() for a Lead Manager, so
+            # this used to answer 200 with `[]` — indistinguishable to a client
+            # from "you may list accounts, there just are none", and the only
+            # endpoint in the app whose denial looked like a success.
+            raise PermissionDenied("This authority may not manage accounts.")
         queryset = get_manageable_users(request.user)
         paginator = StandardPagination()
         page = paginator.paginate_queryset(queryset, request)
@@ -426,6 +435,14 @@ class AccountListCreateView(APIView):
         return success_response(data=serializer.data, message="Accounts retrieved.")
 
     def post(self, request: Request) -> Response:
+        # Authority first, fields second. `create_managed_account` raises
+        # InvalidAuthorityError for an actor who manages nobody, so denial was
+        # never in doubt — but running validation ahead of it answered an
+        # unauthorized caller with a 400 enumerating the fields and rules of an
+        # endpoint they may not use. Deny before describing.
+        if managed_tier_for(request.user) is None:
+            raise PermissionDenied("This authority may not create accounts.")
+
         serializer = AccountCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data

@@ -5,7 +5,7 @@
 **Base prefix:** `/api/v1/dashboard/` (singular path, plural app — one dashboard, eight sections)
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Authority rules are enforced inline per §9 via `access.py` — Admin and Lead Manager only, Superadmin denied everywhere.
 **Throttle:** Project DRF defaults only. No custom scopes — see the AI debugging notes below for why this is a live question rather than a settled one.
-**Access level:** Read-only for Admin and Lead Manager. Nothing here is public, and no endpoint accepts a write of any kind.
+**Access level:** Read-only for Admin and Lead Manager, with one exception: `activity` (§1.8) is Admin-only, because it returns the central audit log verbatim rather than a figure derived from an already-scoped selector. Nothing here is public, and no endpoint accepts a write of any kind.
 
 ---
 
@@ -182,7 +182,9 @@ All eight endpoints share one request contract, documented once here and referen
 **Response:** paginated array of `DATA_CONTRACT.md` §8.
 **Business rules:**
 - The only paginated section, and the only one whose `meta` carries page data.
-- **Not narrowed by the caller's authority.** The audit log is not owner-scoped anywhere in the project, so a Lead Manager sees events about records they cannot otherwise read. Inventing scoping here would make this endpoint disagree with `GET /api/v1/audit/events/`, which the same users may already call. That is a deliberate consistency choice, and it is the one place in this app where a caller sees something the corresponding list endpoint would not show them.
+- **Admin only — the one section a Lead Manager may not read.** This endpoint returns rows from the central audit log rather than figures derived from an app that already scoped them, so it carries `audit`'s own access rule (`is_staff`, per `audit/docs/API.md` §1) in addition to this app's. A Lead Manager receives `DASHBOARDS_ACTOR_FORBIDDEN` (403), matching what `GET /api/v1/audit/events/` already returns them.
+- **Not narrowed by the caller's authority, for those who may read it.** The audit log is not owner-scoped anywhere in the project, so an Admin sees every event including those actioned by others. Access here is binary, not a scope.
+- *Superseded guidance:* until 2026-08-01 this section documented itself as readable by a Lead Manager, on the stated grounds that `GET /api/v1/audit/events/` is an endpoint "the same users may already call". That was never true of a Lead Manager, and the endpoint leaked the log to them. A client that relied on the old behaviour must treat activity as Admin-only.
 - `action` values are contributed by every app and are not a fixed set. Render `summary` as the label rather than branching on `action`.
 
 **Query access pattern:** a single ordered scan of `audit_auditevent`, served by the `created_at` index, sliced by the shared paginator. No joins — the actor is denormalized onto the event as `actor_label`.
@@ -194,6 +196,6 @@ All eight endpoints share one request contract, documented once here and referen
 
 | Code | HTTP | Meaning |
 |------|------|---------|
-| `DASHBOARDS_ACTOR_FORBIDDEN` | 403 | A Superadmin called any of the eight endpoints |
+| `DASHBOARDS_ACTOR_FORBIDDEN` | 403 | A Superadmin called any of the eight endpoints, **or** a Lead Manager called `activity` (§1.8 — Admin-only, because it returns the central audit log rather than a derived figure) |
 | `DASHBOARDS_FILTER_INVALID` | 400 | Reserved for a filter rejection this app raises itself. **Not currently emitted** — every filter failure today is caught by the serializer and surfaces as the global `VALIDATION_ERROR`. Declared so the code is stable if a future filter needs a domain-specific refusal |
 | `VALIDATION_ERROR` | 400 | A malformed or contradictory filter value; `details` is keyed by the filter field name |
