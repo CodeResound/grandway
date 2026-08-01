@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "checklists",
     "dashboards",
     "notifications",
+    "search",
 ]
 
 # Switch off every app's signal side effects for this process (§11). Set it for
@@ -285,6 +286,12 @@ REST_FRAMEWORK = {
         "auth_login_ip": "20/minute",
         "auth_login_user": "10/minute",
         "auth_refresh": "60/minute",
+        # Global search: its own per-user bucket rather than the shared "user"
+        # rate. One search is up to nine queries across seven apps and is driven
+        # keystroke by keystroke, so without a scope of its own an undebounced
+        # search box would spend the whole 1000/hour API budget and throttle the
+        # user out of every other endpoint. See search/throttling.py.
+        "search_query": "60/minute",
     },
 }
 

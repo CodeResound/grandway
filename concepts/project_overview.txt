@@ -159,6 +159,12 @@ Core domains (apps)
   actions across Grandway, including actor, scope, action, time, reason,
   authority, source, previous value, and new value.
 
+- search — Owns the one global search box: a single query answered across every
+  searchable record type, grouped by type, handing off to each owning app's own
+  list screen for the full set. Like dashboards, it owns no tables and holds no
+  business rules of its own — it composes the search selectors of the apps that
+  own the rows, and never widens what any of them would show the caller.
+
 
 Cross-cutting principles
 ------------------------
@@ -491,7 +497,13 @@ Out of scope for V1
 - Consultancy invoicing, payment, accounting, or refund management
 - Pre-departure management
 - Email, SMS, chat, or messaging integration as a complete communication module
-- Global search as an independent domain
+- Global search backed by its own search infrastructure — a search index, a
+  separate search engine, semantic or vector search, or cross-type relevance
+  ranking. (The `search` app under "Core domains" is not this: it owns no store
+  and no ranking of its own, and only composes the trigram matching each owning
+  app already implements. Scope revised 2026-08-02; the original line read
+  "Global search as an independent domain" and was written against a search
+  *store*, not a composition layer.)
 - Import and export management as an independent domain
 - Native mobile applications
 - Government or institution decision-making

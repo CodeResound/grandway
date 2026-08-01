@@ -8181,6 +8181,90 @@
           }
         }
       }
+    },
+    "/api/v1/search/": {
+      "get": {
+        "operationId": "search.query.read",
+        "summary": "Run Global Search",
+        "description": "One query answered across every searchable record type — applicants, leads, clients, documents, files, institutions, programs, templates, and signatories — grouped by type. Results are narrowed by the owning apps' own scoping: a Lead Manager sees only their own leads and no Admin-only files.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "search"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "search.query.read",
+        "x-risk-level": "medium",
+        "x-operation-type": "read",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/search/types/": {
+      "get": {
+        "operationId": "search.type.list",
+        "summary": "List Searchable Types",
+        "description": "The catalogue of record types global search covers, with the fields each is matched on and the permission keys needed to open a result or follow its list link. Static per deployment; a client fetches it once to build its filter chips.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "search"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "search.type.list",
+        "x-risk-level": "low",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {

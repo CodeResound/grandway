@@ -63,6 +63,10 @@
       "display_name": "Core Policy Engine"
     },
     {
+      "app_key": "search",
+      "display_name": "Search"
+    },
+    {
       "app_key": "uploaded_files",
       "display_name": "Uploaded Files"
     }
@@ -105,6 +109,10 @@
       "display_name": "File Management"
     },
     {
+      "category_key": "global_search",
+      "display_name": "Global Search"
+    },
+    {
       "category_key": "journey_management",
       "display_name": "Journey Management"
     },
@@ -137,7 +145,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 170,
+  "endpoint_count": 172,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -4365,6 +4373,180 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The permission tree aggregates data across all registered applications."
+        }
+      ]
+    },
+    {
+      "permission_key": "search.query.read",
+      "app_key": "search",
+      "model_key": "query",
+      "endpoint_key": "search-query",
+      "display_name": "Run Global Search",
+      "description": "One query answered across every searchable record type — applicants, leads, clients, documents, files, institutions, programs, templates, and signatories — grouped by type. Results are narrowed by the owning apps' own scoping: a Lead Manager sees only their own leads and no Admin-only files.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/search/",
+      "operation_type": "read",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "global_search",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The applicant bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A applicant hit is unopenable without permission to read the record it points at."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "clients.client.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The client bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "clients.client.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A client hit is unopenable without permission to read the record it points at."
+        },
+        {
+          "target_permission_key": "document_templates.signatory.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The signatory bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "document_templates.signatory.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A signatory hit is unopenable without permission to read the record it points at."
+        },
+        {
+          "target_permission_key": "document_templates.template.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The document_template bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "document_templates.template.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A document_template hit is unopenable without permission to read the record it points at."
+        },
+        {
+          "target_permission_key": "documents.document.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The document bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "documents.document.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A document hit is unopenable without permission to read the record it points at."
+        },
+        {
+          "target_permission_key": "institutions.institution.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The institution bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "institutions.institution.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A institution hit is unopenable without permission to read the record it points at."
+        },
+        {
+          "target_permission_key": "institutions.program.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The program bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "institutions.program.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A program hit is unopenable without permission to read the record it points at."
+        },
+        {
+          "target_permission_key": "leads.lead.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A lead hit is unopenable without permission to read the record it points at."
+        },
+        {
+          "target_permission_key": "uploaded_files.file.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The uploaded_file bucket's 'see all' link hands off to that list endpoint."
+        },
+        {
+          "target_permission_key": "uploaded_files.file.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A uploaded_file hit is unopenable without permission to read the record it points at."
+        }
+      ]
+    },
+    {
+      "permission_key": "search.type.list",
+      "app_key": "search",
+      "model_key": "type",
+      "endpoint_key": "search-types",
+      "display_name": "List Searchable Types",
+      "description": "The catalogue of record types global search covers, with the fields each is matched on and the permission keys needed to open a result or follow its list link. Static per deployment; a client fetches it once to build its filter chips.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/search/types/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "global_search",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
         }
       ]
     },
