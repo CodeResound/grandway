@@ -43,6 +43,10 @@ from checklists.tests.factories import (  # noqa: F401 — re-exported for this 
     upload_for_applicant,
 )
 from django.utils import timezone
+from reminders.tests.factories import (  # noqa: F401 — re-exported for this suite's tests
+    make_client,
+    make_reminder,
+)
 
 from notifications import services
 from notifications.constants import NotificationType, SourceEntityType

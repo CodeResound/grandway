@@ -45,6 +45,7 @@ from checklists.selectors import (
 )
 from django.core.management.base import BaseCommand, CommandError
 from offers.selectors import get_offers_awaiting_response
+from reminders.selectors import get_due_reminders
 
 from notifications import services
 from notifications.constants import (
@@ -232,6 +233,15 @@ class Command(BaseCommand):
                 get_expiring_passports(within_days=passport_horizon),
                 services.build_passport_alert,
                 lambda _passport: services.recipients_for_admins(),
+                **kw,
+            ),
+            # No horizon parameter: a reminder is due the day its date arrives
+            # and stays due while it remains active. Admin-only routing is the
+            # concept's rule — staff set reminders, Admins receive the alert.
+            NotificationType.CUSTOM_REMINDER: lambda **kw: self._run(
+                get_due_reminders(),
+                services.build_reminder_alert,
+                lambda _reminder: services.recipients_for_admins(),
                 **kw,
             ),
         }

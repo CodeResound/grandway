@@ -1,7 +1,7 @@
 # Integration — Notifications
 
 **Owner app:** `notifications`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude Opus 4.8) | Initial integration contract for the seven endpoints |
+| 1.1.0 | 2026-08-17 | AI (Claude) | New `custom_reminder` type in the vocabulary (§5) and a `reminders` row in §2 — the nightly sweep now raises staff-set follow-up reminders to every active Admin. Additive; no endpoint changed |
 | 1.0.1 | 2026-07-24 | AI (Claude Opus 4.8) | Corrections from the §19.5 consumer-contract review, which read only this file and the project-level one. Two code defects it exposed are fixed: the feed filter `type` is now `notification_type` (the one parameter of twelve that did not match its field), and a malformed `?fiscal_year=` returned **500** rather than 400. Added to the contract: **the lifecycle table** — the review found the sweep's `active` → `resolved`/`source_cleared` transition, the module's central event, was documented only by the existence of an enum value; **the source-triple table**, since `source_app` and `source_entity_type` were exposed as both filter and payload with no value set anywhere; worked `400` and `404` bodies; the deduplication guarantee (one alert per condition, not one per night); date-parameter formats and timezone; `405`/trailing-slash/page-past-end behaviour; what each produced type actually means; and the dismissed-but-unread state. Corrected: "suppresses permanently" contradicting the escalation note two lines below it, and the badge recommendation, which paired `unread` with a `?status=active` inbox without saying they count different populations. §9 gained the missing ordering parameter — ranked first, since an inbox that cannot sort by priority buries its own urgent rows — plus search, retention, polling cost, and the absence of any lead-follow-up alert |
 
 ---
@@ -31,6 +32,7 @@
 | `checklists` | service call + **signal** | The overdue, due-soon, and missing-document alerts read that module's own selectors; assignment alerts listen on its saves | Those four alert types stop being produced. The feed still works and still serves everything else |
 | `offers` | service call + **signal** | Response-deadline and expiry alerts read `get_offers_awaiting_response`; decision alerts listen on offer saves | `offer_response_due`, `offer_expired`, and `offer_decided` stop being produced |
 | `applicants` | service call | Passport-expiry alerts read `get_expiring_passports` | `passport_expiring` stops being produced |
+| `reminders` | service call | `custom_reminder` alerts read `get_due_reminders` — staff-set follow-ups due today or earlier, raised to every active Admin | `custom_reminder` stops being produced; a failing generator withholds its type from the resolve pass, so existing reminder alerts freeze rather than mass-resolve |
 | `uploaded_files` | **signal** | Rejection alerts listen on file saves | `file_rejected` stops being produced |
 | `applicant_journeys` | **signal** | Stage-change and closure alerts listen on journey saves | `journey_stage_changed` and `journey_closed` stop being produced |
 | `audit` | service call | Records dismissals and generator failures | Dismissal still works, but nothing records who closed what, and a broken generator becomes indistinguishable from a quiet night |
@@ -238,7 +240,7 @@ There is no third count combining them, and **this module does not provide "unre
 
 ## 5. Enums
 
-- `Notification.notification_type`: `checklist_item_due` | `checklist_item_overdue` | `missing_documents` | `missing_information` | `offer_response_due` | `offer_expired` | `passport_expiring` | `test_score_expiring` | `appointment_reminder` | `assignment_received` | `file_rejected` | `journey_stage_changed` | `journey_closed` | `offer_decided`
+- `Notification.notification_type`: `checklist_item_due` | `checklist_item_overdue` | `missing_documents` | `missing_information` | `offer_response_due` | `offer_expired` | `passport_expiring` | `custom_reminder` | `test_score_expiring` | `appointment_reminder` | `assignment_received` | `file_rejected` | `journey_stage_changed` | `journey_closed` | `offer_decided`
 - `Notification.priority`: `low` | `normal` | `high` | `urgent`
 - `Notification.status`: `active` | `dismissed` | `resolved`
 - `Notification.resolution`: `source_cleared` | `dismissed_by_user` | `""` (empty while active)
@@ -502,7 +504,7 @@ There is no third count combining them, and **this module does not provide "unre
 - **`leads` produces no notifications at all.** Lead follow-up is a named part of a Lead Manager's job and half the user base are Lead Managers, yet no alert type covers it — the only alert a Lead Manager receives by targeted routing is `assignment_received` on checklist work. This is a real hole in the product, not a documentation gap.
 - **No push channel.** There is no websocket, server-sent-event stream, or long-poll endpoint. A client must poll `GET /summary/`. No polling interval is recommended by this module, and no `ETag`, `Last-Modified`, or conditional-request support exists on any endpoint, so every poll is a full response. The project-wide authenticated rate limit is the only budget to plan against; there is no per-endpoint exemption for `/summary/` despite it being the endpoint designed to be polled.
 - **Alerts resolve on a schedule, not on the event.** Finishing work in another module does not close the alert immediately — the nightly `sweep_notifications` job does. The exact run time is a deployment decision and is not exposed through the API, so a client cannot tell a user when an alert will clear.
-- **No snooze, no un-dismiss, and no per-user mute.** Dismissal is one-way and there is no preference resource in this version. If the product needs "remind me tomorrow", it does not exist here yet.
+- **No snooze, no un-dismiss, and no per-user mute.** Dismissal is one-way and there is no preference resource in this version. "Remind me tomorrow" exists only as a *new record elsewhere*: staff can set a date-based follow-up in the `reminders` module (`/api/v1/reminders/`), which raises a `custom_reminder` alert here when the date arrives — but no notification in this feed can itself be snoozed.
 - **No delivery beyond in-app.** `delivery_channel` and `delivery_state` are in the payload but only ever hold `in_app` and `delivered`. No email or SMS is sent by this version.
 - **Three enum values are unproduceable** (`missing_information`, `appointment_reminder`, `test_score_expiring`) — see §5.
 - **`source_api_path` is not a guaranteed-resolvable URL for `source_entity_id`.** It is the nearest retrievable endpoint, which for `passport_detail` is the applicant. A client cannot infer the entity's own URL from the pair.

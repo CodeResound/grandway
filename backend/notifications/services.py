@@ -472,6 +472,43 @@ def build_passport_alert(passport: Any) -> AlertSpec:
     )
 
 
+def build_reminder_alert(reminder: Any) -> AlertSpec:
+    """Alert for a staff-set follow-up reminder whose day has arrived.
+
+    The **due date is the discriminator**: rescheduling an open reminder mints a
+    new key — the orphaned old key auto-resolves on the next sweep, and a fresh
+    alert is raised when the new date arrives. Completing or dismissing the
+    reminder removes it from the due selector entirely, which resolves the alert
+    the same way; a reminder is the first sweep source whose rows exist *only*
+    to be swept.
+
+    The body is the staff member's own note — the reminder's whole purpose is
+    to say "why" in their words — prefixed with the owning record's name so the
+    feed row is actionable without a click.
+    """
+    if reminder.applicant is not None:
+        owner_name = reminder.applicant.full_name
+    else:
+        owner_name = reminder.client.name
+
+    return AlertSpec(
+        notification_type=NotificationType.CUSTOM_REMINDER,
+        dedupe_key=_key(
+            NotificationType.CUSTOM_REMINDER,
+            SourceEntityType.REMINDER,
+            reminder.id,
+            str(reminder.due_date),
+        ),
+        title=f"Reminder: {owner_name}",
+        body=reminder.note,
+        source_app="reminders",
+        source_entity_type=SourceEntityType.REMINDER,
+        source_entity_id=reminder.id,
+        source_api_path=f"/api/v1/reminders/{reminder.id}/",
+        due_at=_nepal_midnight(reminder.due_date),
+    )
+
+
 def build_assignment_alert(record: Any, *, entity_type: str) -> AlertSpec:
     """Alert telling somebody work has landed on their desk.
 

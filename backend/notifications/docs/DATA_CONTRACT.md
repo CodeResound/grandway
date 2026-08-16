@@ -1,7 +1,7 @@
 # Data Contract — Notifications
 
 **Owner app:** `notifications`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the user-facing alert stream — one row per recipient per thing that needs attention. It owns **no business state whatsoever**: `checklists` owns what is outstanding, `offers` owns response deadlines, `applicants` owns passport expiry, `uploaded_files` owns file rejections, and `applicant_journeys` owns lifecycle stage. This app records that someone was told, when, and whether they have dealt with it. Every notification points at a source record and never replaces it.
@@ -13,6 +13,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude Opus 4.8) | Initial contract — one model, dedupe-key idempotency, sweep + signal generation, in-app delivery only |
+| 1.1.0 | 2026-08-17 | AI (Claude) | Added the `custom_reminder` sweep type (staff-set follow-up reminders from the new `reminders` app): type choice, `normal` priority, dedupe discriminator (due date), sweep generator + `reminders` cross-app row. Additive — no existing shape changed |
 
 ---
 
@@ -51,6 +52,7 @@ under an **unconditional** `UniqueConstraint(recipient, dedupe_key)`. Every gene
 | `checklist_item_due` / `checklist_item_overdue` | `<type>:checklist_item:<id>:<due date>` — a re-scheduled item raises a fresh alert |
 | `offer_response_due` / `offer_expired` | `<type>:offer:<id>:<response deadline>` |
 | `passport_expiring` | `passport_expiring:passport_detail:<id>:<expiry date>` — a renewed passport raises a fresh alert |
+| `custom_reminder` | `custom_reminder:reminder:<id>:<due date>` — a rescheduled reminder raises a fresh alert on its new date |
 | `missing_documents` | `missing_documents:checklist:<id>` — no discriminator; see Known Limitations |
 | `assignment_received` | `assignment_received:<checklist\|checklist_item>:<id>:<assignee id>` — reassignment alerts the new assignee |
 | `file_rejected` | `file_rejected:uploaded_file:<id>` |
@@ -70,7 +72,7 @@ under an **unconditional** `UniqueConstraint(recipient, dedupe_key)`. Every gene
 **Purpose:** One alert, for one recipient, about one source record. Created only by this app's sweep command or its signal receivers — there is no create endpoint, and no other app calls in.
 **Table:** `notifications_notification`
 
-**`notification_type` choices:** `checklist_item_due`, `checklist_item_overdue`, `missing_documents`, `missing_information`, `offer_response_due`, `offer_expired`, `passport_expiring`, `test_score_expiring`, `appointment_reminder`, `assignment_received`, `file_rejected`, `journey_stage_changed`, `journey_closed`, `offer_decided`
+**`notification_type` choices:** `checklist_item_due`, `checklist_item_overdue`, `missing_documents`, `missing_information`, `offer_response_due`, `offer_expired`, `passport_expiring`, `custom_reminder`, `test_score_expiring`, `appointment_reminder`, `assignment_received`, `file_rejected`, `journey_stage_changed`, `journey_closed`, `offer_decided`
 **`priority` choices:** `low`, `normal`, `high`, `urgent`
 **`status` choices:** `active`, `dismissed`, `resolved`
 **`resolution` choices:** `source_cleared`, `dismissed_by_user` (blank while `active`)
@@ -225,7 +227,7 @@ Lead Managers receive alerts only through assignment. This follows the ownership
 
 Cron-run, not queued: no Celery, no broker, no new infrastructure (§37). Two passes in one command, in one transaction per pass:
 
-1. **Raise.** Iterate the owning apps' existing deadline selectors — `checklists.get_overdue_checklist_items`, `checklists.get_due_soon_checklist_items`, `checklists.get_checklists_with_pending_documents`, `offers.get_offers_awaiting_response`, `applicants.get_expiring_passports` — build a dedupe key per row and `get_or_create`. **No query in this app re-implements another app's definition of "overdue."**
+1. **Raise.** Iterate the owning apps' existing deadline selectors — `checklists.get_overdue_checklist_items`, `checklists.get_due_soon_checklist_items`, `checklists.get_checklists_with_pending_documents`, `offers.get_offers_awaiting_response`, `applicants.get_expiring_passports`, `reminders.get_due_reminders` — build a dedupe key per row and `get_or_create`. **No query in this app re-implements another app's definition of "overdue."**
 2. **Resolve.** The raise pass yields the set of keys that are true right now. Every `active`, `generated_by = sweep` notification whose key is not in that set is moved to `resolved` / `source_cleared`. One `UPDATE`, no per-row re-query.
 
 Idempotency: guaranteed by the unique constraint, not by convention. A second run in the same minute creates nothing and resolves nothing new.
@@ -251,6 +253,7 @@ For bulk imports, set `DISABLE_SIGNALS = True` and rebuild afterwards with `pyth
 | `checklists` | selectors + signal | Due/overdue items, pending-document checklists, assignment events |
 | `offers` | selector + signal | Response deadlines, decisions |
 | `applicants` | selector | Passport expiry |
+| `reminders` | selector | Staff-set follow-ups whose date has arrived — the first sweep source whose rows exist only to be swept |
 | `uploaded_files` | signal | Rejections |
 | `applicant_journeys` | signal | Stage changes and closures |
 | `audit` | service | Failure events from signal receivers |

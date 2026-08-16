@@ -67,6 +67,7 @@ class NotificationType(models.TextChoices):
     OFFER_RESPONSE_DUE = "offer_response_due", "Offer Response Due"
     OFFER_EXPIRED = "offer_expired", "Offer Response Overdue"
     PASSPORT_EXPIRING = "passport_expiring", "Passport Expiring"
+    CUSTOM_REMINDER = "custom_reminder", "Custom Reminder"
 
     # --- Event-driven (raised by a signal receiver) ---------------------------
     ASSIGNMENT_RECEIVED = "assignment_received", "Assignment Received"
@@ -200,6 +201,7 @@ class SourceEntityType:
     PASSPORT_DETAIL = "passport_detail"
     UPLOADED_FILE = "uploaded_file"
     APPLICANT_JOURNEY = "applicant_journey"
+    REMINDER = "reminder"
 
 
 #: Priority for each type, applied once at creation by ``services.create_notification``.
@@ -218,6 +220,9 @@ class SourceEntityType:
 #:   the one blocker that cannot be resolved inside the office at any speed.
 #: * ``JOURNEY_STAGE_CHANGED`` is ``low``: it is the routine heartbeat of the
 #:   system, useful as context and never as an instruction.
+#: * ``CUSTOM_REMINDER`` is ``normal``: a staff-set follow-up is routine work,
+#:   not an escalation — the note carries the urgency, the date carries the
+#:   trigger. Anything genuinely urgent has a dedicated type already.
 TYPE_PRIORITY: dict[str, str] = {
     NotificationType.CHECKLIST_ITEM_DUE: Priority.NORMAL,
     NotificationType.CHECKLIST_ITEM_OVERDUE: Priority.HIGH,
@@ -226,6 +231,7 @@ TYPE_PRIORITY: dict[str, str] = {
     NotificationType.OFFER_RESPONSE_DUE: Priority.HIGH,
     NotificationType.OFFER_EXPIRED: Priority.URGENT,
     NotificationType.PASSPORT_EXPIRING: Priority.HIGH,
+    NotificationType.CUSTOM_REMINDER: Priority.NORMAL,
     NotificationType.TEST_SCORE_EXPIRING: Priority.HIGH,
     NotificationType.APPOINTMENT_REMINDER: Priority.NORMAL,
     NotificationType.ASSIGNMENT_RECEIVED: Priority.NORMAL,
@@ -247,6 +253,7 @@ SWEEP_TYPES: tuple[str, ...] = (
     NotificationType.OFFER_RESPONSE_DUE,
     NotificationType.OFFER_EXPIRED,
     NotificationType.PASSPORT_EXPIRING,
+    NotificationType.CUSTOM_REMINDER,
 )
 
 #: Types a signal receiver raises. Never auto-resolved — see ``GenerationSource``.
