@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "checklists",
     "dashboards",
     "notifications",
+    "reminders",
     "search",
 ]
 

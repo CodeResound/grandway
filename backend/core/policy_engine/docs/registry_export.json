@@ -63,6 +63,10 @@
       "display_name": "Core Policy Engine"
     },
     {
+      "app_key": "reminders",
+      "display_name": "Reminders"
+    },
+    {
       "app_key": "search",
       "display_name": "Search"
     },
@@ -141,11 +145,15 @@
       "display_name": "Policy Engine Administration"
     },
     {
+      "category_key": "reminder_management",
+      "display_name": "Reminder Management"
+    },
+    {
       "category_key": "session_management",
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 172,
+  "endpoint_count": 179,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -4373,6 +4381,174 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The permission tree aggregates data across all registered applications."
+        }
+      ]
+    },
+    {
+      "permission_key": "reminders.reminder.complete",
+      "app_key": "reminders",
+      "model_key": "reminder",
+      "endpoint_key": "reminder-complete",
+      "display_name": "Complete Reminder",
+      "description": "Mark an open reminder's follow-up as done. Terminal — a reminder is never reopened.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/reminders/<reminder_id>/complete/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "reminder_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "reminders.reminder.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The reminder must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "reminders.reminder.create",
+      "app_key": "reminders",
+      "model_key": "reminder",
+      "endpoint_key": "reminder-create",
+      "display_name": "Set Reminder",
+      "description": "Set a one-off future follow-up note against exactly one applicant or client.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/reminders/",
+      "operation_type": "create",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "reminder_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "reminders.reminder.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Setting reminders requires the ability to list them."
+        }
+      ]
+    },
+    {
+      "permission_key": "reminders.reminder.dismiss",
+      "app_key": "reminders",
+      "model_key": "reminder",
+      "endpoint_key": "reminder-dismiss",
+      "display_name": "Dismiss Reminder",
+      "description": "Drop an open reminder that is no longer relevant. Terminal — a reminder is never reopened.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/reminders/<reminder_id>/dismiss/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "reminder_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "reminders.reminder.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The reminder must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "reminders.reminder.list",
+      "app_key": "reminders",
+      "model_key": "reminder",
+      "endpoint_key": "reminder-list",
+      "display_name": "List Reminders",
+      "description": "List follow-up reminders, filterable by owning record, status, and due window. Shared, not owner-scoped.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/reminders/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "reminder_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "reminders.reminder.list_history",
+      "app_key": "reminders",
+      "model_key": "reminder",
+      "endpoint_key": "reminder-history",
+      "display_name": "View Reminder History",
+      "description": "List a reminder's chronological history — creation, reschedules, completion, or dismissal.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/reminders/<reminder_id>/history/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "reminder_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "reminders.reminder.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The reminder must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "reminders.reminder.read",
+      "app_key": "reminders",
+      "model_key": "reminder",
+      "endpoint_key": "reminder-read",
+      "display_name": "View Reminder",
+      "description": "Retrieve one reminder with its owner reference, due date, note, and lifecycle state.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/reminders/<reminder_id>/",
+      "operation_type": "read",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "reminder_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "reminders.reminder.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Reading a reminder requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "reminders.reminder.update",
+      "app_key": "reminders",
+      "model_key": "reminder",
+      "endpoint_key": "reminder-update",
+      "display_name": "Reschedule Reminder",
+      "description": "Move an open reminder's due date or correct its note. Owner and status are unaffected.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/reminders/<reminder_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "reminder_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "reminders.reminder.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The reminder must be readable before it can be acted on."
         }
       ]
     },

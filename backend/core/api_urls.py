@@ -19,5 +19,6 @@ urlpatterns: list = [
     path("checklists/", include("checklists.urls", namespace="checklists")),
     path("dashboard/", include("dashboards.urls", namespace="dashboards")),
     path("notifications/", include("notifications.urls", namespace="notifications")),
+    path("reminders/", include("reminders.urls", namespace="reminders")),
     path("search/", include("search.urls", namespace="search")),
 ]
