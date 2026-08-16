@@ -197,7 +197,7 @@
 | `dashboards.workload.read` | `GET /api/v1/dashboard/workload/` | Rebalance the team | Branch on `is_scoped_to_caller` |
 | `dashboards.conversion.read` | `GET /api/v1/dashboard/conversion/` | Review intake health | Four independent rates, not a funnel |
 | `dashboards.outcomes.read` | `GET /api/v1/dashboard/outcomes/` | Review intake health | Two windowing rules in one payload |
-| `dashboards.activity.list` | `GET /api/v1/dashboard/activity/` | **No dedicated flow** — a passive change feed at the foot of Dashboard home. The only paginated section, and the only one ignoring every filter but `fiscal_year` | Not narrowed by authority |
+| `dashboards.activity.list` | `GET /api/v1/dashboard/activity/` | **No dedicated flow** — a passive change feed at the foot of Dashboard home. The only paginated section, and the only one ignoring every filter but `fiscal_year` | **Admin only** — hide the panel for a Lead Manager, who is refused (403) here exactly as at `audit.event.list`. Not narrowed among those who may read it |
 
 ## Cross-app dependencies
 

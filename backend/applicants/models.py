@@ -113,6 +113,11 @@ class ApplicantContactNumber(BaseModel):
             # ``(applicant, number)`` and cannot serve a lookup that knows only
             # the number.
             models.Index(fields=["number"], name="appl_contact_number_idx"),
+            # The mirror of ``leads.LeadContactNumber``'s trigram index, for the
+            # same reason: the B-tree above cannot serve the leading-wildcard
+            # ``number__icontains`` the search box issues, so a phone lookup was
+            # scanning this table end to end (§39.6).
+            GinIndex(fields=["number"], name="appl_contact_num_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:
@@ -180,6 +185,12 @@ class PassportDetail(BaseModel):
             # normalized to upper case on write, so this index serves both the
             # prefix case and the equality case.
             models.Index(fields=["passport_number"], name="appl_passport_number_idx"),
+            # The comment above is right that normalization to upper case makes
+            # the B-tree serve the prefix and equality cases — and wrong that
+            # those are the cases that occur. ``search_applicants`` matches with
+            # ``icontains``, and staff routinely type the last few digits of a
+            # passport rather than the whole thing, which no B-tree can serve.
+            GinIndex(fields=["passport_number"], name="appl_passport_num_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:

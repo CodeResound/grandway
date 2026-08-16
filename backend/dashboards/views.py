@@ -26,7 +26,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from dashboards import selectors
-from dashboards.access import require_dashboard_actor
+from dashboards.access import require_activity_reader, require_dashboard_actor
 from dashboards.constants import ErrorCode
 from dashboards.exceptions import ActorNotPermittedError
 from dashboards.serializers import ActivityRowSerializer, DashboardFilterSerializer
@@ -133,6 +133,24 @@ class DashboardActivityView(DashboardSectionView):
     """
 
     section = staticmethod(selectors.get_activity)
+
+    def resolve(self, request: Request) -> tuple[dict[str, Any] | None, Response | None]:
+        """The dashboard rule, plus the audit log's own stricter one.
+
+        This section returns rows from the central audit log rather than figures
+        derived from an app that already scoped them, so it carries `audit`'s
+        access rule as well as the dashboard's. Overridden here rather than
+        checked inside ``get`` so the two authority checks cannot drift apart,
+        and so any future verb added to this view inherits both.
+        """
+        filters, err = super().resolve(request)
+        if err:
+            return None, err
+        try:
+            require_activity_reader(request.user)
+        except ActorNotPermittedError:
+            return None, _forbidden()
+        return filters, None
 
     def get(self, request: Request) -> Response:
         filters, err = self.resolve(request)

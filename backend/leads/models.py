@@ -231,6 +231,16 @@ class LeadContactNumber(BaseModel):
             # alone. The unique constraint above is on ``(lead, number)`` and
             # cannot serve a lookup that does not know the lead.
             models.Index(fields=["number"], name="lead_contact_number_idx"),
+            # The B-tree above serves an equality or prefix lookup. It cannot
+            # serve the one the search box actually issues: ``number__icontains``
+            # has a leading wildcard, and a B-tree has no way in. Every phone
+            # search — the single most common way a lead is found, because a
+            # lead is usually a number in a call log before anyone has agreed
+            # how to spell the name — was therefore a sequential scan of this
+            # table. Both indexes are kept: the B-tree stays cheaper for the
+            # exact-match paths, and the GIN is what makes substring search
+            # scale (§39.6).
+            GinIndex(fields=["number"], name="lead_contact_num_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:

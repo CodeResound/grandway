@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db.models import QuerySet
 
 from core.policy_engine.exceptions import (
@@ -104,39 +106,46 @@ def get_ui_permission_tree(app_key: str | None = None, include_inactive: bool = 
     apps_qs = get_registered_apps()
     if app_key:
         apps_qs = apps_qs.filter(key=app_key)
+    apps = list(apps_qs)
+    app_ids = [app.id for app in apps]
+
+    # Two queries for the whole tree rather than two per app. The category maps
+    # and the dependency edges are both fetched for every app at once and
+    # grouped in Python, so adding an app to the project no longer adds a pair
+    # of round trips to this endpoint (§6, N+1 prevention).
+    filters: dict = {
+        "endpoint__application_id__in": app_ids,
+        "is_visible_in_ui": True,
+    }
+    if not include_inactive:
+        filters["endpoint__is_active"] = True
+        filters["category__is_active"] = True
+    all_category_maps = (
+        EndpointCategoryMap.objects.select_related(
+            "endpoint",
+            "endpoint__application",
+            "endpoint__policy_model",
+            "category",
+        )
+        .filter(**filters)
+        .order_by("category__sort_order", "category__key", "sort_order")
+    )
+    maps_by_app: dict[Any, list[EndpointCategoryMap]] = {}
+    for cm in all_category_maps:
+        maps_by_app.setdefault(cm.endpoint.application_id, []).append(cm)
+
+    forward_deps_by_endpoint: dict[Any, list[str]] = {}
+    for source_id, target_key in PolicyDependency.objects.filter(
+        source_endpoint__application_id__in=app_ids,
+        direction__in=["forward", "bidirectional"],
+        is_active=True,
+    ).values_list("source_endpoint_id", "target_endpoint__permission_key"):
+        forward_deps_by_endpoint.setdefault(source_id, []).append(target_key)
 
     tree = []
-    for app in apps_qs:
-        filters: dict = {
-            "endpoint__application": app,
-            "is_visible_in_ui": True,
-        }
-        if not include_inactive:
-            filters["endpoint__is_active"] = True
-            filters["category__is_active"] = True
-        category_maps = (
-            EndpointCategoryMap.objects.select_related(
-                "endpoint",
-                "endpoint__application",
-                "endpoint__policy_model",
-                "category",
-            )
-            .filter(**filters)
-            .order_by("category__sort_order", "category__key", "sort_order")
-        )
-
-        # One query for the whole app's forward dependency edges, grouped by
-        # source endpoint, instead of one query per endpoint in the loop below.
-        forward_deps_by_endpoint: dict[str, list[str]] = {}
-        for source_id, target_key in PolicyDependency.objects.filter(
-            source_endpoint__application=app,
-            direction__in=["forward", "bidirectional"],
-            is_active=True,
-        ).values_list("source_endpoint_id", "target_endpoint__permission_key"):
-            forward_deps_by_endpoint.setdefault(source_id, []).append(target_key)
-
+    for app in apps:
         groups: dict[str, dict] = {}
-        for cm in category_maps:
+        for cm in maps_by_app.get(app.id, []):
             cat_key = cm.category.key
             if cat_key not in groups:
                 groups[cat_key] = {

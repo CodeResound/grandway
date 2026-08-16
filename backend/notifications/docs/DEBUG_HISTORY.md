@@ -1,0 +1,12 @@
+# Debug History — Notifications
+
+## 2026-08-01 — `sweep_notifications --limit` mass-resolved live alerts
+
+**Endpoint/module:** `notifications.management.commands.sweep_notifications`
+**Problem:** `--limit N` truncated each generator's source rows, and the key set of "conditions that are true right now" is built from those same rows — so a limited run's `live_keys` was partial by construction. `handle()` then called `resolve_cleared` regardless, which treats every active alert whose key is absent from that set as a condition that has cleared, in a single `UPDATE`. Measured: `--limit 5` over 50 live alerts resolved 45 of them as `SOURCE_CLEARED`, across every recipient.
+**Root cause:** The hazard was known and documented rather than enforced. `_run`'s docstring stated that "a limited run must not be trusted to resolve" and then reasoned that the command "is a raise-only tool in practice", leaving `--no-resolve` as something the operator had to remember to pair. Nothing in the code did. The module docstring separately names mass-resolution as "the single most damaging thing this command could do", and `--limit`'s own help text advertised it as "a cautious first pass on a large database" — pointing the flag at precisely the databases with the most live alerts to destroy.
+**Changed files:** `management/commands/sweep_notifications.py`, `requirements/README.md`
+**Fix summary:** `--limit` now implies `--no-resolve`: `handle()` sets the flag and writes a warning to stderr explaining why. The help text and `_run`'s docstring say so, and the command-reference row in `requirements/README.md` was updated in the same change (§12).
+**Contract impact:** None at the API surface. Operationally: a `--limit` run no longer resolves anything. An operator who wants both must run the command twice — which is the point, since the second run is the one with a complete picture.
+**Tests added/updated:** `test_sweep_limit_guard.SweepLimitGuardTests` — a `--limit` run leaves 50 unrelated live alerts untouched and warns; an unlimited run still resolves genuinely stale ones, so the guard cannot disarm the resolve pass in general.
+**Notes for future AI:** A docstring that explains why an operation is dangerous, and then relies on the caller to avoid it, is a bug with a comment attached. If the safe pairing is knowable in code, enforce it there. Be especially suspicious when the dangerous flag is the one documented as cautious — that inversion is what kept this in the codebase.

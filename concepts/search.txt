@@ -1,0 +1,157 @@
+CONCEPT — Search
+================
+
+Purpose
+-------
+
+Grandway spreads one person's information across many apps by design: a lead
+becomes an applicant, the applicant grows a journey, the journey collects
+offers, documents, files, and a checklist. That separation is correct — it is
+what "Journey separation" and "Applicant-centred data ownership" in
+concepts/project_overview.txt are protecting — but it has a cost at the front
+desk. Someone standing at the counter says a name, and the staff member has to
+guess which list to open before they can type it.
+
+This app removes the guess. One box, one query, answers grouped by what kind of
+record they are. It is a *finder*, not a reporting or analytics surface: its
+entire job is to get a person from a half-remembered name, phone number, or
+filename to the record they actually wanted, in one step.
+
+It owns no data. Every result it returns is produced by the search selector of
+the app that owns the row, and it is that composition — not any new query — that
+is the whole of this app.
+
+
+Actors / Users
+--------------
+
+- Admin: searches everything the system holds, including files attached to
+  documents and print snapshots.
+- Lead Manager: searches the same box and gets the same shape of answer, but
+  narrowed by the rules the owning apps already enforce — their own leads only,
+  and no files belonging to Admin-only records. They are not told a restricted
+  record exists and was withheld; it simply is not in the results.
+- Superadmin: denied, as in every business app. It is a platform authority that
+  manages Admin accounts and does not participate in consultancy operations.
+
+
+Core entities
+-------------
+
+This app has no entities in the database sense. It has two conceptual ones:
+
+- Searchable type: one kind of record the box can find. Each names the app that
+  owns it, the fields a query is matched against, the permission key needed to
+  open a result, and the list screen the "see all" link leads to. There are
+  nine: lead, applicant, client, document, uploaded file, institution, program,
+  document template, signatory.
+
+- Hit: one found record, reduced to what a result row needs and nothing more —
+  what it is, what to call it, one line of context to tell two similar rows
+  apart, why it matched, and where to go to open it. A hit is deliberately not
+  a preview of the record: it carries no status history, no personal detail
+  beyond the identifying line, and no field the owning app would not already
+  show in its own list.
+
+
+Key user flows
+--------------
+
+1. Find a person at the counter: staff type a name, a phone number, or an email
+   -> the box returns buckets -> the applicant bucket shows two matches, the
+   lead bucket one -> staff open the applicant.
+   - Nothing matched: every bucket returns zero and the screen says so once,
+     rather than showing nine empty sections.
+   - Too many matched: each bucket reports its true total and shows the first
+     few; "see all 43" opens the owning app's list already filtered by the
+     same query.
+
+2. Find a file by its name: staff remember a document was uploaded as
+   "passport-scan-final.pdf" but not whose it was -> the uploaded file bucket
+   finds it -> they open the file and reach the applicant from there.
+   - A Lead Manager searching a filename attached to a document record gets
+     nothing, because that file is outside their visibility.
+
+3. Shortlist from the catalogue: staff type an institution name while advising
+   an applicant -> the institution and program buckets carry the matches ->
+   "see all" opens the catalogue's own filtered list, where the real
+   shortlisting filters live.
+
+4. Narrow a noisy search: a common first name floods the people buckets ->
+   staff restrict the search to one or two types -> the same query returns only
+   those buckets, and the cost of the request drops with them.
+
+
+UI screens & wireframe notes
+----------------------------
+
+- Global search bar: persistent, in the application header, reachable from
+  every screen. Typing opens a results panel over the current page rather than
+  navigating away — the search is usually an interruption of other work, and
+  losing that work to look someone up is the failure mode to avoid. A short
+  query (one character) is not sent.
+
+- Results panel: one section per non-empty type, in a stable order — people
+  first (applicants, leads, clients), then work (documents, files), then
+  reference (institutions, programs, templates, signatories). Each section
+  shows its name, its total, its first few rows, and a "see all N" link. Each
+  row shows the title, a lighter subtitle line, and a small label saying which
+  field matched, so a person found by phone number does not look like a
+  mysterious name match. Empty sections are not rendered.
+
+- Type filter chips: the searchable types, from the catalogue endpoint rather
+  than hardcoded in the client, so adding a type later does not require a
+  frontend release. Selecting chips narrows the same query.
+
+- Full results: there is no dedicated full-results screen and there should not
+  be. "See all" hands off to the owning app's existing list screen, which
+  already has that type's real filters, sorting, and pagination. Building a
+  second list view here would duplicate nine screens and immediately drift
+  from them.
+
+
+Constraints / Out of scope
+--------------------------
+
+- Owns no tables, no models, and no migrations — the dashboards app is the
+  precedent. Every row comes from the owning app's selector.
+- Never widens access. A result appears only if the owning app would have shown
+  that row to that caller in its own list. Search must not become a side door
+  around another app's scoping, which is the specific defect the dashboards app
+  had to fix in its activity feed.
+- Read-only. No endpoint here creates, changes, or deletes anything.
+- No search index, no separate search engine, no vector or semantic search, no
+  ranking infrastructure. Matching is the trigram/icontains behaviour the owning
+  apps already implement (§39.6). This is the sense in which
+  concepts/project_overview.txt rules out "global search as an independent
+  domain" — there is no search *store* here, only composition.
+- No cross-type relevance ordering. An applicant's name score and an
+  institution's name score are not on the same scale, so results stay grouped
+  by type rather than interleaved into one ranked list.
+- Document contents, file contents, and operator free-text notes are not
+  searched. Those fields hold personal financial and identity detail, and
+  making them reachable by guessing is a decision that needs its own concept,
+  not a side effect of a search box.
+- Journeys, offers, and checklists are not searchable types: none has a name of
+  its own, and all are reached through the applicant who owns them.
+- Not an export surface. Result limits are capped; this cannot be used to walk
+  the database.
+
+
+Open questions
+--------------
+
+- Should a Lead Manager's search of the applicant, document, and catalogue types
+  stay unnarrowed? It currently does, because those apps do not narrow their own
+  lists — but "Can Lead Managers view all records, or only records explicitly
+  assigned to them?" is still open in project_overview.txt, and the answer will
+  land here the moment it is decided anywhere.
+- Should searches be recorded in the audit log? Reading is not currently audited
+  anywhere in the project, but a search is a broader read than a list view, and
+  "who looked up whom" is exactly the kind of question the audit log exists to
+  answer.
+- Should the box match a partial phone number as it is typed, or only a complete
+  one? The owning selectors already do substring matching; the question is
+  whether that is desirable at three digits.
+- Is a search-as-you-type endpoint needed, tuned tighter than the main query?
+  Deferred until the results panel is in real use.

@@ -46,3 +46,31 @@ def require_dashboard_actor(user: object) -> None:
     """Allow Admin and Lead Manager only — the whole operational population."""
     if not (is_admin(user) or is_lead_manager(user)):
         raise ActorNotPermittedError("This authority may not read the dashboard.")
+
+
+def require_activity_reader(user: object) -> None:
+    """Allow only those who may read the central audit log.
+
+    The activity feed is not a summary of rows this app owns — it *is* the
+    ``audit`` log, returned row by row. Every other dashboard section is built
+    from selectors whose owning app already scoped them, so passing the actor
+    down was enough; this one reads a table with its own, stricter rule, and
+    reading it through a different door does not soften that rule.
+
+    The rule mirrors ``audit/views.py``'s ``_require_staff`` — ``is_staff``,
+    which is true for Admin and Superadmin and false for Lead Manager. It is
+    restated here rather than imported because §4 permits importing another
+    app's selectors and services, not its access checks; ``uploaded_files``
+    made the same call for the same reason. The cost is that a change to the
+    audit app's rule must be mirrored here, which is why both sides now say so.
+
+    **This closes a real leak, not a hypothetical one.** A Lead Manager was
+    refused by ``GET /api/v1/audit/events/`` with a 403 and served the same rows
+    by ``GET /api/v1/dashboard/activity/`` with a 200 — including the actor and
+    summary of administrative password resets. ``get_activity``'s own docstring
+    justified going unnarrowed on the grounds that the audit endpoint is one
+    "which any of these users may already call"; that was assumed rather than
+    checked, and it was false for the one tier it mattered for.
+    """
+    if not getattr(user, "is_staff", False):
+        raise ActorNotPermittedError("The activity feed is restricted to administrators.")

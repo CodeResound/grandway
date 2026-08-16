@@ -1,4 +1,54 @@
+"""Graph traversal over the endpoint dependency edges.
+
+Both traversals here walk the same directed graph and are shaped the same way,
+deliberately, because the naive shape of each is quadratic in two separate
+places:
+
+* **A query per node.** Asking the database for one endpoint's edges inside the
+  walk issues one round trip per node visited (§6, N+1 prevention). Both
+  functions instead expand a whole *frontier* at a time — one query per BFS
+  level, so a graph of depth 3 costs three queries however wide it is.
+* **``list.pop(0)`` and ``in`` against a list.** Popping the head of a Python
+  list is O(n), and membership on a list is O(n) per test, so a walk over n
+  nodes with e edges degrades to O(n·e). A ``deque`` and a ``set`` make both
+  O(1) without changing what is computed.
+
+Neither is hot in a request today — both run from the registry sync and
+lifecycle writes — but ``sync_policy_registry`` calls
+``resolve_required_permissions`` once per declared endpoint, so the cost scales
+with the square of a number that only ever grows.
+"""
+
+from collections import deque
+
 from core.policy_engine.models import PolicyDependency
+
+#: Edge directions that count as "this endpoint points at that one".
+_FORWARD_DIRECTIONS = ["forward", "bidirectional"]
+
+
+def _targets_of(source_keys: list[str], **extra_filters: object) -> dict[str, list[str]]:
+    """Every outgoing edge from ``source_keys``, as ``{source: [target, ...]}``.
+
+    One query for the whole frontier. Returning a mapping rather than a flat
+    list keeps the caller free to attribute an edge to the node it came from,
+    which ``detect_circular_dependencies`` does not need and a future caller
+    reporting *where* a cycle closes would.
+    """
+    if not source_keys:
+        return {}
+
+    edges = PolicyDependency.objects.filter(
+        source_endpoint__permission_key__in=source_keys,
+        direction__in=_FORWARD_DIRECTIONS,
+        is_active=True,
+        **extra_filters,
+    ).values_list("source_endpoint__permission_key", "target_endpoint__permission_key")
+
+    grouped: dict[str, list[str]] = {}
+    for source, target in edges:
+        grouped.setdefault(source, []).append(target)
+    return grouped
 
 
 def detect_circular_dependencies(
@@ -15,24 +65,16 @@ def detect_circular_dependencies(
         return False
 
     visited: set[str] = set()
-    queue: list[str] = [target_key]
+    frontier: list[str] = [target_key]
 
-    while queue:
-        current = queue.pop(0)
-        if current == source_key:
+    while frontier:
+        if source_key in frontier:
             return True
-        if current in visited:
-            continue
-        visited.add(current)
 
-        next_keys = list(
-            PolicyDependency.objects.filter(
-                source_endpoint__permission_key=current,
-                direction__in=["forward", "bidirectional"],
-                is_active=True,
-            ).values_list("target_endpoint__permission_key", flat=True)
-        )
-        queue.extend(next_keys)
+        visited.update(frontier)
+        grouped = _targets_of(frontier)
+        next_frontier = {target for targets in grouped.values() for target in targets} - visited
+        frontier = list(next_frontier)
 
     return False
 
@@ -73,28 +115,30 @@ def resolve_required_permissions(
     permission key, restricted to the given enforcement_modes (default
     preserves the original strict+warning behavior). Returns a flat list of
     all required permission keys.
+
+    Order is breadth-first from ``permission_key`` and stable within a level
+    (the database's row order for that level's edges) — the same order the
+    previous queue-driven implementation produced, which callers that render
+    this list to a human rely on.
     """
     required: list[str] = []
+    required_seen: set[str] = set()
     visited: set[str] = set()
-    queue: list[str] = [permission_key]
+    frontier: deque[str] = deque([permission_key])
 
-    while queue:
-        current = queue.pop(0)
-        if current in visited:
-            continue
-        visited.add(current)
+    while frontier:
+        # Order-preserving dedup: one key can be reached twice within a level,
+        # and expanding it twice would query and iterate the same edges again.
+        level = list(dict.fromkeys(key for key in frontier if key not in visited))
+        visited.update(level)
+        frontier.clear()
 
-        deps = PolicyDependency.objects.filter(
-            source_endpoint__permission_key=current,
-            dependency_type="requires",
-            direction__in=["forward", "bidirectional"],
-            enforcement_mode__in=enforcement_modes,
-            is_active=True,
-        ).values_list("target_endpoint__permission_key", flat=True)
-
-        for dep_key in deps:
-            if dep_key not in required:
-                required.append(dep_key)
-            queue.append(dep_key)
+        grouped = _targets_of(level, dependency_type="requires", enforcement_mode__in=enforcement_modes)
+        for key in level:
+            for dep_key in grouped.get(key, []):
+                if dep_key not in required_seen:
+                    required_seen.add(dep_key)
+                    required.append(dep_key)
+                frontier.append(dep_key)
 
     return required

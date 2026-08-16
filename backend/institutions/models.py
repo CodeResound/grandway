@@ -140,6 +140,11 @@ class Institution(BaseModel, AvailabilityMixin):
             models.Index(fields=["country", "availability_status"], name="institution_country_status_idx"),
             # The ?q= search across provider names.
             GinIndex(fields=["name"], name="institution_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+            # ``filter_institutions`` matches ``common_name`` in the same OR as
+            # ``name``, so leaving it unindexed made the cheaper half of that
+            # query decide the cost of the whole thing — and the informal name
+            # ("Unimelb") is the one staff actually type (§39.6).
+            GinIndex(fields=["common_name"], name="institution_common_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:

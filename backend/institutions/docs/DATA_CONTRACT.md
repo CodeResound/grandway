@@ -1,7 +1,7 @@
 # Data Contract — Institutions
 
 **Owner app:** `institutions`
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns Grandway's study-opportunity catalogue — the countries, institutions, campuses, and programs the consultancy can offer, together with each record's tuition, entry expectations, and current availability. It is **reference data, not a plan**: it does not own an applicant's intent, progress, or choice history (`applicant_journeys`), the person (`applicants`), the enquiry (`leads`), or offers. It owns no history table — a catalogue record's history is the central `audit` log filtered to that record.
@@ -15,6 +15,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — Phase 1 catalogue spine: Field, Country, Institution, Campus, Program |
 | 1.1.0 | 2026-07-24 | AI (Claude) | Documentation only — no schema change. Recorded the first inbound dependency (`offers`, three nullable `PROTECT` FKs) and why catalogue edits stay safe under it: offers snapshot the names rather than reading through. Noted the `FeePeriod` promotion to `core.constants` |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`name` on every catalogue model). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.3.0 | 2026-08-02 | AI (Claude Opus 5) | One search index added (no column change): GIN trigram on `Institution.common_name`, so the `name`/`common_name` disjunction in `filter_institutions` is fully indexed. Also removed a duplicated `institution_name_trgm_idx` line from the Institution index list. Added for the `search` app's institution and program buckets |
 
 ---
 
@@ -149,7 +150,7 @@
 - `availability_status` (`db_index=True`) — default search filter.
 - `institution_country_status_idx` — `(country, availability_status)`. Supports the country-detail screen's "institutions in this country, usable ones first".
 - `institution_name_trgm_idx` — GIN `gin_trgm_ops` on `name`. Supports the `?q=` search.
-- `institution_name_trgm_idx` — GIN `gin_trgm_ops` on `name`, for provider-name search.
+- `institution_common_trgm_idx` — GIN `gin_trgm_ops` on `common_name`. `filter_institutions` matches `name` **or** `common_name` in one `Q`, and PostgreSQL cannot use the index on `name` to satisfy a disjunction whose other branch requires a scan — so leaving `common_name` unindexed made the pair behave as if neither were indexed. It is also the field staff are likelier to type, since it exists to hold what people actually call the place, e.g. "Unimelb" (migration `0003_trigram_search_indexes`).
 
 **Soft Delete:** `N/A — availability_status replaces deletion.` No delete endpoint. `Campus.institution` and `Program.institution` use `PROTECT`.
 

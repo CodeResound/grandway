@@ -503,11 +503,13 @@
 
 **Send (create/update):** none
 **Returns:** list[ActivityRow], paginated, newest first.
-**Requires state:** an authenticated Admin or Lead Manager.
+**Requires state:** an authenticated **Admin**. This is the one section a Lead Manager may not read — see the access note below.
 **Side effects:** none.
 **Notes:**
 - **The only paginated section**, and the only one whose `meta` carries page data. The other seven return objects with `meta: {}`.
-- **Not narrowed by the caller's authority.** The audit log is not owner-scoped anywhere in the project, so a Lead Manager sees events about records they cannot otherwise read. This is consistent with `GET /api/v1/audit/events/`, which the same users may already call.
+- **Admin-only, unlike every other section.** This endpoint returns rows from the central audit log rather than a figure derived from an already-scoped selector, so it carries `audit`'s access rule (`is_staff`) as well as this module's. A Lead Manager receives `DASHBOARDS_ACTOR_FORBIDDEN` (403) — the same refusal `GET /api/v1/audit/events/` gives them. **Hide this panel for a Lead Manager rather than letting it 403 on load.**
+- **Not narrowed among those who may read it.** The audit log is not owner-scoped, so an Admin sees every event including those actioned by others. Access is binary here, not a scope.
+- *Changed 2026-08-01:* this endpoint was previously readable by a Lead Manager, documented as consistent with an audit endpoint "the same users may already call". That was incorrect — Lead Managers were always refused there — and the feed leaked the log to them. A client built against the old behaviour must stop rendering this panel for Lead Managers.
 - **Only `fiscal_year` is honoured.** `date_from`, `date_to`, `country`, `owner`, and the rest are accepted and validated but **ignored** by this section. Do not present the full filter bar as active over this panel.
 - `action` values are contributed by every app and are not a fixed set. Render `summary` as the label.
 

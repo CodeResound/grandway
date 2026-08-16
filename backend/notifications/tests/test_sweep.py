@@ -17,6 +17,7 @@ unrun and the assertions would be measuring a different system.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from io import StringIO
 from unittest.mock import patch
 
@@ -38,8 +39,10 @@ from notifications.tests.factories import (
     make_admin,
     make_applicant,
     make_checklist,
+    make_client,
     make_journey,
     make_lead_manager,
+    make_reminder,
 )
 
 
@@ -296,3 +299,167 @@ class ResolveSafetyTests(TransactionTestCase):
 
         overdue = Notification.objects.get(notification_type=NotificationType.CHECKLIST_ITEM_OVERDUE)
         self.assertEqual(overdue.status, NotificationStatus.ACTIVE)
+
+
+class SweepQueryCostTests(TransactionTestCase):
+    """The sweep's query count must not grow with the size of the backlog.
+
+    Every alert whose source record carries no owner falls back to the Admin
+    fan-out, and today that is every offer deadline and every expiring passport
+    — neither model has an owner field anywhere in the project. Resolving
+    "every active Admin" per source row made a quiet nightly job issue one extra
+    query for each row it looked at, on exactly the tables that grow (§6, N+1
+    prevention).
+
+    Asserted as a *relationship* between two backlog sizes rather than as an
+    absolute number: the constant per-run cost is an implementation detail that
+    may legitimately move, while the per-row cost must stay flat.
+    """
+
+    ADMIN_COUNT = 4
+
+    def setUp(self) -> None:
+        self.admin = make_admin("sweepadmin0")
+        for index in range(1, self.ADMIN_COUNT):
+            make_admin(f"sweepadmin{index}")
+        self.next_applicant = 0
+
+    def _add_expiring_passports(self, count: int) -> None:
+        for _ in range(count):
+            applicant = make_applicant(self.admin, name=f"Applicant {self.next_applicant}")
+            give_passport(self.admin, applicant, expires_in_days=30)
+            self.next_applicant += 1
+
+    def _admin_lookups_during_sweep(self) -> int:
+        """How many times the sweep asked the database who the Admins are.
+
+        Counted specifically rather than measuring total queries: the alert
+        write itself costs a fixed handful of statements per recipient
+        (``get_or_create`` plus its savepoints), and pinning that total would
+        make this test fail on an unrelated change to the write path. The
+        property under test is narrower — the Admin fan-out is resolved once per
+        run, not once per source row.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        # Cleared so each measurement writes every alert rather than finding
+        # some already present — otherwise the two runs would not be comparable.
+        Notification.objects.all().delete()
+        with CaptureQueriesContext(connection) as captured:
+            sweep(only_type=NotificationType.PASSPORT_EXPIRING)
+        return sum(1 for query in captured.captured_queries if "authenticate_user" in query["sql"])
+
+    def test_admin_fan_out_is_resolved_once_per_run(self) -> None:
+        self._add_expiring_passports(2)
+        self.assertEqual(self._admin_lookups_during_sweep(), 1)
+
+        self._add_expiring_passports(4)
+        self.assertEqual(self._admin_lookups_during_sweep(), 1)
+
+
+class CustomReminderTests(TransactionTestCase):
+    """The reminders generator — the first sweep source whose rows exist only to be swept."""
+
+    def setUp(self) -> None:
+        self.admin = make_admin()
+        self.other_admin = make_admin("admin2")
+        self.manager = make_lead_manager()
+        self.applicant = make_applicant(self.admin)
+        Notification.objects.all().delete()
+
+    def _alerts(self):
+        return Notification.objects.filter(notification_type=NotificationType.CUSTOM_REMINDER)
+
+    def test_a_due_reminder_alerts_every_admin_and_only_admins(self) -> None:
+        reminder = make_reminder(self.manager, applicant=self.applicant, due_in_days=0)
+
+        sweep()
+
+        alerts = self._alerts()
+        self.assertEqual(set(alerts.values_list("recipient_id", flat=True)), {self.admin.id, self.other_admin.id})
+        alert = alerts.first()
+        self.assertEqual(alert.body, reminder.note)
+        self.assertEqual(alert.source_app, "reminders")
+        self.assertEqual(alert.source_api_path, f"/api/v1/reminders/{reminder.id}/")
+        self.assertIn(self.applicant.full_name, alert.title)
+
+    def test_a_client_owned_reminder_names_the_client(self) -> None:
+        client_record = make_client(self.admin, name="Himal Education")
+        make_reminder(self.admin, client=client_record, due_in_days=-2)
+        Notification.objects.all().delete()
+
+        sweep()
+
+        self.assertIn("Himal Education", self._alerts().first().title)
+
+    def test_a_future_reminder_raises_nothing(self) -> None:
+        make_reminder(self.admin, applicant=self.applicant, due_in_days=5)
+
+        sweep()
+
+        self.assertEqual(self._alerts().count(), 0)
+
+    def test_running_twice_creates_nothing_the_second_time(self) -> None:
+        make_reminder(self.admin, applicant=self.applicant, due_in_days=0)
+        sweep()
+        before = Notification.objects.count()
+
+        sweep()
+
+        self.assertEqual(Notification.objects.count(), before)
+
+    def test_completing_the_reminder_resolves_its_alert(self) -> None:
+        from reminders import services as reminder_services
+
+        reminder = make_reminder(self.admin, applicant=self.applicant, due_in_days=0)
+        sweep()
+        reminder_services.complete_reminder(actor=self.admin, reminder=reminder)
+
+        sweep()
+
+        for alert in self._alerts():
+            self.assertEqual(alert.status, NotificationStatus.RESOLVED)
+            self.assertEqual(alert.resolution, Resolution.SOURCE_CLEARED)
+
+    def test_a_reschedule_resolves_the_old_alert_and_raises_on_the_new_date(self) -> None:
+        from reminders import services as reminder_services
+        from reminders.models import Reminder
+
+        reminder = make_reminder(self.admin, applicant=self.applicant, due_in_days=0)
+        sweep()
+        old_keys = set(self._alerts().values_list("dedupe_key", flat=True))
+
+        reminder_services.update_reminder(
+            actor=self.admin, reminder=reminder, due_date=reminder.due_date + timedelta(days=7)
+        )
+        sweep()
+
+        # The old key's alerts closed as source_cleared; nothing new yet.
+        for alert in self._alerts().filter(dedupe_key__in=old_keys):
+            self.assertEqual(alert.status, NotificationStatus.RESOLVED)
+        self.assertEqual(self._alerts().exclude(dedupe_key__in=old_keys).count(), 0)
+
+        # The new date arrives (simulated by aging the row, as time would).
+        Reminder.objects.filter(pk=reminder.pk).update(due_date=reminder.due_date - timedelta(days=8))
+        sweep()
+
+        fresh = self._alerts().exclude(dedupe_key__in=old_keys)
+        self.assertEqual(fresh.filter(status=NotificationStatus.ACTIVE).count(), 2)
+
+    def test_dismissing_the_notification_leaves_the_reminder_active(self) -> None:
+        from reminders.constants import ReminderStatus
+
+        from notifications import services as notification_services
+
+        reminder = make_reminder(self.admin, applicant=self.applicant, due_in_days=0)
+        sweep()
+        alert = self._alerts().get(recipient=self.admin)
+        notification_services.dismiss(alert, actor=self.admin)
+
+        sweep()
+
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.status, ReminderStatus.ACTIVE)
+        self.assertEqual(self._alerts().filter(recipient=self.admin).count(), 1)
+        self.assertEqual(self._alerts().get(recipient=self.admin).status, NotificationStatus.DISMISSED)

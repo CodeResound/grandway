@@ -1,7 +1,7 @@
 # FLOWS — Notifications
 
 **Owner app:** `notifications`
-**Updated:** 2026-07-24
+**Updated:** 2026-08-17
 **Purpose:** The user-flow binding layer for this app — connects the product intent in
 `concepts/notifications.txt` to the callable endpoints in `backend/notifications/docs/INTEGRATION.md`.
 Authored and updated by the backend author in the same commit as any endpoint change (CLAUDE.md §36).
@@ -168,11 +168,12 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 - **This app references (outbound):** no other app's `permission_key` is called by a fixed route in
   any flow above. The click-through in "Work the daily inbox" step 5 follows the `source_api_path`
   the alert itself carries, which resolves into `checklists`, `offers`, `applicants`,
-  `uploaded_files`, or `applicant_journeys` depending on the alert type — so the outbound edge is
+  `uploaded_files`, `applicant_journeys`, or `reminders` depending on the alert type — so the outbound edge is
   **data-driven, not hard-coded**. A client should route on `source_app` + `source_entity_type`
   rather than parsing the path.
-- **Referenced by other apps (inbound):** none yet. No other app's flow file calls a notifications
-  endpoint. The natural future inbound reference is an "alerts" panel on the applicant, checklist,
+- **Referenced by other apps (inbound):** `concepts/reminders_flows.md` — its "Act on a due reminder
+  alert" flow enters from this app's feed (`notifications.notification.list`) and clears the alert by
+  closing the *reminder*, relying on the sweep's auto-resolve rather than a dismiss call here. The natural future inbound reference is an "alerts" panel on the applicant, checklist,
   and offer detail screens — the fourth flow above — which those apps' flow files may want to
   reference once those panels are designed.
 

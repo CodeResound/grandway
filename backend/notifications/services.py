@@ -26,7 +26,9 @@ app and no ``__original_stage`` attribute stashed on any instance.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
@@ -164,8 +166,50 @@ def dispatch(
 # ---------------------------------------------------------------------------
 
 
+#: The Admin fan-out list, held for the duration of one batch sweep.
+#:
+#: ``None`` means "not inside a sweep" and is the state every request-path caller
+#: sees, so a signal firing during a live request always reads the current set.
+_sweep_admins: ContextVar[list[Any] | None] = ContextVar("sweep_admins", default=None)
+
+
+@contextmanager
+def cached_admin_recipients() -> Iterator[None]:
+    """Resolve the active-Admin list once for an entire batch run.
+
+    ``_admins`` is the fallback for every alert whose source record has no owner
+    — which today is every offer deadline and every expiring passport, since
+    neither model carries one. In the sweep those are resolved *per source row*,
+    so a night with 2,000 expiring passports issued 2,000 identical queries for
+    the same handful of Admins (§6, N+1 prevention).
+
+    Deliberately opt-in rather than a module-level cache. The membership of
+    "every active Admin" changes when an account is blocked or created, and a
+    process-lifetime cache would keep routing alerts to someone who was
+    deactivated hours ago. Scoped to one sweep, the staleness window is the
+    length of a single command run, and inside that window the set genuinely
+    cannot be allowed to change halfway — an alert raised at row 1 and an alert
+    raised at row 2,000 should reach the same people.
+
+    A ``ContextVar`` rather than a plain module global so nested or concurrent
+    runs cannot see each other's list.
+    """
+    token = _sweep_admins.set(list(get_active_admins()))
+    try:
+        yield
+    finally:
+        _sweep_admins.reset(token)
+
+
 def _admins() -> list[Any]:
-    """Every active Admin. The fallback for work nobody owns."""
+    """Every active Admin. The fallback for work nobody owns.
+
+    Reads the sweep-scoped list when one is open (``cached_admin_recipients``),
+    and queries afresh otherwise — the request path is never served from a cache.
+    """
+    cached = _sweep_admins.get()
+    if cached is not None:
+        return cached
     return list(get_active_admins())
 
 
@@ -425,6 +469,43 @@ def build_passport_alert(passport: Any) -> AlertSpec:
         # nearest retrievable record.
         source_api_path=f"/api/v1/applicants/{passport.applicant_id}/",
         due_at=_nepal_midnight(expiry),
+    )
+
+
+def build_reminder_alert(reminder: Any) -> AlertSpec:
+    """Alert for a staff-set follow-up reminder whose day has arrived.
+
+    The **due date is the discriminator**: rescheduling an open reminder mints a
+    new key — the orphaned old key auto-resolves on the next sweep, and a fresh
+    alert is raised when the new date arrives. Completing or dismissing the
+    reminder removes it from the due selector entirely, which resolves the alert
+    the same way; a reminder is the first sweep source whose rows exist *only*
+    to be swept.
+
+    The body is the staff member's own note — the reminder's whole purpose is
+    to say "why" in their words — prefixed with the owning record's name so the
+    feed row is actionable without a click.
+    """
+    if reminder.applicant is not None:
+        owner_name = reminder.applicant.full_name
+    else:
+        owner_name = reminder.client.name
+
+    return AlertSpec(
+        notification_type=NotificationType.CUSTOM_REMINDER,
+        dedupe_key=_key(
+            NotificationType.CUSTOM_REMINDER,
+            SourceEntityType.REMINDER,
+            reminder.id,
+            str(reminder.due_date),
+        ),
+        title=f"Reminder: {owner_name}",
+        body=reminder.note,
+        source_app="reminders",
+        source_entity_type=SourceEntityType.REMINDER,
+        source_entity_id=reminder.id,
+        source_api_path=f"/api/v1/reminders/{reminder.id}/",
+        due_at=_nepal_midnight(reminder.due_date),
     )
 
 

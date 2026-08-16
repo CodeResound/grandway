@@ -1,7 +1,7 @@
 # Data Contract — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.3.0
+**Version:** 1.4.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns the permanent, authoritative identity of a person the consultancy works with — name, date of birth, contact numbers, addresses, passport, family, emergency contacts, and standing. It does **not** own study objectives (`applicant_journeys`), academic history (`education`, not built), test attempts (`test_scores`, not built), or any file. It owns no history table either — an applicant's history is the central `audit` log filtered to that applicant. It carries **no reference to the originating lead**: `leads.Lead` owns that link, so this app has no dependency on `leads`.
@@ -17,6 +17,7 @@
 | 1.1.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. A photograph now has a home in `uploaded_files`; this model still holds no reference, and nothing marks a primary photograph |
 | 1.2.0 | 2026-07-24 | AI (Claude Opus 4.8) | Three search indexes added (no column change): GIN trigram on `Applicant.email`, B-tree on `ApplicantContactNumber.number` and `PassportDetail.passport_number`. **Recorded the first outbound read of `applicant_journeys` from this app** — the list response projects a `destinations` array and three list filters resolve through the reverse `journeys` accessor. It is a reverse-accessor read, not an import, so the FK still runs one direction only; §8 documents the derived read model |
 | 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name` on Applicant, FamilyMember, EmergencyContact). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.4.0 | 2026-08-02 | AI (Claude Opus 5) | Two search indexes added (no column change): GIN trigram on `ApplicantContactNumber.number` and `PassportDetail.passport_number`. Corrects `1.2.0` — the B-trees it added cannot serve the leading-wildcard `icontains` that `search_applicants` issues. Added for the `search` app's applicant bucket |
 
 ---
 
@@ -126,6 +127,7 @@
 **Indexes:**
 - `uniq_applicant_contact_number` — unique constraint on `(applicant, number)`
 - `appl_contact_number_idx` — B-tree on `number` alone. The unique constraint's leading column is the applicant, so it cannot serve `search_applicants`, which knows the number and not the person (migration `0002_search_indexes`).
+- `appl_contact_num_trgm_idx` — GIN `gin_trgm_ops` on `number`. The B-tree above cannot serve the leading-wildcard `number__icontains` that `search_applicants` issues, so a phone lookup was scanning this table end to end. The mirror of `leads.LeadContactNumber`'s trigram index, for the same reason (migration `0005_trigram_search_indexes`).
 
 **Soft Delete:** N/A — replaced wholesale on update and cascade-deleted with the applicant, which is itself never deleted. Removal is a correction, not a lifecycle event.
 
@@ -185,7 +187,8 @@
 
 **Indexes:**
 - `expiry_date` (`db_index=True`) — supports the expiry queries the notification module will need, and the dashboard's expiring-passport blocker.
-- `appl_passport_number_idx` — B-tree on `passport_number`, supporting `search_applicants`'s passport lookup. Numbers are upper-cased on write, so it serves both equality and prefix matching (migration `0002_search_indexes`).
+- `appl_passport_number_idx` — B-tree on `passport_number`. Numbers are upper-cased on write, so it serves equality and prefix matching (migration `0002_search_indexes`).
+- `appl_passport_num_trgm_idx` — GIN `gin_trgm_ops` on `passport_number`. This is the index that actually serves `search_applicants`: it matches with `icontains`, and staff routinely type the last few digits of a passport rather than the whole number, which no B-tree can serve (migration `0005_trigram_search_indexes`).
 
 **Soft Delete:** N/A — upserted in place and cascade-deleted with the applicant.
 

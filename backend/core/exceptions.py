@@ -27,7 +27,13 @@ _EXCEPTION_MAP: dict[type, tuple[str, int]] = {
 }
 
 
-def _error_response(code: str, message: str, details: dict | list, http_status: int) -> Response:
+def _error_response(
+    code: str,
+    message: str,
+    details: dict | list,
+    http_status: int,
+    headers: dict[str, str] | None = None,
+) -> Response:
     return Response(
         {
             "success": False,
@@ -39,7 +45,30 @@ def _error_response(code: str, message: str, details: dict | list, http_status: 
             "meta": {},
         },
         status=http_status,
+        headers=headers or None,
     )
+
+
+def _protocol_headers(exc: Exception) -> dict[str, str]:
+    """The headers the HTTP spec attaches to a rejection, not the body.
+
+    DRF's own handler builds these and this module replaces its response with a
+    standard-envelope one, so without re-deriving them they are silently lost:
+    ``WWW-Authenticate`` on a 401 (RFC 7235 requires it on every 401) and
+    ``Retry-After`` on a 429 (without it a throttled client can only guess, and
+    guessing wrong is what turns a rate limit into a retry storm).
+
+    Read off the exception rather than off DRF's response so the two can never
+    disagree — it is the same source DRF reads.
+    """
+    headers: dict[str, str] = {}
+    auth_header = getattr(exc, "auth_header", None)
+    if auth_header:
+        headers["WWW-Authenticate"] = auth_header
+    wait = getattr(exc, "wait", None)
+    if wait:
+        headers["Retry-After"] = "%d" % wait
+    return headers
 
 
 def global_exception_handler(exc: Exception, context: dict) -> Response:
@@ -71,6 +100,7 @@ def global_exception_handler(exc: Exception, context: dict) -> Response:
                 message=message,
                 details={},
                 http_status=http_status,
+                headers=_protocol_headers(exc),
             )
 
     return _error_response(
@@ -78,4 +108,5 @@ def global_exception_handler(exc: Exception, context: dict) -> Response:
         message=str(getattr(exc, "detail", exc)),
         details={},
         http_status=response.status_code,
+        headers=_protocol_headers(exc),
     )

@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     "checklists",
     "dashboards",
     "notifications",
+    "reminders",
+    "search",
 ]
 
 # Switch off every app's signal side effects for this process (§11). Set it for
@@ -56,6 +58,19 @@ DISABLE_SIGNALS = False
 
 # The authenticate app owns the platform's identity layer with a custom user model.
 AUTH_USER_MODEL = "authenticate.User"
+
+# How many reverse proxies sit in front of the application, and therefore how far
+# from the right of X-Forwarded-For the real client address is. Read once here
+# because two separate subsystems need the same answer — DRF's throttles and
+# django-axes' lockout — and a deployment where they disagreed would rate-limit
+# one identity while locking out another. See REST_FRAMEWORK["NUM_PROXIES"] and
+# the AXES_IPWARE_* block for what each does with it.
+#
+# 0 (the default) means nothing proxies the app: X-Forwarded-For is ignored
+# entirely in favour of REMOTE_ADDR. Set it to the real number of hops at deploy
+# time — one for a single nginx, two behind nginx + a load balancer. Too low is
+# safe (it reads a trusted hop); too high trusts a header the client controls.
+_NUM_PROXIES = config("NUM_PROXIES", default=0, cast=int)
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -105,6 +120,34 @@ DATABASES = {
     }
 }
 
+# ---------------------------------------------------------------------------
+# Cache — the store behind DRF's rate limiting.
+#
+# This is not a performance cache; nothing in this project caches for speed. It
+# exists because DRF's throttle classes keep their counters in it, so whatever
+# backend is configured here *is* the rate limiter's memory.
+#
+# Django's implicit default is LocMemCache, which is per-process. Under any real
+# deployment (gunicorn with N workers) that silently multiplies every configured
+# limit by N and resets all counters on each restart — so `auth_login_ip:
+# 20/minute` is really 20 per minute per worker. Naming the backend here makes
+# that visible and overridable rather than inherited by accident.
+#
+# The default stays local: §37 makes local-first the posture, and a single-process
+# deployment is correct for it. A multi-worker deployment must point CACHE_URL at
+# a shared backend (Redis/Valkey — a derived, rebuildable store per §37) or its
+# rate limits are decorative. Guarded by core/tests/test_throttle_backend.py.
+# ---------------------------------------------------------------------------
+CACHES = {
+    "default": {
+        "BACKEND": config(
+            "CACHE_BACKEND",
+            default="django.core.cache.backends.locmem.LocMemCache",
+        ),
+        "LOCATION": config("CACHE_LOCATION", default="grandway-default"),
+    }
+}
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {
@@ -138,6 +181,22 @@ AXES_COOLOFF_TIME = timedelta(minutes=config("AXES_COOLOFF_MINUTES", default=15,
 AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
 AXES_RESET_ON_SUCCESS = True
 AXES_ENABLE_ACCESS_FAILURE_LOG = True
+
+# How axes resolves "the client's IP", kept in step with DRF's NUM_PROXIES above
+# so the lockout and the throttle can never disagree about who they are counting.
+#
+# axes defaults to REMOTE_ADDR alone, which is the safe default but the wrong
+# answer behind a proxy: REMOTE_ADDR is then the proxy for *every* request, so
+# all users share one ip_address bucket. Because AXES_LOCKOUT_PARAMETERS locks on
+# ip_address as well as username, one attacker's failures would lock out every
+# legitimate user arriving through the same proxy — a self-inflicted outage.
+#
+# With proxies declared, axes counts in from the right of X-Forwarded-For exactly
+# as DRF does. With none (the default 0), REMOTE_ADDR stays authoritative and the
+# client-supplied header is ignored.
+if _NUM_PROXIES:
+    AXES_IPWARE_PROXY_COUNT = _NUM_PROXIES
+    AXES_IPWARE_META_PRECEDENCE_ORDER = ("HTTP_X_FORWARDED_FOR", "REMOTE_ADDR")
 
 # django-otp: TOTP MFA. The issuer label shown in authenticator apps. No
 # OTPMiddleware is installed — the authenticate login service verifies TOTP codes
@@ -207,6 +266,15 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardPagination",
     "PAGE_SIZE": 20,
     "EXCEPTION_HANDLER": "core.exceptions.global_exception_handler",
+    # MUST be an integer, never None. Left at DRF's default of None,
+    # `SimpleRateThrottle.get_ident` falls through to using the whole
+    # X-Forwarded-For header verbatim as the throttle identity — and that header
+    # is supplied by the caller. An attacker varying it per request lands in a
+    # fresh bucket every time, silently voiding LoginIPThrottle and
+    # RefreshThrottle, the two limits standing in front of credential stuffing.
+    # An integer makes DRF count in from the right instead, past the hops it
+    # trusts, to an address the client cannot forge. See _NUM_PROXIES above.
+    "NUM_PROXIES": _NUM_PROXIES,
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -219,6 +287,12 @@ REST_FRAMEWORK = {
         "auth_login_ip": "20/minute",
         "auth_login_user": "10/minute",
         "auth_refresh": "60/minute",
+        # Global search: its own per-user bucket rather than the shared "user"
+        # rate. One search is up to nine queries across seven apps and is driven
+        # keystroke by keystroke, so without a scope of its own an undebounced
+        # search box would spend the whole 1000/hour API budget and throttle the
+        # user out of every other endpoint. See search/throttling.py.
+        "search_query": "60/minute",
     },
 }
 
@@ -247,6 +321,14 @@ SIMPLE_JWT = {
 AUTH_SESSION_IDLE_LIFETIME = timedelta(hours=config("AUTH_SESSION_IDLE_HOURS", default=12, cast=int))
 AUTH_SESSION_ABSOLUTE_LIFETIME = timedelta(days=config("AUTH_SESSION_ABSOLUTE_DAYS", default=7, cast=int))
 AUTH_MAX_ACTIVE_DEVICES = config("AUTH_MAX_ACTIVE_DEVICES", default=3, cast=int)
+
+# How stale AuthSession.last_used_at may get before an authenticated request
+# refreshes it. The column is shown to users on the "your active sessions"
+# screen, so it has to mean what it says — but writing it on every request would
+# add an UPDATE to the hot path of every authenticated call in the project. A
+# coarse resolution buys the honesty for roughly one write per session per
+# interval. Set to 0 to write on every request.
+AUTH_SESSION_LAST_USED_RESOLUTION = timedelta(minutes=config("AUTH_SESSION_LAST_USED_MINUTES", default=5, cast=int))
 
 # Refresh-cookie transport. Development returns the refresh token in the response
 # body (cookie disabled); production overrides AUTH_REFRESH_COOKIE_ENABLED=True with

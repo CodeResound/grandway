@@ -269,16 +269,25 @@ def get_unresolved_required_items(checklist: Checklist) -> QuerySet[ChecklistIte
 _LIVE_CHECKLIST_STATUSES: tuple[str, ...] = (ChecklistStatus.DRAFT, ChecklistStatus.ACTIVE)
 
 
+#: The joins every item worklist needs. ``checklist__assigned_to`` is here for a
+#: consumer rather than for a response field: ``notifications`` routes an alert
+#: to the item's assignee and falls back to the *checklist's*, so without this
+#: join the nightly sweep issued one query per unassigned item — exactly the row
+#: population these worklists are largest in (§6, N+1 prevention).
+_ITEM_RELATED: tuple[str, ...] = (
+    "checklist",
+    "checklist__journey",
+    "checklist__journey__applicant",
+    "checklist__country",
+    "checklist__assigned_to",
+    "assigned_to",
+)
+
+
 def _live_items() -> QuerySet[ChecklistItem]:
     """Items on a live checklist that are not yet resolved, with owners joined."""
     return (
-        ChecklistItem.objects.select_related(
-            "checklist",
-            "checklist__journey",
-            "checklist__journey__applicant",
-            "checklist__country",
-            "assigned_to",
-        )
+        ChecklistItem.objects.select_related(*_ITEM_RELATED)
         .filter(checklist__status__in=_LIVE_CHECKLIST_STATUSES)
         .exclude(status__in=RESOLVED_ITEM_STATUSES)
     )
@@ -363,13 +372,7 @@ def get_blocked_checklist_items(
     deliberately — ``status_note`` carries why, and is mandatory for this status.
     """
     queryset = (
-        ChecklistItem.objects.select_related(
-            "checklist",
-            "checklist__journey",
-            "checklist__journey__applicant",
-            "checklist__country",
-            "assigned_to",
-        )
+        ChecklistItem.objects.select_related(*_ITEM_RELATED)
         .filter(checklist__status__in=_LIVE_CHECKLIST_STATUSES, status=ItemStatus.BLOCKED)
         .order_by("-updated_at", "-id")
     )
