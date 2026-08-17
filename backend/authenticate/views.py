@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.network import client_ip
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from django.conf import settings
@@ -64,7 +65,9 @@ from authenticate.throttling import LoginIPThrottle, LoginUsernameThrottle, Refr
 
 
 def _client_ip(request: Request) -> str | None:
-    return request.META.get("REMOTE_ADDR")
+    # Proxy-aware via NUM_PROXIES — keeps audit rows in step with what the
+    # throttles and axes attribute the request to (2026-08-17 audit, S7).
+    return client_ip(request)
 
 
 def _user_agent(request: Request) -> str:
