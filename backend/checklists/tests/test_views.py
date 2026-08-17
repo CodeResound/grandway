@@ -25,7 +25,9 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase
 
+from checklists import services
 from checklists.constants import ChecklistStatus, ErrorCode, ItemStatus, ItemType, TemplateStatus
+from checklists.models import ChecklistItem
 from checklists.tests import factories as f
 
 CHECKLISTS = "/api/v1/checklists/"
@@ -274,6 +276,39 @@ class TemplateEndpointTests(ChecklistsAPITestCase):
 # ---------------------------------------------------------------------------
 # Checklists
 # ---------------------------------------------------------------------------
+
+
+class ChecklistDetailQueryCountTests(ChecklistsAPITestCase):
+    """Item assignee briefs must not cost per-item queries (2026-08-17 audit, P1)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.auth(self.admin)
+
+    def _checklist_with_items(self, extra_requirements: int) -> Any:
+        for index in range(extra_requirements):
+            f.add_requirement(self.admin, self.template, label=f"Extra requirement {index}")
+        journey = f.make_journey(self.admin, self.applicant)
+        checklist = services.instantiate_checklist(journey=journey, template=self.template, actor=self.admin)
+        # Point both per-item FKs at real users so the serializer actually has
+        # briefs to render — the N+1 this pins down only fires on non-null FKs.
+        ChecklistItem.objects.filter(checklist=checklist).update(
+            assigned_to=self.lead_manager, completed_by=self.admin
+        )
+        return checklist
+
+    def test_query_count_does_not_grow_with_the_number_of_items(self) -> None:
+        small_checklist = self._checklist_with_items(0)  # the template's 3 items
+        with CaptureQueriesContext(connection) as small:
+            first = self.client.get(f"{CHECKLISTS}{small_checklist.id}/")
+
+        large_checklist = self._checklist_with_items(9)  # 12 items
+        with CaptureQueriesContext(connection) as large:
+            second = self.client.get(f"{CHECKLISTS}{large_checklist.id}/")
+
+        self.assertEqual(len(first.json()["data"]["items"]), 3)
+        self.assertEqual(len(second.json()["data"]["items"]), 12)
+        self.assertEqual(len(large.captured_queries), len(small.captured_queries))
 
 
 class ChecklistEndpointTests(ChecklistsAPITestCase):

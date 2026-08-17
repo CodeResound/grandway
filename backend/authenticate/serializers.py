@@ -12,7 +12,7 @@ from rest_framework import serializers
 from authenticate.constants import AuthorityType
 from authenticate.models import AuthEvent, AuthSession, User
 from authenticate.selectors import has_confirmed_mfa
-from authenticate.services import mfa_enrollment_required
+from authenticate.services import is_mfa_mandatory
 
 
 class LoginSerializer(serializers.Serializer):
@@ -76,10 +76,16 @@ class CurrentUserSerializer(serializers.ModelSerializer):
         return bool(state and state.must_change_password)
 
     def get_mfa_enabled(self, obj: User) -> bool:
+        # The account list annotates has_mfa (selectors.get_manageable_users)
+        # so a page costs one subquery, not two device queries per row; the
+        # single-object /me path has no annotation and falls back.
+        has_mfa = getattr(obj, "has_mfa", None)
+        if has_mfa is not None:
+            return bool(has_mfa)
         return has_confirmed_mfa(obj)
 
     def get_mfa_enrollment_required(self, obj: User) -> bool:
-        return mfa_enrollment_required(obj)
+        return is_mfa_mandatory(obj) and not self.get_mfa_enabled(obj)
 
 
 # --- Phase 3: account & session management ---------------------------------

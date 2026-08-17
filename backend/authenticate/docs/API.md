@@ -152,6 +152,7 @@ Cross-user account administration. Authorized by an inline authority hierarchy (
 - `AUTH_USERNAME_TAKEN` (409) — username already used.
 - `VALIDATION_ERROR` (400) — missing/invalid fields.
 **Business rules:** Created accounts are `must_change_password=true`; a temp password is generated (returned once) when `password` is omitted. Writes `account_created`.
+**Query access pattern:** `select_related("security_state")` plus an `Exists` annotation for the confirmed-TOTP flag — the two MFA fields previously cost up to two device queries per row (2026-08-17 audit, P2). Fixed query count asserted by `tests/test_accounts.py::TestAccountListQueryCount`.
 
 ### 4.2 Read / update account — `GET|PATCH /api/v1/auth/users/<id>/`
 

@@ -144,8 +144,15 @@ def get_checklists() -> QuerySet[Checklist]:
 
 
 def get_checklist_by_id(checklist_id: str) -> Checklist | None:
-    """One checklist with its detail relations and progress, or None."""
-    return get_checklists().filter(pk=checklist_id).first()
+    """One checklist with its detail relations and progress, or None.
+
+    The detail response nests every item with its ``assigned_to`` and
+    ``completed_by`` briefs; without the prefetch each item costs up to two
+    FK queries (~51 extra on a 25-item checklist — 2026-08-17 audit, P1).
+    """
+    return (
+        get_checklists().prefetch_related("items__assigned_to", "items__completed_by").filter(pk=checklist_id).first()
+    )
 
 
 def get_checklists_for_journey(journey_id: str) -> QuerySet[Checklist]:

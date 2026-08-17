@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -173,6 +176,38 @@ class TestAccountManagement(APITestCase):
         resp = self.client.get(self._url("user-events", self.lm))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(resp.data["data"]), 1)
+
+
+class TestAccountListQueryCount(APITestCase):
+    """The MFA fields must not cost per-row device queries (2026-08-17 audit, P2)."""
+
+    def setUp(self) -> None:
+        self.superadmin = make("root-qc", AuthorityType.SUPERADMIN)
+        self.url = reverse("v1:auth:user-list")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_for(self.superadmin)}")
+
+    def _populate(self, count: int, offset: int = 0) -> None:
+        for index in range(count):
+            user = make(f"adm-qc-{offset + index}", AuthorityType.ADMIN)
+            # Every second account has a confirmed device, so both values of
+            # the annotated flag are exercised on the same page.
+            if index % 2:
+                TOTPDevice.objects.create(user=user, name="default", confirmed=True)
+
+    def test_query_count_does_not_grow_with_the_number_of_accounts(self) -> None:
+        self._populate(2)
+        with CaptureQueriesContext(connection) as small:
+            first = self.client.get(self.url, {"page_size": 100})
+
+        self._populate(6, offset=2)
+        with CaptureQueriesContext(connection) as large:
+            second = self.client.get(self.url, {"page_size": 100})
+
+        self.assertEqual(len(first.data["data"]), 2)
+        self.assertEqual(len(second.data["data"]), 8)
+        self.assertTrue(any(row["mfa_enabled"] for row in second.data["data"]))
+        self.assertTrue(any(not row["mfa_enabled"] for row in second.data["data"]))
+        self.assertEqual(len(large.captured_queries), len(small.captured_queries))
 
 
 class TestOwnSessions(APITestCase):

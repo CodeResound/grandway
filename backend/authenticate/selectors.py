@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, QuerySet
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from authenticate.constants import AuthorityType
@@ -158,11 +158,23 @@ def has_confirmed_mfa(user: User) -> bool:
 
 
 def get_manageable_users(actor: User) -> QuerySet[User]:
-    """Accounts the actor is authorized to manage (their one managed tier)."""
+    """Accounts the actor is authorized to manage (their one managed tier).
+
+    ``has_mfa`` is annotated so the account list's two MFA fields read one
+    subquery result per row instead of issuing up to two ``TOTPDevice``
+    queries per user (2026-08-17 audit, P2). Same rule as
+    ``get_confirmed_totp_devices``: any confirmed device counts, whatever its
+    name.
+    """
     tier = managed_tier_for(actor)
     if tier is None:
         return User.objects.none()
-    return User.objects.filter(authority_type=tier).select_related("security_state").order_by("username")
+    return (
+        User.objects.filter(authority_type=tier)
+        .select_related("security_state")
+        .annotate(has_mfa=Exists(TOTPDevice.objects.filter(user=OuterRef("pk"), confirmed=True)))
+        .order_by("username")
+    )
 
 
 def get_manageable_user(actor: User, user_id: str) -> User | None:

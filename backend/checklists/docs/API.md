@@ -161,6 +161,7 @@ starts an empty checklist as a `draft`.
 **Policy key(s):** `checklists.checklist.read` (risk: medium)
 **Access:** Admin, Lead Manager
 **Response:** `DATA_CONTRACT.md §3` with every item (`§4`), the `progress` counts, and the lifecycle stamps.
+**Query access pattern:** the list joins plus `prefetch_related("items__assigned_to", "items__completed_by")` — the nested item briefs previously cost up to two FK queries per item (2026-08-17 audit, P1). Fixed query count asserted by `tests/test_views.py::ChecklistDetailQueryCountTests`.
 **Error codes:** `CHECKLISTS_CHECKLIST_NOT_FOUND` (404)
 
 ### 2.4 Edit a checklist — `PATCH /api/v1/checklists/<checklist_id>/`
