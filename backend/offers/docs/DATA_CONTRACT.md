@@ -1,7 +1,7 @@
 # Data Contract — Offers
 
 **Owner app:** `offers`
-**Version:** 1.1.0
+**Version:** 1.1.1
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the formal admission decisions institutions make against applicant journeys — what was offered, for which program and intake, under what conditions and money terms, and how the applicant responded. It does **not** own the study plan (`applicant_journeys`), the person (`applicants`), or the catalogue the offer references (`institutions`). It owns no history table — an offer's history is the central `audit` log filtered to that offer.
@@ -15,6 +15,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — `Offer` and `OfferCondition` |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. An offer letter now has a home in `uploaded_files`; this model still holds no reference to it |
 | 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`institution_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.1.1 | 2026-08-17 | AI (Claude Fable 5) | No schema field change. Added `offer_decided_at_idx` on `decided_at` for the dashboard decision-window queries (migration `0003`, audit P4). Reversible; no data impact |
 
 ---
 
@@ -111,6 +112,7 @@
 - `(journey, -created_at)` — `offer_journey_recent_idx`. Supports the Journey Detail offers panel: one journey's offers, newest first.
 - `(status, -created_at)` — `offer_status_recent_idx`. Supports the Offer List worklist filtered by status.
 - `response_deadline` (`db_index=True`) — supports deadline reporting and the `deadline_before` filter.
+- `decided_at` — `offer_decided_at_idx`. Supports the dashboard decision windows: `get_decision_counts` filters `decided_at__isnull=False` plus a date range on every pipeline/outcomes/conversion section render (migration `0003`, 2026-08-17 audit P4).
 
 **Soft Delete:** `N/A — no deletion at all.` No offer is ever deleted and there is no delete endpoint or delete service. `concepts/offers.txt` — "No deletion of offer history. Replaced or outdated offers should remain visible as part of the journey record." An offer that no longer applies is given a terminal status. `journey`, `institution`, `campus`, `program`, and `created_by` are all `PROTECT`, so nothing an offer references can be removed out from under it either.
 

@@ -118,7 +118,11 @@ def filter_files(
 
     checksum = filters.get("checksum")
     if checksum:
-        queryset = queryset.filter(checksum_sha256__iexact=checksum)
+        # Stored digests come from hashlib's hexdigest() and are always
+        # lowercase, so lowercasing the caller's value keeps the lookup
+        # case-insensitive while letting the checksum B-tree serve it —
+        # __iexact compiled to UPPER(col) and bypassed the index (audit P7).
+        queryset = queryset.filter(checksum_sha256=checksum.lower())
 
     is_archived = filters.get("is_archived")
     if is_archived is not None:

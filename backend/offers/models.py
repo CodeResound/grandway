@@ -194,6 +194,10 @@ class Offer(BaseModel):
             models.Index(fields=["journey", "-created_at"], name="offer_journey_recent_idx"),
             # The Offer List worklist: "everything still awaiting a response".
             models.Index(fields=["status", "-created_at"], name="offer_status_recent_idx"),
+            # Dashboard decision windows: get_decision_counts filters
+            # decided_at__isnull=False plus a date range on every pipeline/
+            # outcomes/conversion section render (audit P4).
+            models.Index(fields=["decided_at"], name="offer_decided_at_idx"),
         ]
 
     def __str__(self) -> str:
