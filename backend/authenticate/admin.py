@@ -1,7 +1,9 @@
 """Django admin registration for the authenticate app.
 
-Sensitive material (password hash, refresh-token hash) is never editable and the
-password hash is never displayed.
+Sensitive material (password hash, refresh-token hash) is never editable, and
+the password hash is excluded from the user form outright — it earlier sat in
+``readonly_fields``, which still renders the value (caught by the 2026-08-17
+security audit, S3).
 
 **Fields with a service-layer invariant are read-only here (§13).** The admin
 form calls a model's own validation and nothing else — not the authority
@@ -38,9 +40,11 @@ class UserAdmin(admin.ModelAdmin):
     list_display = ("username", "authority_type", "display_name", "is_active", "is_staff", "created_at")
     list_filter = ("authority_type", "is_active", "is_staff")
     search_fields = ("username", "display_name", "full_name", "email")
+    # The hash is *excluded*, not read-only: a readonly field still renders its
+    # value, and an Argon2 hash on screen is disclosure of hash material.
+    exclude = ("password",)
     readonly_fields = (
         "id",
-        "password",
         "last_login",
         "created_at",
         "updated_at",

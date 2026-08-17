@@ -81,6 +81,10 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # django-otp: must sit directly after AuthenticationMiddleware. Provides
+    # request.user.is_verified(), which the OTP-gated admin (core.apps) relies
+    # on; JWT API requests never carry a session and are unaffected.
+    "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # django-axes: must be the LAST middleware so it observes the final auth outcome.

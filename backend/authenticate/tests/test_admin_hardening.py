@@ -10,18 +10,22 @@ straight to Superadmin, and reactivating a blocked account while
 `UserSecurityState.blocked_at` stayed set. Both wrote zero audit rows. These
 tests pin the fields shut.
 
-They deliberately do *not* assert who may reach `/admin/` at all — that is a
-separate, still-open question (§28 item 5). What they assert is that reaching it
-grants no authority the API would refuse.
+Who may reach `/admin/` at all is decided by the OTP gate (`core.apps`, tested
+in `core/tests/test_admin_otp.py`): since 2026-08-17 a session with no verified
+TOTP device is bounced at the door. These tests therefore log in *verified* —
+what they assert is that even an admitted admin gains no authority the API
+would refuse.
 """
 
 from __future__ import annotations
 
 from django.test import Client, TestCase
+from django_otp import DEVICE_ID_SESSION_KEY
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from authenticate import services
 from authenticate.constants import AuthorityType
-from authenticate.models import AuthEvent, UserSecurityState
+from authenticate.models import AuthEvent, User, UserSecurityState
 
 STRONG_PW = "Str0ng-Passphrase-17"
 
@@ -37,12 +41,21 @@ def make(username: str, authority: str):
     )
 
 
+def login_verified(client: Client, user: User) -> None:
+    """Log in with a session that has passed the admin's TOTP gate."""
+    client.force_login(user)
+    device = TOTPDevice.objects.create(user=user, name="test", confirmed=True)
+    session = client.session
+    session[DEVICE_ID_SESSION_KEY] = device.persistent_id
+    session.save()
+
+
 class AdminPrivilegeEscalationTests(TestCase):
     def setUp(self):
         self.superadmin = make("adm_super", AuthorityType.SUPERADMIN)
         self.victim = make("adm_victim", AuthorityType.LEAD_MANAGER)
         self.client_ = Client()
-        self.client_.force_login(self.superadmin)
+        login_verified(self.client_, self.superadmin)
 
     def _post_user_change(self, **overrides):
         data = {
@@ -101,7 +114,7 @@ class AdminSecurityStateTests(TestCase):
         self.superadmin = make("adm_super2", AuthorityType.SUPERADMIN)
         self.victim = make("adm_victim2", AuthorityType.LEAD_MANAGER)
         self.client_ = Client()
-        self.client_.force_login(self.superadmin)
+        login_verified(self.client_, self.superadmin)
 
     def test_forced_password_change_cannot_be_cleared_through_the_admin(self):
         state = UserSecurityState.objects.get(user=self.victim)
@@ -128,7 +141,7 @@ class AdminAuditTrailTests(TestCase):
     def setUp(self):
         self.superadmin = make("adm_super3", AuthorityType.SUPERADMIN)
         self.client_ = Client()
-        self.client_.force_login(self.superadmin)
+        login_verified(self.client_, self.superadmin)
 
     def test_auth_events_cannot_be_deleted_through_the_admin(self):
         event = services.record_auth_event(

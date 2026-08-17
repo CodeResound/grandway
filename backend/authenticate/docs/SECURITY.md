@@ -1,7 +1,7 @@
 # Security — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Status:** Active
 **Created:** 2026-07-22
 
@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-07-22 | AI (Claude Opus 4.8) | Initial security notes — Phase 1 foundation |
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — TOTP section (§9), placement/secret/mandatory/recovery |
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — inline authority-hierarchy authorization (§10), enumeration-safe targeting, session-invalidating admin actions |
+| 1.3.0 | 2026-08-17 | AI (Claude Fable 5) | §11: /admin/ OTP-gated via OTPAdminSite + OTPMiddleware; password hash excluded from the user form (was readonly-rendered). Security audit S3. Old §11 renumbered §12 |
 
 ---
 
@@ -142,7 +143,24 @@ request path yet — that remains a separate, separately-approved effort per `CL
 - Every management action writes an `AuthEvent` with the acting `actor` and the `subject`,
   so cross-user actions are always attributable (the concept's accountability requirement).
 
-## §11 Deferred (later phases)
+## §11 Django admin — OTP-gated, no service-layer side door
+
+Since 2026-08-17 (pre-production security audit, finding S3) `/admin/` is served by
+`django_otp.admin.OTPAdminSite` (swapped in `core.apps.CoreConfig.ready()`, backed by
+`OTPMiddleware` in `MIDDLEWARE`): admin login requires a **verified TOTP device** in the
+same session, so the password-only side door around the API's MFA mandate is closed. An
+account with no confirmed device cannot enter the admin at all — fail closed; enrol via
+the API's MFA endpoints first. This narrows the earlier posture (§13 field hardening only)
+where any `is_staff` password login was admitted.
+
+The admin remains a read surface: accounts cannot be created, authority/staff/active
+flags are read-only, and the password hash is **excluded** from the user form outright —
+it earlier sat in `readonly_fields`, which still renders the value. Admin sessions are
+still Django sessions, not `AuthSession` rows — they remain outside the API's server-side
+revocation model, which is why the OTP gate and the read-only surface both matter.
+Tested in `core/tests/test_admin_otp.py` and `tests/test_admin_hardening.py`.
+
+## §12 Deferred (later phases)
 
 The permission-key request-path engine (a `permissions` app + `RequiresPermission` DRF
 class) is not built — authorization is the inline hierarchy above. A standalone central

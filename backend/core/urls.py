@@ -3,6 +3,8 @@ from django.urls import include, path
 
 from core.views import health, ready
 
+# /admin/ is OTP-gated: core.apps.CoreConfig.ready() swaps admin.site to
+# django_otp's OTPAdminSite (2026-08-17 security audit, S3).
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health, name="health"),
