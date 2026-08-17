@@ -1,6 +1,19 @@
-from decouple import Csv, config
+from pathlib import Path
 
-from .base import *  # noqa: F401, F403
+import decouple
+from decouple import Csv
+
+# Same env-file rule as production.py, pointed at .env.staging: read the file
+# when present, otherwise OS environment only — never decouple's default
+# search, which could consume a stray dev-valued `.env`.
+_env_file = Path(__file__).resolve().parents[3] / ".env.staging"
+if _env_file.exists():
+    decouple.config = decouple.Config(decouple.RepositoryEnv(str(_env_file)))
+else:
+    decouple.config = decouple.Config(decouple.RepositoryEmpty())
+config = decouple.config
+
+from .base import *  # noqa: E402, F401, F403
 
 DEBUG = False
 

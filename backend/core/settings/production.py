@@ -1,6 +1,21 @@
-from decouple import Csv, config
+from pathlib import Path
 
-from .base import *  # noqa: F401, F403
+import decouple
+from decouple import Csv
+
+# §10: production reads .env.production when the file exists. When it does not,
+# fall back to the OS environment ONLY (RepositoryEmpty) — never decouple's
+# default search path, which would silently consume a stray dev-valued `.env`
+# sitting in the working directory. Must run before `from .base import *` so
+# base.py's config() reads the right source.
+_env_file = Path(__file__).resolve().parents[3] / ".env.production"
+if _env_file.exists():
+    decouple.config = decouple.Config(decouple.RepositoryEnv(str(_env_file)))
+else:
+    decouple.config = decouple.Config(decouple.RepositoryEmpty())
+config = decouple.config
+
+from .base import *  # noqa: E402, F401, F403
 
 DEBUG = False
 
