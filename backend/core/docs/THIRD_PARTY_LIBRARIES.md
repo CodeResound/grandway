@@ -6,13 +6,13 @@
 |-------|-------|
 | **Name** | Django |
 | **Purpose** | Web framework |
-| **Package** | `Django==5.1.9` |
-| **Docs** | https://docs.djangoproject.com/en/5.1/ |
+| **Package** | `Django==5.2.17` |
+| **Docs** | https://docs.djangoproject.com/en/5.2/ |
 | **Files used** | All |
 | **Alternatives considered** | FastAPI (rejected: less mature ORM + admin ecosystem for this use case) |
 | **Redundancy check** | None — foundational dependency |
 | **Security concerns** | Keep up-to-date; subscribe to Django security advisories |
-| **Maintenance status** | Active, LTS-adjacent (5.1 receives security patches until April 2026) |
+| **Maintenance status** | Active, LTS (5.2 receives security patches until April 2028; upgraded from EOL 5.1.9 in the 2026-08-17 security-audit remediation) |
 | **Final decision** | Approved — explicitly in architecture spec |
 
 ---
@@ -23,7 +23,7 @@
 |-------|-------|
 | **Name** | Django REST Framework |
 | **Purpose** | API layer — serializers, views, authentication, throttling |
-| **Package** | `djangorestframework==3.15.2` |
+| **Package** | `djangorestframework==3.16.1` |
 | **Docs** | https://www.django-rest-framework.org/ |
 | **Files used** | `core/exceptions.py`, `core/pagination.py`, `core/responses.py`, `core/views.py`, all app views/serializers |
 | **Alternatives considered** | None — standard Django API library |
@@ -40,7 +40,7 @@
 |-------|-------|
 | **Name** | Simple JWT |
 | **Purpose** | JWT authentication for DRF |
-| **Package** | `djangorestframework-simplejwt==5.3.1` |
+| **Package** | `djangorestframework-simplejwt==5.5.1` |
 | **Docs** | https://django-rest-framework-simplejwt.readthedocs.io/ |
 | **Files used** | `core/settings/base.py`, future `auth` app |
 | **Alternatives considered** | `djoser` (rejected: heavier, includes user management we want to own) |
@@ -125,7 +125,7 @@
 |-------|-------|
 | **Name** | gunicorn |
 | **Purpose** | Production WSGI server (production-only) |
-| **Package** | `gunicorn==22.0.0` (prod dependency) |
+| **Package** | `gunicorn==23.0.0` (prod dependency) |
 | **Docs** | https://gunicorn.org/ |
 | **Files used** | `core/wsgi.py` (via deployment config) |
 | **Alternatives considered** | `uvicorn` (async; preferred if ASGI is adopted later) |
