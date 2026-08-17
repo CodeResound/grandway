@@ -26,6 +26,30 @@ DEBUG = False
 AUTH_REFRESH_COOKIE_ENABLED = True
 
 # ---------------------------------------------------------------------------
+# Throttle-counter store.
+#
+# base.py defaults CACHES to per-process LocMemCache, which is correct for the
+# local-first posture but decorative in a multi-worker deployment: every DRF
+# limit silently multiplies by the worker count and resets on restart
+# (2026-08-17 security audit, S5). Production therefore refuses to inherit the
+# default silently: CACHE_BACKEND is required here. Point it at a shared
+# backend (Redis/Valkey — a derived, rebuildable store per §37); choosing
+# LocMemCache explicitly is permitted only alongside THROTTLE_SINGLE_WORKER=
+# true, which is the operator's signed acknowledgment of a one-worker deploy.
+# ---------------------------------------------------------------------------
+CACHES["default"]["BACKEND"] = config("CACHE_BACKEND")  # noqa: F405 — required, no default
+if "locmem" in CACHES["default"]["BACKEND"] and not config(  # noqa: F405
+    "THROTTLE_SINGLE_WORKER", default=False, cast=bool
+):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "CACHE_BACKEND is LocMemCache: rate limits are per-process and reset on "
+        "restart. Set a shared cache backend, or set THROTTLE_SINGLE_WORKER=true "
+        "to acknowledge a single-worker deployment."
+    )
+
+# ---------------------------------------------------------------------------
 # TLS termination.
 #
 # SECURE_SSL_REDIRECT below sends any request Django considers insecure to https.
