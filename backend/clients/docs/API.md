@@ -1,7 +1,7 @@
 # API — Clients
 
 **Owner app:** `clients`
-**Version:** 1.2.0
+**Version:** 1.2.1
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/clients/`
@@ -18,6 +18,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 7 endpoints across one resource |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | §1.7 history entries gained `actor_id` and are now serialized by audit's shared `AuditEventHistorySerializer` (`clients.client.list_history` → 1.1.0). Additive; no other endpoint changed |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`name`, `spokesperson_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.2.1 | 2026-08-17 | AI (Claude Fable 5) | `fiscal_year` filter (§1.1) now round-trips the BS conversion at validation, so a format-valid but unconvertible label (`9999/99`) is a `400` instead of an unhandled `500` (security audit S6) |
 
 ---
 
@@ -77,7 +78,7 @@ These hold on every endpoint below and are not repeated per endpoint.
 - **Auth:** required. Admin or Lead Manager.
 - **Throttle:** project default.
 
-**Query parameters:** `status` (enum, exact — omitting it returns both active and inactive); `search` (partial match, see the access pattern below); `fiscal_year` (`YYYY/YY`, filtered on `created_at`); `page`, `page_size`.
+**Query parameters:** `status` (enum, exact — omitting it returns both active and inactive); `search` (partial match, see the access pattern below); `fiscal_year` (`YYYY/YY`, filtered on `created_at` — validated by round-tripping the actual BS conversion, so a format-valid but unconvertible label like `9999/99` is a `400`, not a `500`); `page`, `page_size`.
 
 **Response:** paginated list of the Client list shape — see `INTEGRATION.md` §4.
 

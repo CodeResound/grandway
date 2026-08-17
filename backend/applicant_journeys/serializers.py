@@ -9,6 +9,7 @@ from typing import Any
 from core.constants import StudyLevel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
+from core.validators import validate_fiscal_year_label
 from rest_framework import serializers
 
 from applicant_journeys.constants import ACTIVE_STAGES, JourneyOutcome, JourneyStage
@@ -117,6 +118,21 @@ class JourneyDetailSerializer(JourneyListSerializer):
 
     def get_deferred_at_bs(self, obj: ApplicantJourney) -> dict[str, Any] | None:
         return _bs(obj.deferred_at)
+
+
+class JourneyListFilterSerializer(serializers.Serializer):
+    """GET /journeys/ query params, validated before they reach a selector.
+
+    A malformed applicant/country UUID or fiscal-year label previously raised
+    inside ``filter_journeys`` and surfaced as a 500; the same mistake is a
+    400 here.
+    """
+
+    applicant = serializers.UUIDField(required=False)
+    stage = serializers.ChoiceField(choices=JourneyStage.choices, required=False)
+    target_country = serializers.CharField(max_length=100, required=False)
+    target_country_ref = serializers.UUIDField(required=False)
+    fiscal_year = serializers.CharField(required=False, validators=[validate_fiscal_year_label])
 
 
 class JourneyCreateSerializer(serializers.Serializer):

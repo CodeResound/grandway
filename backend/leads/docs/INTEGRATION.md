@@ -1,7 +1,7 @@
 # Integration — Leads
 
 **Owner app:** `leads`
-**Version:** 1.2.0
+**Version:** 1.2.1
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -15,6 +15,7 @@
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Lead list widened (`leads.lead.list` → 1.1.0): `search` now matches email and any contact number, and its results are **relevance-ordered**, so §3's "ordering is fixed newest-first" is no longer unconditionally true. Owner scoping is unchanged. Recorded in §9 that there is still no way to filter leads by country of interest |
 | 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.2.1 | 2026-08-17 | AI (Claude Fable 5) | No endpoint or schema change. List filters are now validated before any query runs: malformed values (non-UUID `source`, unknown `stage`, unconvertible `fiscal_year`) return 400 with field details instead of a 500 — §3 conventions updated |
 
 ---
 
@@ -66,7 +67,7 @@
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). Paginated responses put the array in `data` and fill `meta` with `count`, `page`, `page_size`, `next`, `previous`; `next`/`previous` are absolute URLs or `null`. **Paginated:** lead list, notes list, history list. **Not paginated:** `/sources/` and `/loss-reasons/` — both return the full array with `meta` as `{}`.
 - **IDs:** UUID strings everywhere. Sent as strings in request bodies and path segments.
 - **Times:** ISO 8601, UTC, e.g. `2026-07-23T04:00:00Z`. User-facing datetimes additionally carry a `<field>_bs` sibling holding the Bikram Sambat projection as an object (see `BsDate` in §4). `created_at` and `updated_at` never have a `_bs` sibling.
-- **List/search/filter/order params:** on `GET /api/v1/leads/` only — `stage`, `source` (a lead-source id), `search`, `fiscal_year` (`YYYY/YY`, Nepali fiscal year, filters on creation date). There is no client-controlled ordering anywhere in this module. `GET /api/v1/leads/sources/` and `/loss-reasons/` accept `include_inactive=true` and nothing else.
+- **List/search/filter/order params:** on `GET /api/v1/leads/` only — `stage`, `source` (a lead-source id), `search`, `fiscal_year` (`YYYY/YY`, Nepali fiscal year, filters on creation date). There is no client-controlled ordering anywhere in this module. Malformed values are **rejected with 400, not ignored**: a non-UUID `source`, an unknown `stage`, or a `fiscal_year` that does not convert returns the standard validation error with the field named in `error.details`. A well-formed but unknown `source` id returns an empty page and 200. `GET /api/v1/leads/sources/` and `/loss-reasons/` accept `include_inactive=true` and nothing else.
 - **Ordering.** Notes and history are always newest first; sources and loss reasons are always by `display_order` then `name`. Leads are newest first **except** `GET /api/v1/leads/?search=…`, which is relevance-ordered and only tie-broken by recency. Do not assume `data[0]` is the most recent lead when you passed a `search`.
 - **What `search` matches.** All three name forms, the `email`, and **any** of the lead's contact numbers. All partial, case-insensitive, substring matches. It is **not** fuzzy: a misspelling matches nothing.
 - **How `search` ranks.** `3` a name equals the query, `2` a name starts with it, `1` a name contains it, `0` matched only on email or contact number. Ties fall to newest-first, then id. The score is not returned in the response — only the order reflects it.

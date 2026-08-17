@@ -1,7 +1,7 @@
 # API Documentation — Leads
 
 **App:** `leads`
-**Version:** 1.2.0
+**Version:** 1.2.1
 **Base prefix:** `/api/v1/leads/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Authority and ownership rules are enforced inline per `SECURITY.md` §1 — this app does not use the §9 `is_staff` snippet, because leads are owner-scoped rows.
 **Throttle:** Project DRF defaults only. No custom scopes — every endpoint is authenticated and none is expensive enough to warrant one today (`SECURITY.md` §7).
@@ -16,6 +16,7 @@
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial API documentation — 17 endpoints; conversion deferred to Phase 4 |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Lead list (§3.1) widened: `search` now matches email and any contact number, and results are relevance-ordered rather than newest-first. Owner scoping is unchanged — ranking reorders inside the caller's existing scope. Additive only |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.2.1 | 2026-08-17 | AI (Claude Fable 5) | List filters (§3.1) validated before the selector: malformed `source` UUID, unknown `stage`, or unconvertible `fiscal_year` now returns `400 VALIDATION_ERROR` with field details instead of an unhandled `500` (security audit S6) |
 
 ---
 
@@ -128,7 +129,8 @@ Same shape and same access split as §1. A reason is mandatory whenever a lead i
 - Ranking composes **on top of** owner scoping and never widens it: a Lead Manager's search reorders their own leads and can never surface another manager's.
 
 **Query access pattern:** `selectors.get_leads_for_actor` applies `select_related("source", "created_by")` and `prefetch_related("contact_numbers")`, so rendering a page issues a constant number of queries regardless of page size. `search` runs OR `icontains` across the three name fields (served by the `lead_name_*_trgm_idx` GIN trigram indexes), `email` (`lead_email_trgm_idx`), and `contact_numbers.number` (`lead_contact_number_idx`); the contact-number join can multiply rows, so the selector applies `distinct()`. Ordering and stage/owner filters are served by `lead_owner_recent_idx` and `lead_stage_recent_idx` (`DATA_CONTRACT.md` §3). Relevance is a `Case`/`When` annotation rather than `TrigramSimilarity`, deliberately — the test suite runs on SQLite, where `SIMILARITY` does not exist.
-**Error codes:** none beyond the app-wide 401/403.
+**Validation rules:** all filters are validated by `LeadListFilterSerializer` before any query runs. A malformed `source` (not a UUID), an unknown `stage` value, or a `fiscal_year` label that is malformed or does not convert (e.g. `9999/99`) returns `400 VALIDATION_ERROR` with the offending field in `error.details` — previously the UUID/fiscal-year cases surfaced as unhandled `500`s. A well-formed but unknown `source` id still returns an empty page and `200`.
+**Error codes:** `VALIDATION_ERROR` (400, malformed filter) — plus the app-wide 401/403.
 
 ### 3.2 Create — `POST /api/v1/leads/`
 

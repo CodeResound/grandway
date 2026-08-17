@@ -1,7 +1,7 @@
 # API Documentation — Applicant Journeys
 
 **App:** `applicant_journeys`
-**Version:** 1.1.0
+**Version:** 1.1.1
 **Base prefix:** `/api/v1/journeys/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Journeys are **shared**, not owner-scoped; see `SECURITY.md` §1.
 **Throttle:** Project DRF defaults only. No custom scopes.
@@ -15,6 +15,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial API documentation — 9 endpoints |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint added, changed, or retired. `target_country_ref` (optional catalogue country) is accepted on create and update, returned as a nested object, and filterable exactly — additive, so non-breaking under §22. New error code `JOURNEYS_COUNTRY_NOT_FOUND`. **Recorded the cross-app side effect** setting it now carries: an applicant's checklist appears |
+| 1.1.1 | 2026-08-17 | AI (Claude Fable 5) | List filters (§1.1) validated before the selector: malformed `applicant`/`target_country_ref` UUID, unknown `stage`, or unconvertible `fiscal_year` now returns `400 VALIDATION_ERROR` with field details instead of an unhandled `500` (security audit S6) |
 
 ---
 
@@ -53,7 +54,8 @@
 **Response:** paginated array of the journey **list** shape — `DATA_CONTRACT.md` §1, minus `notes` and all lifecycle-state fields. Newest first.
 **Business rules:** every Admin and Lead Manager sees every journey. Filtering by `applicant` gives the per-person view; filtering by `stage` gives the operational worklist.
 **Query access pattern:** `selectors.get_journeys` applies `select_related("applicant", "created_by")`, so a page costs a constant number of queries despite embedding applicant identity in every row. `applicant` and `stage` filters are served by `journey_applicant_recent_idx` and `journey_stage_recent_idx`.
-**Error codes:** none beyond the app-wide 401/403.
+**Validation rules:** all filters are validated by `JourneyListFilterSerializer` before any query runs. A malformed `applicant` or `target_country_ref` (not a UUID), an unknown `stage` value, or a `fiscal_year` label that is malformed or does not convert returns `400 VALIDATION_ERROR` with the offending field in `error.details` — previously the UUID/fiscal-year cases surfaced as unhandled `500`s. A well-formed but unknown id still returns an empty page and `200`.
+**Error codes:** `VALIDATION_ERROR` (400, malformed filter) — plus the app-wide 401/403.
 
 ### 1.2 Create — `POST /api/v1/journeys/`
 

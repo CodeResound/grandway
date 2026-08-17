@@ -23,6 +23,7 @@ from typing import Any
 from core.constants import FeePeriod, StudyLevel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
+from core.validators import validate_fiscal_year_label
 from rest_framework import serializers
 
 from offers.constants import (
@@ -379,4 +380,6 @@ class OfferSearchSerializer(serializers.Serializer):
     program = serializers.UUIDField(required=False)
     intake = serializers.CharField(max_length=100, required=False)
     deadline_before = serializers.DateField(required=False)
-    fiscal_year = serializers.RegexField(r"^\d{4}/\d{2}$", required=False)
+    # Not a bare RegexField: a format-valid label like 9999/99 still raises in
+    # the selector, so the shared validator round-trips the actual conversion.
+    fiscal_year = serializers.CharField(required=False, validators=[validate_fiscal_year_label])

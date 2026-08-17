@@ -158,6 +158,22 @@ class ClientListCreateTests(ClientAPITestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class ClientListFilterValidationTests(ClientAPITestCase):
+    def test_out_of_range_fiscal_year_is_400(self) -> None:
+        # Format-valid but unconvertible: the old RegexField let this through
+        # to the selector, where it raised as a 500.
+        self.auth(self.admin)
+        response = self.client.get(CLIENTS_URL, {"fiscal_year": "9999/99"})
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertIn("fiscal_year", body["error"]["details"])
+
+    def test_valid_fiscal_year_is_accepted(self) -> None:
+        self.auth(self.admin)
+        response = self.client.get(CLIENTS_URL, {"fiscal_year": "2081/82"})
+        self.assertEqual(response.status_code, 200)
+
+
 class ClientDetailTests(ClientAPITestCase):
     def setUp(self) -> None:
         super().setUp()

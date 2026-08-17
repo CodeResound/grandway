@@ -37,6 +37,7 @@ from applicants.selectors import (
 from applicants.serializers import (
     ApplicantCreateSerializer,
     ApplicantDetailSerializer,
+    ApplicantListFilterSerializer,
     ApplicantListSerializer,
     ApplicantUpdateSerializer,
     StatusChangeSerializer,
@@ -108,19 +109,11 @@ class ApplicantListCreateView(APIView):
             require_applicant_actor(request.user)
         except ActorNotPermittedError:
             return _forbidden()
-        search = request.query_params.get("search")
-        queryset = filter_applicants(
-            get_applicants(),
-            {
-                "status": request.query_params.get("status"),
-                "creation_source": request.query_params.get("creation_source"),
-                "search": search,
-                "country": request.query_params.get("country"),
-                "country_code": request.query_params.get("country_code"),
-                "journey_stage": request.query_params.get("journey_stage"),
-                "fiscal_year": request.query_params.get("fiscal_year"),
-            },
-        )
+        filter_serializer = ApplicantListFilterSerializer(data=request.query_params)
+        filter_serializer.is_valid(raise_exception=True)
+        filters = dict(filter_serializer.validated_data)
+        search = filters.get("search")
+        queryset = filter_applicants(get_applicants(), filters)
         # Relevance ordering applies only when there is a query to be relevant
         # to; an unsearched list keeps the model's newest-first ordering.
         if search:

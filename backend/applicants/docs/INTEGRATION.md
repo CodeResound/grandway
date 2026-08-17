@@ -1,7 +1,7 @@
 # Integration — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.2.0
+**Version:** 1.2.1
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -16,6 +16,7 @@
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | List endpoint widened (`applicants.applicant.list` → 1.1.0): `search` now spans email, contact number, and passport number and returns **relevance-ordered** results; new `country`, `country_code`, and `journey_stage` filters; both read shapes gained a `destinations` array. **Added `applicant_journeys` to §2 `Requires`** — the first thing this module needs from another business app, and the reason §3's "ordering is fixed newest-first" is no longer unconditionally true |
 | 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name` on Applicant, FamilyMember, EmergencyContact). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.2.1 | 2026-08-17 | AI (Claude Fable 5) | No endpoint or schema change. List filters are now validated before any query runs: malformed values (non-UUID `country`, unknown enum, unconvertible `fiscal_year`) return 400 with field details instead of a 500 or a silently empty page — §3 conventions updated |
 
 ---
 
@@ -69,7 +70,7 @@
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). `meta` carries `count`, `page`, `page_size`, `next`, `previous`; the last two are absolute URLs or `null`. Applied to the applicant list and the history list. There are no unpaginated list endpoints in this module.
 - **IDs:** UUID strings.
 - **Times:** ISO 8601 UTC for datetimes; `YYYY-MM-DD` for dates. Every user-facing **date** carries a `<field>_bs` sibling holding a Bikram Sambat object. `created_at` and `updated_at` never do.
-- **List/search/filter/order params:** on `GET /api/v1/applicants/` only — `status`, `creation_source`, `search`, `country`, `country_code`, `journey_stage`, `fiscal_year` (`YYYY/YY`). They compose: supplying several narrows the same result set rather than one replacing another. There is no client-controlled ordering anywhere in this module, but the server's ordering is **not** unconditionally newest-first — see below.
+- **List/search/filter/order params:** on `GET /api/v1/applicants/` only — `status`, `creation_source`, `search`, `country`, `country_code`, `journey_stage`, `fiscal_year` (`YYYY/YY`). They compose: supplying several narrows the same result set rather than one replacing another. Malformed values are **rejected with 400, not ignored**: a non-UUID `country`, an unknown enum value, or a `fiscal_year` that does not convert returns the standard validation error with the field named in `error.details`. A well-formed but unknown id returns an empty page and 200. There is no client-controlled ordering anywhere in this module, but the server's ordering is **not** unconditionally newest-first — see below.
 - **Ordering.** Every list is newest-first **except** `GET /api/v1/applicants/?search=…`, which is ordered by relevance and only tie-broken by recency. Do not assume `data[0]` is the most recently created applicant when you passed a `search`.
 - **What `search` matches.** All three name forms, the `email`, **any** of the applicant's contact numbers, and the passport number. All partial, case-insensitive, substring matches. It is **not** fuzzy: a misspelling matches nothing, and there is no did-you-mean.
 - **How `search` ranks.** `3` a name equals the query, `2` a name starts with it, `1` a name contains it, `0` matched only on email, contact number, or passport. Ties fall to newest-first, then id. The score itself is not returned in the response — only the order reflects it.

@@ -123,6 +123,34 @@ class TestJourneyCreate(JourneyApiTestCase):
         self.assertEqual(journey.applicant_id, self.applicant.id)
 
 
+class TestJourneyListFilterValidation(JourneyApiTestCase):
+    """Malformed filter params are the caller's mistake and must be a 400 with
+    field details — they previously raised inside the selector as a 500."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.auth(self.admin)
+
+    def test_malformed_applicant_uuid_is_400(self) -> None:
+        resp = self.client.get(self.list_url, {"applicant": "not-a-uuid"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("applicant", resp.data["error"]["details"])
+
+    def test_malformed_country_ref_uuid_is_400(self) -> None:
+        resp = self.client.get(self.list_url, {"target_country_ref": "not-a-uuid"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("target_country_ref", resp.data["error"]["details"])
+
+    def test_malformed_fiscal_year_is_400(self) -> None:
+        resp = self.client.get(self.list_url, {"fiscal_year": "garbage"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("fiscal_year", resp.data["error"]["details"])
+
+    def test_valid_fiscal_year_is_accepted(self) -> None:
+        resp = self.client.get(self.list_url, {"fiscal_year": "2081/82"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+
 class TestJourneyStage(JourneyApiTestCase):
     def setUp(self) -> None:
         super().setUp()

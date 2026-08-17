@@ -14,6 +14,7 @@ from typing import Any
 from core.constants import ContactNumberLabel, LanguageTestStatus, StudyLevel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
+from core.validators import validate_fiscal_year_label
 from rest_framework import serializers
 
 from leads.constants import ACTIVE_STAGES, LeadStage
@@ -261,6 +262,19 @@ class LeadDetailSerializer(LeadListSerializer):
 
     def get_converted_at_bs(self, obj: Lead) -> dict[str, Any] | None:
         return _bs(obj.converted_at)
+
+
+class LeadListFilterSerializer(serializers.Serializer):
+    """GET /leads/ query params, validated before they reach a selector.
+
+    A malformed source UUID or fiscal-year label previously raised inside
+    ``filter_leads`` and surfaced as a 500; the same mistake is a 400 here.
+    """
+
+    stage = serializers.ChoiceField(choices=LeadStage.choices, required=False)
+    source = serializers.UUIDField(required=False)
+    search = serializers.CharField(max_length=150, required=False)
+    fiscal_year = serializers.CharField(required=False, validators=[validate_fiscal_year_label])
 
 
 # ---------------------------------------------------------------------------

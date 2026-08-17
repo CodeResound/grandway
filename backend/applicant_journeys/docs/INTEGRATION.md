@@ -1,7 +1,7 @@
 # Integration — Applicant Journeys
 
 **Owner app:** `applicant_journeys`
-**Version:** 1.1.1
+**Version:** 1.1.2
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial integration contract — 9 endpoints |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint added, changed, or retired. Added the optional `target_country_ref` catalogue reference to the model shape, the create/update fields, and the list filters, plus the `CountryBrief` shape and the `JOURNEYS_COUNTRY_NOT_FOUND` error. **Documented the cross-app side effect it triggers** — setting it creates the applicant's checklist in the `checklists` module, asynchronously and invisibly from this app's responses |
 | 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one. Also corrected the header version, which still read 1.0.0 after the 1.1.0 row was added |
+| 1.1.2 | 2026-08-17 | AI (Claude Fable 5) | No endpoint or schema change. List filters are now validated before any query runs: malformed values (non-UUID `applicant`/`target_country_ref`, unknown `stage`, unconvertible `fiscal_year`) return 400 with field details instead of a 500 — §3 conventions updated |
 
 ---
 
@@ -66,7 +67,7 @@
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). `meta` carries `count`, `page`, `page_size`, `next`, `previous`. Applied to the journey list and the history list — the only two list endpoints here.
 - **IDs:** UUID strings.
 - **Times:** ISO 8601 UTC. `closed_at` and `deferred_at` carry a `<field>_bs` sibling holding a Bikram Sambat object; `created_at` and `updated_at` do not.
-- **List/search/filter/order params:** on `GET /api/v1/journeys/` only — `applicant` (exact id), `stage` (exact), `target_country` (partial, case-insensitive, against the typed string), `target_country_ref` (exact catalogue country id), `fiscal_year` (`YYYY/YY`). There is **no** free-text search endpoint and no client-controlled ordering; results are always newest first.
+- **List/search/filter/order params:** on `GET /api/v1/journeys/` only — `applicant` (exact id), `stage` (exact), `target_country` (partial, case-insensitive, against the typed string), `target_country_ref` (exact catalogue country id), `fiscal_year` (`YYYY/YY`). There is **no** free-text search endpoint and no client-controlled ordering; results are always newest first. Malformed values are **rejected with 400, not ignored**: a non-UUID `applicant`/`target_country_ref`, an unknown `stage`, or a `fiscal_year` that does not convert returns the standard validation error with the field named in `error.details`. A well-formed but unknown id returns an empty page and 200.
 
 ## 4. Models
 

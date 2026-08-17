@@ -10,9 +10,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from applicant_journeys.constants import JourneyStage
 from core.constants import ContactNumberLabel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
+from core.validators import validate_fiscal_year_label
 from rest_framework import serializers
 
 from applicants.constants import AddressType, ApplicantStatus, CreationSource, FamilyRelationship, Gender
@@ -281,6 +283,24 @@ class ApplicantDetailSerializer(ApplicantListSerializer):
         """
         lead = getattr(obj, "originating_lead", None)
         return str(lead.id) if lead else None
+
+
+class ApplicantListFilterSerializer(serializers.Serializer):
+    """GET /applicants/ query params, validated before they reach a selector.
+
+    A malformed UUID or fiscal-year label previously raised inside
+    ``filter_applicants`` and surfaced as a 500; the same mistake is a 400
+    here. Same reasoning as ``clients``/``offers``/``dashboards``: silently
+    ignoring or crashing on ``?status=bogus`` both misread a mistake.
+    """
+
+    status = serializers.ChoiceField(choices=ApplicantStatus.choices, required=False)
+    creation_source = serializers.ChoiceField(choices=CreationSource.choices, required=False)
+    search = serializers.CharField(max_length=150, required=False)
+    country = serializers.UUIDField(required=False)
+    country_code = serializers.CharField(max_length=8, required=False)
+    journey_stage = serializers.ChoiceField(choices=JourneyStage.choices, required=False)
+    fiscal_year = serializers.CharField(required=False, validators=[validate_fiscal_year_label])
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@ from applicant_journeys.serializers import (
     DeferSerializer,
     JourneyCreateSerializer,
     JourneyDetailSerializer,
+    JourneyListFilterSerializer,
     JourneyListSerializer,
     JourneyUpdateSerializer,
     ReopenSerializer,
@@ -149,16 +150,9 @@ class JourneyListCreateView(APIView):
             require_journey_actor(request.user)
         except ActorNotPermittedError:
             return _forbidden()
-        queryset = filter_journeys(
-            get_journeys(),
-            {
-                "applicant": request.query_params.get("applicant"),
-                "stage": request.query_params.get("stage"),
-                "target_country": request.query_params.get("target_country"),
-                "target_country_ref": request.query_params.get("target_country_ref"),
-                "fiscal_year": request.query_params.get("fiscal_year"),
-            },
-        )
+        filter_serializer = JourneyListFilterSerializer(data=request.query_params)
+        filter_serializer.is_valid(raise_exception=True)
+        queryset = filter_journeys(get_journeys(), dict(filter_serializer.validated_data))
         return _paginated(request, queryset, JourneyListSerializer, "Journeys retrieved.")
 
     def post(self, request: Request) -> Response:

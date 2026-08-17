@@ -247,6 +247,33 @@ class TestApplicantListFilters(ApplicantApiTestCase):
         for key in ("count", "page", "page_size", "next", "previous"):
             self.assertIn(key, meta)
 
+    # Malformed filter params are the caller's mistake and must be a 400 with
+    # field details — they previously raised inside the selector as a 500.
+
+    def test_malformed_country_uuid_is_400(self) -> None:
+        resp = self.client.get(self.list_url, {"country": "not-a-uuid"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("country", resp.data["error"]["details"])
+
+    def test_malformed_fiscal_year_is_400(self) -> None:
+        resp = self.client.get(self.list_url, {"fiscal_year": "garbage"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("fiscal_year", resp.data["error"]["details"])
+
+    def test_out_of_range_fiscal_year_is_400(self) -> None:
+        resp = self.client.get(self.list_url, {"fiscal_year": "9999/99"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("fiscal_year", resp.data["error"]["details"])
+
+    def test_unknown_status_choice_is_400(self) -> None:
+        resp = self.client.get(self.list_url, {"status": "bogus"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("status", resp.data["error"]["details"])
+
+    def test_valid_fiscal_year_is_accepted(self) -> None:
+        resp = self.client.get(self.list_url, {"fiscal_year": "2081/82"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
 
 class TestApplicantHistory(ApplicantApiTestCase):
     def setUp(self) -> None:

@@ -100,6 +100,14 @@ class OfferListCreateTests(OfferAPITestCase):
         response = self.client.get(OFFERS_URL, {"deadline_before": "soon"})
         self.assertEqual(response.status_code, 400)
 
+    def test_out_of_range_fiscal_year_is_400(self) -> None:
+        # Format-valid but unconvertible: the old RegexField let this through
+        # to the selector, where it raised as a 500.
+        self.auth(self.admin)
+        response = self.client.get(OFFERS_URL, {"fiscal_year": "9999/99"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("fiscal_year", response.json()["error"]["details"])
+
     def test_lead_manager_may_record_an_offer(self) -> None:
         self.auth(self.lead_manager)
         response = self.client.post(OFFERS_URL, self.create_offer_payload(), format="json")

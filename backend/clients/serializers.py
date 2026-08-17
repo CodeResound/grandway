@@ -18,7 +18,7 @@ from typing import Any
 from core.constants import ContactNumberLabel
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
-from core.validators import validate_contact_number
+from core.validators import validate_contact_number, validate_fiscal_year_label
 from rest_framework import serializers
 
 from clients.constants import ClientStatus
@@ -245,4 +245,6 @@ class ClientSearchSerializer(serializers.Serializer):
 
     status = serializers.ChoiceField(choices=ClientStatus.choices, required=False)
     search = serializers.CharField(max_length=150, required=False)
-    fiscal_year = serializers.RegexField(r"^\d{4}/\d{2}$", required=False)
+    # Not a bare RegexField: a format-valid label like 9999/99 still raises in
+    # the selector, so the shared validator round-trips the actual conversion.
+    fiscal_year = serializers.CharField(required=False, validators=[validate_fiscal_year_label])

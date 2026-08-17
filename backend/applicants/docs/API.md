@@ -1,7 +1,7 @@
 # API Documentation — Applicants
 
 **App:** `applicants`
-**Version:** 1.2.0
+**Version:** 1.2.1
 **Base prefix:** `/api/v1/applicants/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Authority rules are enforced inline per `SECURITY.md` §1 — applicants are **shared**, not owner-scoped, which deliberately differs from `leads`.
 **Throttle:** Project DRF defaults only. No custom scopes.
@@ -16,6 +16,7 @@
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial API documentation — 6 endpoints |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | List endpoint (§1.1) widened: `search` now matches email, contact number, and passport number and orders by relevance; new `country`, `country_code`, and `journey_stage` filters resolve through the applicant's journeys; the list and detail shapes gained a `destinations` array. Additive only — no filter, field, or ordering that a client already relied on changed |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name` on Applicant, FamilyMember, EmergencyContact). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.2.1 | 2026-08-17 | AI (Claude Fable 5) | List filters (§1.1) validated before the selector: malformed `country` UUID, unknown enum value, or unconvertible `fiscal_year` now returns `400 VALIDATION_ERROR` with field details instead of an unhandled `500` (security audit S6) |
 
 ---
 
@@ -66,7 +67,9 @@
 - **Relevance ordering (only when `search` is present):** `3` a name field equals the query, `2` a name field starts with it, `1` a name field contains it, `0` matched only on email, contact number, or passport. Ties fall back to `-created_at`, then `-id`. The score is lexical, not fuzzy — a misspelling still matches nothing, because the filter underneath is `icontains`.
 - **An applicant has no country of its own.** The destination belongs to the journey (`applicant_journeys.ApplicantJourney.target_country_ref`), and a person may pursue several over the years. `country`/`country_code`/`journey_stage` therefore mean "has **a** journey matching this", and an applicant with two journeys to the same country is returned once.
 - The three filters compose with `search` and with each other; they narrow the same queryset rather than replacing one another.
-- An unknown country id or code returns an empty page and `200`, never a `400`.
+- A well-formed but unknown country id or code returns an empty page and `200` — absence is a result, not a mistake.
+
+**Validation rules:** all filters are validated by `ApplicantListFilterSerializer` before any query runs. A malformed `country` (not a UUID), an unknown `status`/`creation_source`/`journey_stage` value, or a `fiscal_year` label that is malformed or does not convert (e.g. `9999/99`) returns `400 VALIDATION_ERROR` with the offending field in `error.details` — previously these surfaced as unhandled `500`s (UUID/fiscal-year) or empty pages (enum values).
 
 **Query access pattern:** `selectors.get_applicants` applies `select_related("created_by")` and `prefetch_related("contact_numbers", "journeys__target_country_ref")`, so a page costs a constant number of queries including the `destinations` projection. `search` runs OR `icontains` across the three name fields (served by the `appl_name_*_trgm_idx` GIN trigram indexes), `email` (`appl_email_trgm_idx`), `contact_numbers.number` (`appl_contact_number_idx`), and `passport.passport_number` (`appl_passport_number_idx`). The contact-number join can multiply rows, so the selector applies `distinct()`; so do all three journey-traversing filters. Relevance is a `Case`/`When` annotation rather than `TrigramSimilarity`, deliberately — the test suite runs on SQLite, where `SIMILARITY` does not exist, and a pg_trgm ranking would leave the ordering rule covered by no test.
 **Error codes:** none beyond the app-wide 401/403.

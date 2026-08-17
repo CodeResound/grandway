@@ -21,6 +21,7 @@ from typing import Any
 from applicant_journeys.constants import JourneyStage
 from checklists.constants import ChecklistStatus
 from core.nepal.calendar import to_bs
+from core.validators import validate_fiscal_year_label
 from documents.constants import DocumentStatus
 from offers.constants import OfferStatus
 from rest_framework import serializers
@@ -79,17 +80,14 @@ class DashboardFilterSerializer(serializers.Serializer):
 
         ``fiscal_year_gregorian_range`` raises on a bad label, and letting that
         surface from seven different selectors would produce seven different
-        error shapes for one mistake.
+        error shapes for one mistake. The actual rule lives in
+        ``core.validators.validate_fiscal_year_label``, shared with every other
+        app that accepts ``?fiscal_year=``.
         """
         value = (value or "").strip()
         if not value:
             return ""
-        from core.nepal.calendar import fiscal_year_gregorian_range
-
-        try:
-            fiscal_year_gregorian_range(value)
-        except Exception as exc:  # noqa: BLE001 — any parse failure is the same answer to a client
-            raise serializers.ValidationError("Must be a Nepali fiscal year as 'YYYY/YY', e.g. '2081/82'.") from exc
+        validate_fiscal_year_label(value)
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

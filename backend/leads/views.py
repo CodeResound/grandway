@@ -55,6 +55,7 @@ from leads.serializers import (
     FollowUpSerializer,
     LeadCreateSerializer,
     LeadDetailSerializer,
+    LeadListFilterSerializer,
     LeadListSerializer,
     LeadNoteCreateSerializer,
     LeadNoteSerializer,
@@ -280,16 +281,11 @@ class LeadListCreateView(APIView):
             require_lead_actor(request.user)
         except ActorNotPermittedError:
             return _forbidden()
-        search = request.query_params.get("search")
-        queryset = filter_leads(
-            get_leads_for_actor(request.user),
-            {
-                "stage": request.query_params.get("stage"),
-                "source": request.query_params.get("source"),
-                "search": search,
-                "fiscal_year": request.query_params.get("fiscal_year"),
-            },
-        )
+        filter_serializer = LeadListFilterSerializer(data=request.query_params)
+        filter_serializer.is_valid(raise_exception=True)
+        filters = dict(filter_serializer.validated_data)
+        search = filters.get("search")
+        queryset = filter_leads(get_leads_for_actor(request.user), filters)
         # Relevance ordering applies only when there is a query to be relevant
         # to; an unsearched list keeps the model's newest-first ordering.
         if search:
