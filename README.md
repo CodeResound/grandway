@@ -39,7 +39,7 @@ It is an API-only Django service. There is no server-rendered UI beyond the Djan
 | You are… | Read | Why |
 |---|---|---|
 | **Deploying this** | **`GUIDE.txt`** | The complete deployment contract: runtime requirements, every environment variable, filesystem and reverse-proxy contracts, the ordered deploy sequence, first-boot bootstrap, backup, and rollback. Written so you never need to read source. |
-| Configuring an environment | `deploy/env.production.example` | Every variable, annotated, with the mandatory ones flagged. |
+| Configuring an environment | `deploy/env.production.example` (production) · `deploy/env.development.example` (local) | Every variable, annotated, with the mandatory ones flagged. The templates live under `deploy/` rather than as dotted `.env.*` files precisely so they reach a fresh clone. |
 | Building a client against the API | `backend/core/docs/INTEGRATION.md` | The project-level consumer contract: global conventions, app inventory, cross-app dependency graph. Then each app's own `docs/INTEGRATION.md`. |
 | Building the frontend | `FRONTEND_README.md` | How to read the concept files, flow maps, and integration contracts together. |
 | Understanding *why* something exists | `concepts/project_overview.txt`, `concepts/<app>.txt` | Product intent and grounding, authored before each app was built. |
@@ -57,8 +57,8 @@ pip install -r requirements/development.txt
 
 git config core.hooksPath .githooks     # once per clone — enables the pre-push CI gate
 
-cp .env.development.example .env.development   # then edit the DB credentials
-echo "ENVIRONMENT=development" > .env
+cp deploy/env.development.example .env.development   # then edit the DB credentials
+echo "ENVIRONMENT=development" > .env                # selects the settings module
 
 python backend/manage.py migrate
 python backend/manage.py bootstrap_superadmin        # prints a generated password once
