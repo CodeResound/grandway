@@ -14,7 +14,7 @@ HARD RULES (posture inherited from INTEGRATION_TEMPLATE.md / CLAUDE.md §19.3):
    reads it and what breaks without it.
 4. This file is a living contract: refreshed by every release; drift between it and the tagged
    code makes the release incomplete (§41.5 step 1).
-5. GUIDE.txt is exempt from §19.2 rules 1–2 (§41.8) — no metadata block or Change History
+5. GUIDE.txt is exempt from §19.2 rules 1–2 (§41.9) — no metadata block or Change History
    table; the release version and date go in the title line instead.
 -->
 
