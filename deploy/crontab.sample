@@ -1,0 +1,18 @@
+# Grandway scheduled jobs — install with `crontab -u grandway -e`
+#
+# ENVIRONMENT must be set here: it is read before the settings module opens
+# any env file, so a cron job without it fails closed with ImproperlyConfigured.
+ENVIRONMENT=production
+PATH=/opt/grandway/.venv/bin:/usr/local/bin:/usr/bin:/bin
+
+# Notification sweep — nightly at 02:15 NPT.
+#
+# Raises alerts (checklist due/overdue, missing documents, offer expiry and
+# response deadlines, passport expiry, custom reminders) and resolves alerts
+# whose condition has cleared. Idempotent: every write is a get_or_create on a
+# (recipient, dedupe_key) unique constraint, so re-running is safe.
+#
+# KNOWN LIMITATION (1.0.0): the command exits 0 even when individual generators
+# fail — it reports to stderr but does not signal failure, so cron's own MAILTO
+# will not flag a partially failed night. Capture and monitor the output.
+15 2 * * * cd /opt/grandway && python backend/manage.py sweep_notifications >> /var/log/grandway/sweep.log 2>&1

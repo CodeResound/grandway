@@ -1,222 +1,428 @@
 ===============================================================================
- PLATFORM TEMPLATE — GUIDE FOR STARTING A NEW PROJECT
+ GRANDWAY — DEPLOYMENT GUIDE (v1.0.0, 2026-08-19)
 ===============================================================================
 
-This template is a clean, self-contained starting point:
+ Audience: the engineer or agent deploying this application, working WITHOUT
+ access to its source. Everything needed to deploy, operate, back up, and roll
+ back is in this file. Where something is undecided or known-imperfect, it is
+ stated in §14 rather than omitted.
 
-    .claude governance  +  Django `core` infrastructure  +  Core Policy Engine
-    (core.policy_engine)  —  and NO business apps.
-
-Clone it to start a new backend that inherits the same rulebook (.claude/CLAUDE.md),
-the same hooks, CI, documentation conventions, and the endpoint/permission registry.
-Then build your own apps on top.
-
-Everything below has been verified against this template (215 tests pass on SQLite,
-migrate -> sync_policy_registry -> validate_policy_engine --strict passes).
-
--------------------------------------------------------------------------------
-0. WHAT'S IN HERE
--------------------------------------------------------------------------------
-.claude/                    CLAUDE.md rulebook, hooks/, settings.json, skills/commands
-backend/
-  manage.py
-  core/
-    settings/               base / development / staging / production / testing
-    policy_engine/          the standalone registry (models, services, validators,
-                            exporters, management commands, docs/)
-    nepal/                  bilingual/text/calendar utilities (used by policy_engine)
-    docs/templates/         canonical doc templates (API / DATA_CONTRACT / etc.)
-    api_urls.py             /api/v1/ router (only `policy/` wired today)
-    urls.py                 root urls: admin + health + ready + api/v1
-    models.py               BaseModel (UUID pk + created_at/updated_at)
-    pagination.py responses.py exceptions.py middleware.py logging.py views.py
-requirements/               base / development / production
-scripts/ci.sh               lint | export | test | policy stages
-.github/workflows/ci.yml     GitHub Actions mirroring the local hooks
-pytest.ini  ruff.toml        tooling config
-.env  .env.development.example
-
-NOT included (removed on purpose): authenticate, organization, permissions.
-The template uses Django's built-in auth.User.
+ Companion files:
+   deploy/env.production.example   every variable, annotated
+   deploy/gunicorn.conf.py         application server reference config
+   deploy/nginx.sample.conf        reverse proxy reference config
+   deploy/crontab.sample           scheduled jobs
 
 -------------------------------------------------------------------------------
-1. PREREQUISITES
+ 1. MODULE
 -------------------------------------------------------------------------------
-- Python 3.12+
-- PostgreSQL (only needed for the `policy` CI stage and for real dev/staging/prod;
-  the test suite runs on in-memory SQLite with no DB service).
-- git
 
--------------------------------------------------------------------------------
-2. START A NEW PROJECT FROM THIS TEMPLATE
--------------------------------------------------------------------------------
-a) Copy the folder to your new project location and re-initialize git:
+ Entrypoint      core.wsgi:application   (WSGI; an ASGI entrypoint exists at
+                                          core.asgi:application but no ASGI
+                                          server is pinned and no async views
+                                          exist — use WSGI)
+ Runtime         Python 3.12
+ Framework       Django 5.2 LTS, Django REST Framework 3.16
+ API prefix      /api/v1/
+ Working dir     The Django project lives under backend/. `core` is importable
+                 only from there, so the server must chdir into it:
 
-     cp -R platform-template ~/code/my-new-project
-     cd ~/code/my-new-project
-     rm -rf .git && git init && git add -A && git commit -m "chore: init from platform template"
+                     gunicorn --chdir backend \
+                              --config deploy/gunicorn.conf.py \
+                              core.wsgi:application
 
-   (Or: git clone this repo, then point `git remote` at your new remote.)
-
-b) Create the virtualenv and install dev dependencies:
-
-     python -m venv .venv
-     source .venv/bin/activate
-     pip install -r requirements/development.txt
-
-c) Create your dev env file (values are throwaway dev-only; never commit real secrets):
-
-     cp .env.development.example .env.development
-     # edit DB_NAME / DB_USER / DB_PASSWORD / SECRET_KEY as needed
-   NOTE: `.env` selects the ENVIRONMENT; `.env.development` holds the dev values
-   (see backend/core/settings/development.py). `.env.development` is gitignored.
-
-d) Sanity-check the mechanical gates (no database needed):
-
-     bash scripts/ci.sh lint export test
-
-e) Bring up the database and initialize the policy registry:
-
-     python backend/manage.py migrate
-     python backend/manage.py sync_policy_registry
-     python backend/manage.py validate_policy_engine --strict
-     python backend/manage.py createsuperuser          # for /admin and staff checks
-
-f) Rename cosmetics (optional): search the repo for "platform" / "Platform Template"
-   in README.md, .github/workflows/ci.yml (DB names), and .env.development.example
-   and replace with your project name.
+ Version at runtime
+                 GET /health/ returns {"status":"ok","version":"1.0.0"}.
+                 The value comes from the repo-root VERSION file and always
+                 equals the release tag. This is how you confirm which build a
+                 host is actually running.
 
 -------------------------------------------------------------------------------
-3. READ THE RULEBOOK FIRST (.claude/CLAUDE.md)
+ 2. RUNTIME REQUIREMENTS
 -------------------------------------------------------------------------------
-The whole point of this template is that the AI + humans follow one rulebook.
-Read the TEMPLATE NOTE at the very top of .claude/CLAUDE.md — it lists the few
-sections that reference apps this template does NOT ship, so you adapt them as
-you build:
 
-  - Sec 9  (Permissions & Authorization): describes a `permissions` app + a
-           check_permission() authority model that are NOT here yet. Until you
-           build them, the enforced default is the interim inline pattern:
-               if not request.user.is_authenticated: raise NotAuthenticated(...)
-               if not request.user.is_staff:        raise PermissionDenied(...)
-  - Sec 39 (Nepal Localization): the rules apply if you keep core/nepal/, but the
-           "Existing models follow this pattern" list names models not present.
-           Delete core/nepal/ AND Sec 39 if your project is not Nepal-specific.
-  - Sec 36: references a vision doc (.docs/...) that is not shipped.
-  - Sec 35: examples use authenticate.* keys illustratively.
+ PostgreSQL 16 — REQUIRED, not a preference.
+   The application uses django.contrib.postgres and pg_trgm GIN indexes for
+   substring search across nine record types. SQLite cannot run it. The pg_trgm
+   extension is created by a migration (leads/0002), so the database user must
+   be able to CREATE EXTENSION on first migrate — or a superuser must create it
+   in advance:  CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-Everything else (Sec 1-8, 10-34, 35 mechanics, 40, doc + /iterations conventions,
-and every .claude/hooks/ script) is app-agnostic and applies as written.
+ Shared cache — REQUIRED for any multi-worker deployment.
+   DRF throttle counters live in the Django cache. With the per-process
+   LocMemCache, every rate limit is silently multiplied by the worker count and
+   resets on restart. Production settings therefore REFUSE TO BOOT on
+   LocMemCache unless THROTTLE_SINGLE_WORKER=true is set as an explicit
+   acknowledgement of a one-worker deploy. Redis/Valkey is the expected choice.
+   It is a derived store: losing it costs throttle counters and nothing else.
 
--------------------------------------------------------------------------------
-4. THE GOLDEN RULE: EVERY ENDPOINT IS REGISTERED IN THE POLICY ENGINE
--------------------------------------------------------------------------------
-This is the core discipline the template exists to enforce. No HTTP endpoint may
-ship without a matching entry in the Core Policy Engine registry. `validate_policy_engine`
-(15 rules) fails CI otherwise, and a hook runs it whenever you edit views/urls/registry.
+ NOT required — do not provision:
+   No message broker. The one scheduled job runs from cron (§9), deliberately
+   not Celery. No object storage: file bytes live on a local volume (§4). No
+   external/third-party API calls at runtime.
 
-Full "how to add an endpoint" and "how to remove an endpoint" checklists live in:
-
-     backend/core/policy_engine/docs/INTEGRATION_GUIDE.md
-
-Summary of adding an endpoint:
-  1. Declare it in your app's registry.py POLICY_ENDPOINTS (see the schema at
-     backend/core/policy_engine/docs/registry_schema.json). Required keys:
-     app_key, endpoint_key, permission_key (app.model.action), operation_type,
-     display_name — plus route_pattern, http_method, risk_level, category_key,
-     and dependencies[] (high/critical risk MUST declare a dependency or set
-     is_dependency_root=True).
-  2. python backend/manage.py sync_policy_registry     # run immediately after editing registry.py
-  3. Regenerate artifacts (see section 6) and stage them.
-  4. python backend/manage.py validate_policy_engine --strict   # must pass, 0 findings
-  5. Update your app's docs/API.md + docs/DATA_CONTRACT.md.
-
-Removing an endpoint is staged, never a hard delete:
-  deprecate_endpoint() -> disable_endpoint() -> (restore_endpoint() to reverse).
-  See INTEGRATION_GUIDE.md section 3.
+ Dependency caveats (see also §14):
+   - There is no lock file and no hashes. requirements/*.txt pins direct
+     dependencies exactly, but transitive dependencies resolve fresh at install
+     time, so a deploy-day install may not match what CI tested. Build once and
+     promote the same artifact rather than reinstalling per environment.
+   - base.txt pins psycopg[binary]. psycopg's own documentation recommends
+     psycopg[c] or a system build for production; [binary] bundles its own
+     libpq. Left as-is for 1.0.0 because changing it requires build tooling in
+     whatever image you choose.
 
 -------------------------------------------------------------------------------
-5. ADDING YOUR FIRST APP
+ 3. CONFIGURATION CONTRACT
 -------------------------------------------------------------------------------
-Use the `new-app` and `endpoint` skills in .claude/ (they run the compatibility
-review + pre-coding gates). Manual outline:
 
-  1. Create the app under backend/<app_name>/ following the layout in CLAUDE.md Sec 2
-     (models.py, serializers.py, views.py, urls.py, services.py, selectors.py,
-     validators.py, constants.py, exceptions.py, admin.py, tests/, docs/).
-  2. Add "<app_name>" to INSTALLED_APPS in backend/core/settings/base.py.
-  3. Wire its urls in backend/core/api_urls.py:
-         path("<prefix>/", include("<app_name>.urls", namespace="<app_name>")),
-  4. Add its endpoints to backend/<app_name>/registry.py POLICY_ENDPOINTS (section 4).
-  5. Write DATA_CONTRACT.md BEFORE the models (Sec 5, "No contract = no code").
-  6. Business logic in services.py, queries in selectors.py, NEVER in views (Sec 6).
-  7. Tests for every endpoint (success/validation/auth/permission/not-found), then run them.
-  8. sync_policy_registry -> regenerate artifacts -> validate_policy_engine --strict.
+ *** THE SINGLE MOST IMPORTANT LINE IN THIS FILE ***
 
-If you need a custom User model, create an `authenticate` (or similar) app with a
-User model early and set AUTH_USER_MODEL in base.py BEFORE the first migration.
+ ENVIRONMENT must be set in the PROCESS environment, not in an env file.
 
--------------------------------------------------------------------------------
-6. MACHINE-READABLE ARTIFACTS (kept fresh by CI)
--------------------------------------------------------------------------------
-backend/core/policy_engine/docs/
-  registry_export.json   canonical JSON of every registered endpoint
-  openapi.json           OpenAPI 3.1 for the registered surface
-  registry_schema.json   JSON Schema contract for one POLICY_ENDPOINTS entry
+ Environment selection reads ENVIRONMENT before production settings open
+ `.env.production`. Setting it only inside that file leaves it unset at the
+ moment it is needed, and the process fails closed:
 
-Regenerate after any registry.py change (and commit them):
+     ImproperlyConfigured: ENVIRONMENT is unset or invalid (got None)
 
-  python backend/manage.py export_policy_registry --format registry \
-    --output backend/core/policy_engine/docs/registry_export.json
-  python backend/manage.py export_policy_registry --format openapi \
-    --output backend/core/policy_engine/docs/openapi.json
+ That failure is correct behaviour — settings never silently fall back to
+ development — but it is the most common day-one deployment failure.
 
-CI runs `export_policy_registry --check` and FAILS if the committed files drift
-from the registry (like makemigrations --check).
+     systemd:  Environment=ENVIRONMENT=production
+     docker:   ENV ENVIRONMENT=production   /  -e ENVIRONMENT=production
 
--------------------------------------------------------------------------------
-7. CONTINUOUS INTEGRATION
--------------------------------------------------------------------------------
-scripts/ci.sh is the single source of truth for the gates; CI and developers both
-run it. Stages:
+ Where the rest is read from:
+   Production settings read `<repo-root>/.env.production` IF THE FILE EXISTS;
+   otherwise the OS environment only. It never falls back to a generic `.env`,
+   so a stray development file cannot leak in. A container injecting env vars
+   should simply not ship `.env.production`.
 
-  lint    ruff check + ruff format --check           (no DB)
-  export  export_policy_registry --check              (no DB)
-  test    pytest (core.settings.testing, SQLite)      (no DB)
-  policy  migrate -> sync_policy_registry -> validate_policy_engine --strict  (needs Postgres)
+ Mandatory — the process refuses to boot without each of these:
 
-Run all locally:    bash scripts/ci.sh
-Run a subset:       bash scripts/ci.sh lint export test
+   Variable               Read by / purpose
+   ---------------------  ------------------------------------------------------
+   ENVIRONMENT            Settings selection. Must be exactly "production".
+   SECRET_KEY             Django signing AND JWT signing. Rotating it logs every
+                          user out — intended after a compromise.
+   DB_NAME                PostgreSQL connection.
+   DB_USER                PostgreSQL connection.
+   DB_PASSWORD            PostgreSQL connection.
+   ALLOWED_HOSTS          Bare hostnames, comma-separated, no scheme. Without it
+                          every request on the real hostname returns 400.
+   CORS_ALLOWED_ORIGINS   Full origins with scheme. The browser origin permitted
+                          to call the API and send the refresh cookie. Without
+                          it the frontend cannot call the API at all.
+   CSRF_TRUSTED_ORIGINS   Full origins with scheme.
+   CACHE_BACKEND          Throttle-counter store. See §2.
 
-.github/workflows/ci.yml runs these on push/PR: a DB-less `lint`+`export` job, a
-SQLite `test` job, and a Postgres-backed `policy-engine` job.
+ Optional — defaults in parentheses:
 
-The .claude/hooks/ scripts are the same checks fired during an interactive Claude
-Code session — CI mirrors them so a commit made outside Claude Code can't bypass them.
+   DB_HOST (localhost), DB_PORT (5432), DB_CONN_MAX_AGE (60)
+   NUM_PROXIES (0) .......... MUST match the real proxy hop count. See §5.
+   CACHE_LOCATION (grandway-default)
+   THROTTLE_SINGLE_WORKER (false)
+   STATIC_ROOT (<repo>/backend/staticfiles) ...... see §4
+   MEDIA_ROOT  (<repo>/backend/mediafiles) ....... see §4
+   LOG_DIR     (<repo>/logs) ..................... see §4
+   AUTH_SESSION_IDLE_HOURS (12), AUTH_SESSION_ABSOLUTE_DAYS (7),
+   AUTH_MAX_ACTIVE_DEVICES (3), AUTH_SESSION_LAST_USED_MINUTES (5)
+   AXES_FAILURE_LIMIT (5), AXES_COOLOFF_MINUTES (15)
+   JWT_ISSUER (grandway), JWT_AUDIENCE (grandway-api)
+   OTP_TOTP_ISSUER (Grandway) ... label shown in the operator's authenticator
 
--------------------------------------------------------------------------------
-8. COMMON COMMANDS
--------------------------------------------------------------------------------
-  bash scripts/ci.sh                       # all gates
-  pytest                                   # tests (SQLite)
-  ruff check backend && ruff format backend
-  python backend/manage.py migrate
-  python backend/manage.py sync_policy_registry
-  python backend/manage.py validate_policy_engine --strict
-  python backend/manage.py export_policy_registry --format openapi
-  python backend/manage.py runserver
+ First-boot only: SUPERADMIN_USERNAME, SUPERADMIN_EMAIL,
+ SUPERADMIN_DISPLAY_NAME. Leave SUPERADMIN_PASSWORD UNSET — see §8.
+
+ Full annotated template: deploy/env.production.example
 
 -------------------------------------------------------------------------------
-9. GUARDRAILS (from CLAUDE.md — do not violate)
+ 4. FILESYSTEM CONTRACT
 -------------------------------------------------------------------------------
-  - No endpoint without a policy_engine registration.
-  - No business logic in views; no DB queries outside selectors.py.
-  - No schema change without a migration + DATA_CONTRACT update.
-  - No new dependency without approval + a THIRD_PARTY_LIBRARIES.md entry.
-  - Type hints on all service/selector/serializer signatures; ruff must pass.
-  - New branch per work session; never commit to main directly; stage files by name.
-  - No completion claim without actually running the tests.
-  - Local-first by default: PostgreSQL + local storage, no cloud/hosted infra by default.
 
-Start with .claude/CLAUDE.md and backend/core/policy_engine/docs/INTEGRATION_GUIDE.md.
+ Three directories must be writable by the user the application runs as.
+
+ STATIC_ROOT   recommended /var/www/grandway/static
+   Written by `collectstatic`. PUBLIC by design — nginx serves it at /static/.
+   Nothing in Django serves it with DEBUG=False, so without the proxy block in
+   §5 the admin interface renders with no CSS.
+
+ MEDIA_ROOT    recommended /var/lib/grandway/media
+   Applicant passports, transcripts, bank statements. Files are written 0o640
+   inside 0o750 directories.
+
+   *** DELIBERATELY OUTSIDE ANY WEB ROOT. ***
+   Note it is /var/lib/..., NOT /var/www/... . That is not an oversight and it
+   is not stylistic. Django guarantees no URL maps to this volume — the only
+   path from these bytes to a client is the authenticated endpoint
+   GET /api/v1/files/<id>/download/, and a test enforces that no route exists.
+   But no test can police your nginx config. Keeping the directory outside the
+   web root means a careless `root /var/www/grandway;` cannot reach it even by
+   accident. Do not relocate it under the web root, and do not add a media
+   location block (§5).
+
+   This is the primary backup target alongside the database (§11).
+
+ LOG_DIR       recommended /var/log/grandway
+   Created at settings import — i.e. before the application can report anything.
+   If it cannot be created the process exits immediately with
+   ImproperlyConfigured naming LOG_DIR. Every worker, every management command,
+   and the nightly cron fail identically. A read-only root filesystem or a
+   non-root container user is the usual cause.
+
+-------------------------------------------------------------------------------
+ 5. REVERSE PROXY CONTRACT
+-------------------------------------------------------------------------------
+
+ The proxy MUST terminate TLS and MUST set two headers. Reference config:
+ deploy/nginx.sample.conf.
+
+ (1) X-Forwarded-Proto — set it, and always overwrite the client's value.
+
+     Django trusts this header to decide whether a request arrived over HTTPS.
+     Two failure directions, both severe:
+
+       Forwarding the client's value  -> anyone can declare a plain HTTP
+                                         request secure, and every Secure
+                                         cookie flag stops meaning anything.
+       Not setting it at all         -> every proxied request arrives over
+                                         plain HTTP on the loopback, Django
+                                         judges them all insecure, and the
+                                         HTTPS redirect sends them to a URL
+                                         that terminates back at the proxy.
+                                         Unconditional redirect loop: the whole
+                                         site down on the first request.
+
+ (2) X-Forwarded-For — and NUM_PROXIES must equal the real hop count.
+
+     nginx alone = 1. nginx behind a CDN = 2. This decides which entry is taken
+     as the client IP, and it drives BOTH API rate limiting AND login lockout.
+     Too high: a client spoofs its own header and evades both. Too low: every
+     request looks like the proxy, so one user's failed logins lock out
+     everybody.
+
+ Serve:      /static/  from STATIC_ROOT
+ NEVER serve MEDIA_ROOT. See the boxed warning in §4 and in the sample config.
+
+ Probes:     /health/ and /ready/ are public, unthrottled, and exempt from the
+             application's HTTPS redirect, so a plain-HTTP health check from a
+             load balancer returns 200 rather than a 301.
+
+-------------------------------------------------------------------------------
+ 6. PROCESS MODEL
+-------------------------------------------------------------------------------
+
+     gunicorn --chdir backend --config deploy/gunicorn.conf.py core.wsgi:application
+
+ Bind to loopback only; the proxy is the sole thing that should reach it.
+
+ Worker count is coupled to two things:
+
+   CACHE_BACKEND — with LocMemCache every rate limit is multiplied by the
+   worker count. Production refuses to boot in that combination unless
+   THROTTLE_SINGLE_WORKER=true. Use a shared cache for workers > 1.
+
+   Logging — KNOWN LIMITATION (1.0.0). Django's logging writes a
+   RotatingFileHandler under LOG_DIR. That handler is NOT multiprocess-safe.
+   With multiple workers — and the nightly cron writing to the same file — a
+   10 MB rollover can race: renames overwrite each other and a whole segment
+   can be lost, and long lines can interleave. The stdout/stderr stream that
+   gunicorn captures is the reliable log source; collect that with journald or
+   your container log driver and treat the file as secondary.
+
+-------------------------------------------------------------------------------
+ 7. DEPLOY SEQUENCE
+-------------------------------------------------------------------------------
+
+ Ordered and idempotent — this is EVERY deploy, not just the first.
+
+   1. pip install -r requirements/production.txt
+   2. python backend/manage.py collectstatic --noinput
+   3. python backend/manage.py migrate --noinput
+   4. python backend/manage.py sync_policy_registry
+   5. python backend/manage.py validate_policy_engine --strict
+   6. start / reload gunicorn
+   7. poll GET /ready/ until 200
+
+ Step 4 runs on EVERY deploy, not only the first. The endpoint/permission
+ registry is declared in code and synced into the database; skipping it leaves
+ the database describing the previous release's endpoints.
+
+ Step 5 is a gate: A NON-ZERO EXIT MUST ABORT THE DEPLOY. It means the shipped
+ code and the permission registry disagree, and authorization metadata is not
+ something to run inconsistent.
+
+ Step 7: /ready/ opens a database connection. Do not route traffic before it
+ returns 200.
+
+ Optional first-deploy seeds (idempotent, safe to re-run):
+   python backend/manage.py seed_document_templates --activate
+   python backend/manage.py apply_country_checklists
+
+-------------------------------------------------------------------------------
+ 8. FIRST-BOOT BOOTSTRAP
+-------------------------------------------------------------------------------
+
+   python backend/manage.py bootstrap_superadmin
+
+ Leave SUPERADMIN_PASSWORD unset. The command generates a password, PRINTS IT
+ ONCE, and flags the account to force a change at first login. Capture that
+ output — it is not recoverable.
+
+ *** ADMIN LOCKOUT WARNING — READ BEFORE FIRST LOGIN ***
+
+ The Django admin is OTP-gated: the admin site is replaced with an OTP-enforcing
+ one at process start. An account WITHOUT A CONFIRMED TOTP DEVICE CANNOT ENTER
+ /admin/ AT ALL — not with a correct password. Enrol the superadmin's
+ authenticator immediately after bootstrap, in the same session.
+
+ If you are locked out, these are the recovery levers (all require shell access
+ on the host):
+
+   python backend/manage.py reset_superadmin_mfa        # clear the TOTP device
+   python backend/manage.py reset_superadmin_password   # reset the password
+   python backend/manage.py addstatictoken <username>   # emergency static token
+
+-------------------------------------------------------------------------------
+ 9. SCHEDULED JOBS
+-------------------------------------------------------------------------------
+
+ One job. Reference crontab: deploy/crontab.sample.
+
+   sweep_notifications — nightly (02:15 NPT suggested)
+
+   Raises alerts (checklist due/overdue, missing documents, offer expiry and
+   response deadlines, passport expiry, custom reminders) and resolves alerts
+   whose condition has cleared.
+
+   Idempotent: every write is a get_or_create against a (recipient, dedupe_key)
+   unique constraint. Safe to re-run and safe to run concurrently.
+
+   Needs the full production environment — including ENVIRONMENT in the process
+   environment (see §3) and a writable LOG_DIR.
+
+   If it never runs, no notifications are ever raised or resolved. Nothing else
+   degrades; the failure is silent from the API's perspective.
+
+   KNOWN LIMITATION (1.0.0): the command exits 0 even when individual alert
+   generators fail. It reports failures to stderr but does not signal them, so
+   cron's MAILTO will not flag a partially failed night. Capture stdout/stderr
+   to a log and monitor it.
+
+-------------------------------------------------------------------------------
+ 10. HEALTH AND OBSERVABILITY
+-------------------------------------------------------------------------------
+
+   GET /health/   Liveness. Does NOT touch the database. Returns 200 with
+                  {"status":"ok","version":"1.0.0"} while the process is alive.
+                  Use for the process supervisor, and to identify which build a
+                  host is running even when its database is unreachable.
+
+   GET /ready/    Readiness. Opens a database connection. 200 {"status":"ready"}
+                  or 503 {"status":"not ready"}. USE THIS ONE FOR THE LOAD
+                  BALANCER.
+
+ Both are public, unauthenticated, unthrottled, and exempt from the HTTPS
+ redirect, so plain-HTTP probes work.
+
+ Logs are structured and machine-readable. Every line carries a request id;
+ responses carry it as X-Request-ID, so a user-reported error can be traced to
+ its log lines. Passwords, tokens, OTPs, and keys are never logged.
+
+ Note /ready/ checks the database only — not the cache. A failed Redis will not
+ be reported by it (see §14).
+
+-------------------------------------------------------------------------------
+ 11. BACKUP AND RESTORE
+-------------------------------------------------------------------------------
+
+ Exactly two sources of truth. Everything else is derived and rebuildable.
+
+   1. The PostgreSQL database
+   2. MEDIA_ROOT (the uploaded-file volume)
+
+ Back up both, and back them up together — a database referencing files that
+ the media backup does not contain is a broken restore.
+
+ Restore sequence:
+   1. restore the database
+   2. restore MEDIA_ROOT
+   3. python backend/manage.py migrate
+   4. python backend/manage.py sync_policy_registry     <- REQUIRED
+   5. python backend/manage.py validate_policy_engine --strict
+
+ A restore is NOT complete until step 4 has run: the registry must be re-synced
+ from the deployed code, or the database describes whatever endpoints existed
+ when the backup was taken.
+
+ The cache needs no backup — it holds only throttle counters.
+
+-------------------------------------------------------------------------------
+ 12. ROLLBACK
+-------------------------------------------------------------------------------
+
+ The rollback unit is a release tag: check out v1.0.0, redeploy, re-run the §7
+ sequence.
+
+ HONEST CONSTRAINT: migrations are not automatically reversible. Rolling the
+ code back across a migration boundary does NOT roll the schema back. If the
+ release you are leaving applied migrations, either
+   - reverse them explicitly:  manage.py migrate <app> <previous_number>
+     (only if that migration is genuinely reversible — check first), or
+   - restore from backup (§11).
+
+ 1.0.0 policy: FORWARD-FIX BY DEFAULT. Ship a patch release rather than rolling
+ back across a schema change. Release tags are immutable, so v1.0.1 supersedes
+ v1.0.0 — v1.0.0 itself is never rewritten.
+
+-------------------------------------------------------------------------------
+ 13. SECURITY POSTURE — ALREADY ENFORCED, DO NOT UNDO
+-------------------------------------------------------------------------------
+
+ Each of these is enforced by the application. Several can be silently defeated
+ at the proxy; the list exists so that does not happen by accident.
+
+   DEBUG=False, hardcoded in production settings.
+   HTTPS redirect for all traffic, except /health/ and /ready/.
+   HSTS: 1 year, includeSubDomains, preload.
+        *** preload is a ONE-WAY DOOR for the apex domain. *** Submitting to
+        the preload list makes it impractical to serve any subdomain over
+        plain HTTP for a long time. Confirm that is intended before submitting.
+   Secure + HttpOnly + SameSite=Lax cookies; refresh token is cookie-only in
+        production, never in a response body.
+   X-Frame-Options: DENY, X-Content-Type-Options: nosniff, XSS filter on.
+   CORS is an explicit allow-list with credentials enabled. Never widen it to
+        allow-all: with credentials on, that would let any site on the internet
+        make authenticated calls with a user's refresh cookie.
+   Argon2id password hashing; 12-character minimum.
+   django-axes lockout on username+IP (see NUM_PROXIES, §5).
+   Django admin is OTP-gated (§8).
+   MEDIA_ROOT is never web-served (§4), files 0o640 in 0o750 directories.
+   Every mandatory setting fails closed at boot rather than degrading silently.
+
+-------------------------------------------------------------------------------
+ 14. GAPS — WHAT THIS CONTRACT DOES NOT DECIDE
+-------------------------------------------------------------------------------
+
+ Deliberately left to the deployer:
+   - Packaging: container vs bare metal vs VM image. Nothing here assumes one.
+   - Secret storage and injection. This file states which variables are needed,
+     not where they should live.
+   - TLS certificate issuance and renewal.
+   - The Redis/Valkey instance: provisioning, persistence, and monitoring.
+   - Log aggregation and alerting.
+   - Backup scheduling, retention, and restore rehearsal.
+
+ Known imperfections in 1.0.0 (all recorded in CHANGELOG.md under Deferred):
+   - Static files are not served by the application. If your target has no
+     reverse proxy you control, add a static-serving layer (e.g. whitenoise) in
+     your own deployment layer.
+   - The rotating file log handler is not multiprocess-safe (§6).
+   - No dependency lock file or hashes (§2).
+   - psycopg[binary] rather than psycopg[c] in production (§2).
+   - sweep_notifications exits 0 on partial failure (§9).
+   - /ready/ does not check the cache backend, only the database (§10).
+   - The application runs on a single node: file storage is a local volume, so
+     horizontal scaling across hosts requires shared storage that has not been
+     designed or tested.
+
 ===============================================================================
