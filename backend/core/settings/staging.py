@@ -38,6 +38,24 @@ CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", cast=Csv())
 
 SECURE_SSL_REDIRECT = True
+
+# ---------------------------------------------------------------------------
+# Health-probe exemption.
+#
+# SECURE_SSL_REDIRECT above 301s every request Django considers insecure. A
+# load balancer or process supervisor probes /health/ and /ready/ over plain
+# HTTP on the loopback, without the X-Forwarded-Proto the proxy adds to real
+# traffic — so every probe would get a 301, the balancer would read that as
+# "not 200, not healthy", and it would never route traffic to a box that is
+# in fact serving fine. That is a first-deploy outage caused entirely by a
+# security setting working as designed.
+#
+# Patterns are matched by SecurityMiddleware against path.lstrip("/"), so
+# they carry no leading slash. Exempting these two costs nothing: both are
+# public and unauthenticated by design (§23), and neither returns data worth
+# protecting in transit.
+# ---------------------------------------------------------------------------
+SECURE_REDIRECT_EXEMPT = [r"^health/$", r"^ready/$"]
 SECURE_HSTS_SECONDS = 3600
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SESSION_COOKIE_SECURE = True
