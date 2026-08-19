@@ -26,6 +26,22 @@ DEBUG = False
 AUTH_REFRESH_COOKIE_ENABLED = True
 
 # ---------------------------------------------------------------------------
+# Allowed hosts.
+#
+# base.py defaults ALLOWED_HOSTS to localhost,127.0.0.1 so `runserver` works
+# without ceremony. Inheriting that default in production means every request
+# arriving on the real hostname is rejected with a 400 — the app is up, the
+# proxy is fine, and nothing works. It fails closed, which is right, but it
+# fails at request time rather than boot time, so the first signal is an
+# outage rather than a refused deploy.
+#
+# Requiring it here matches how CACHE_BACKEND and the origin lists are
+# handled below: production states its own values and refuses to start
+# without them, rather than silently inheriting a development convenience.
+# ---------------------------------------------------------------------------
+ALLOWED_HOSTS = config("ALLOWED_HOSTS", cast=Csv())  # required, no default
+
+# ---------------------------------------------------------------------------
 # Throttle-counter store.
 #
 # base.py defaults CACHES to per-process LocMemCache, which is correct for the

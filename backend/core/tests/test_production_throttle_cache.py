@@ -22,6 +22,7 @@ _BASE_ENV = {
     "DB_NAME": "x",
     "DB_USER": "x",
     "DB_PASSWORD": "x",
+    "ALLOWED_HOSTS": "app.example.com",
     "CORS_ALLOWED_ORIGINS": "https://app.example.com",
     "CSRF_TRUSTED_ORIGINS": "https://app.example.com",
 }
