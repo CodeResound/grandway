@@ -5,8 +5,32 @@ from decouple import Csv, config
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-LOG_DIR = BASE_DIR.parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+# ---------------------------------------------------------------------------
+# Log directory.
+#
+# Configurable because the repo-relative default only makes sense for a
+# checkout: a deployment that runs from /opt or a container image would
+# otherwise write logs back into its own source tree, or fail outright if that
+# tree is read-only.
+#
+# The mkdir is guarded for the same reason. It runs at settings import — before
+# SECRET_KEY is even read — so an unwritable path takes down every worker,
+# every migrate, every collectstatic and the nightly cron, and it did so with a
+# bare OSError traceback that named no setting. A read-only root filesystem or
+# a non-root container user is the ordinary way to hit this. Fail with a
+# message that says which variable to change.
+# ---------------------------------------------------------------------------
+LOG_DIR = Path(config("LOG_DIR", default=str(BASE_DIR.parent / "logs")))
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+except OSError as exc:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        f"LOG_DIR ({LOG_DIR}) could not be created: {exc}. Point LOG_DIR at a "
+        "writable directory, or pre-create it with write permission for the "
+        "user this process runs as."
+    ) from exc
 
 SECRET_KEY = config("SECRET_KEY")
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
@@ -213,7 +237,11 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+# Configurable so a deployment can collect into the path its web server
+# actually serves (e.g. /var/www/<project>/static) rather than a directory
+# inside the checkout. Unlike MEDIA_ROOT below, this content is public by
+# design — it is exactly what the reverse proxy should serve.
+STATIC_ROOT = Path(config("STATIC_ROOT", default=str(BASE_DIR / "staticfiles")))
 
 # ---------------------------------------------------------------------------
 # Uploaded file storage — the uploaded_files app (CLAUDE.md §14, §37).
