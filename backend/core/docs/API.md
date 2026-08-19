@@ -80,10 +80,12 @@ All API endpoints (under `/api/v1/`) use these shapes. The two endpoints in this
 
 **Response (200 OK):**
 ```json
-{ "status": "ok" }
+{ "status": "ok", "version": "1.0.0" }
 ```
 
 **Business rules:** Always returns 200 while the process is alive. No DB check performed.
+
+`version` is the deployed application version (`CLAUDE.md` §41.2 — the repo-root `VERSION` file, also carried by the release tag). It rides on the liveness probe rather than readiness precisely because this endpoint answers without touching the database: a host that is up but cannot reach PostgreSQL still reports which build it is running. Added in 1.0.0; an optional response field, so non-breaking per §22.
 
 ### 1.2 Readiness — `GET /ready/`
 

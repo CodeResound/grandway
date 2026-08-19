@@ -10,6 +10,15 @@ class HealthCheckTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "ok")
 
+    def test_health_reports_the_application_version(self) -> None:
+        # The four-place version chain of CLAUDE.md §41.2: this pins the
+        # runtime end of it (VERSION -> core.__version__ -> /health/); the
+        # release workflow pins the tag end.
+        import core
+
+        response = self.client.get("/health/")
+        self.assertEqual(response.json()["version"], core.__version__)
+
     def test_health_does_not_require_auth(self) -> None:
         response = self.client.get("/health/")
         self.assertNotEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

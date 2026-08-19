@@ -5,12 +5,19 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from core import __version__
+
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
 @throttle_classes([])
 def health(request: Request) -> Response:
-    return Response({"status": "ok"}, status=status.HTTP_200_OK)
+    # `version` rides on the liveness probe rather than readiness because
+    # /health/ answers without touching the database: a box that is up but
+    # cannot reach PostgreSQL still reports which build it is running, which
+    # is exactly when that answer matters. Adding an optional response field
+    # is non-breaking (CLAUDE.md §22).
+    return Response({"status": "ok", "version": __version__}, status=status.HTTP_200_OK)
 
 
 @api_view(["GET"])

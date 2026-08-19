@@ -205,7 +205,7 @@ Project defaults: 100 requests/hour for anonymous callers, 1000/hour for authent
 
 | Route | Auth | For consumers |
 |-------|------|---------------|
-| `GET /health/` | none | Liveness probe. Returns 200 while the process is up. Safe to poll; excluded from rate limiting. |
+| `GET /health/` | none | Liveness probe. Returns 200 while the process is up, with the deployed application version: `{ "status": "ok", "version": "1.0.0" }`. Answers without touching the database, so a host that cannot reach PostgreSQL still reports its build. Safe to poll; excluded from rate limiting. |
 | `GET /ready/` | none | Readiness probe, includes DB connectivity. Returns 200 only when able to serve. Safe to poll; excluded from rate limiting. |
 | `/admin/` | session login | Django's built-in admin UI for internal staff. **Not an API** — no JSON contract, no stable surface. Never integrate against it. |
 
