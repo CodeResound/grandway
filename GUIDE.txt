@@ -85,11 +85,30 @@
 
      ImproperlyConfigured: ENVIRONMENT is unset or invalid (got None)
 
- That failure is correct behaviour — settings never silently fall back to
- development — but it is the most common day-one deployment failure.
+ That failure is correct behaviour — but it is the most common day-one
+ deployment failure.
 
      systemd:  Environment=ENVIRONMENT=production
      docker:   ENV ENVIRONMENT=production   /  -e ENVIRONMENT=production
+
+ *** AND: THERE MUST BE NO `.env` FILE AT THE REPOSITORY ROOT. ***
+
+ The ImproperlyConfigured above only happens when ENVIRONMENT is unset AND no
+ repo-root `.env` exists. If one IS present, its value is used instead — and a
+ developer's `.env` says ENVIRONMENT=development. A production host in that
+ state boots SILENTLY IN DEVELOPMENT MODE: DEBUG=True, no HTTPS redirect, no
+ HSTS, no secure-cookie enforcement, and stack traces rendered to clients.
+ There is no error and no warning; the only symptom is a working site with
+ every protection off.
+
+ `.env` is gitignored, so a `git clone` deployment never has one. A deployment
+ that copies a working directory (rsync, scp, docker COPY of the whole tree,
+ a VM image built from a developer's checkout) can carry one silently. Verify
+ before every deploy:
+
+     test ! -e .env || { echo "REFUSING: stray .env present"; exit 1; }
+
+ This check is step 0 of the deploy sequence in §7.
 
  Where the rest is read from:
    Production settings read `<repo-root>/.env.production` IF THE FILE EXISTS;
@@ -235,6 +254,9 @@
 
  Ordered and idempotent — this is EVERY deploy, not just the first.
 
+   0. test ! -e .env        <- see §3: a stray .env silently overrides
+                                ENVIRONMENT and can boot production in
+                                development mode with DEBUG=True
    1. pip install -r requirements/production.txt
    2. python backend/manage.py collectstatic --noinput
    3. python backend/manage.py migrate --noinput
