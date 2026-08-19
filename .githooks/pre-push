@@ -57,8 +57,10 @@ fail() {
   exit 1
 }
 
-# Database-less stages: ruff, policy-artifact drift, pytest.
-bash scripts/ci.sh lint export test || fail "lint/export/test"
+# Database-less stages: ruff, migration drift, policy-artifact drift, consumer
+# contracts, pytest. This list is hardcoded rather than using ci.sh's default-all
+# path, so a newly added DB-less stage must be added here too.
+bash scripts/ci.sh lint migrations export docs test || fail "lint/migrations/export/docs/test"
 
 # The `policy` stage (migrate -> sync -> validate) needs a reachable PostgreSQL.
 # Read the connection target from .env.development so this follows the real config.

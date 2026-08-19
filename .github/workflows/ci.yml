@@ -32,6 +32,8 @@ jobs:
         run: bash scripts/ci.sh export
       - name: Check consumer INTEGRATION.md contracts match the registry
         run: bash scripts/ci.sh docs
+      - name: Check every model change has a migration
+        run: bash scripts/ci.sh migrations
       - name: Regenerate artifacts for upload
         run: |
           python backend/manage.py export_policy_registry --format registry \

@@ -9,7 +9,7 @@
 # change. See CLAUDE.md §1, §18, §33, §35.
 #
 # Usage:
-#   scripts/ci.sh                 # run all stages (lint, export, docs, policy, test)
+#   scripts/ci.sh                 # run all stages (lint, migrations, export, docs, policy, test)
 #   scripts/ci.sh lint            # run only the lint stage
 #   scripts/ci.sh lint export     # run a subset, in the order given
 #   scripts/ci.sh policy          # run only the policy-engine stage
@@ -20,6 +20,9 @@
 #             publish a consumer-facing docs/INTEGRATION.md whose endpoint inventory
 #             matches the registry (CLAUDE.md §19.1). Registry declarations only, no
 #             database.
+#   migrations — makemigrations --check --dry-run; fails if a model change has no
+#             migration. The schema equivalent of the `export` check below. No
+#             database (uses core.settings.testing for a clean import).
 #   export  — export_policy_registry --check for the registry + OpenAPI artifacts;
 #             fails if backend/core/policy_engine/docs/{registry_export,openapi}.json
 #             have drifted from the registry declarations. Pure registry read, no
@@ -34,7 +37,7 @@
 #
 # Only the `policy` stage needs a reachable PostgreSQL: supply DB_* + SECRET_KEY
 # via the environment (CI) or a local .env.development file. The `lint`, `export`,
-# `docs`, and `test` stages run without a database.
+# `docs`, `migrations`, and `test` stages run without a database.
 #
 # Run from the repository root. Uses `python`/`ruff`/`pytest` from PATH — in CI
 # they are installed into the system environment; locally, activate your .venv
@@ -58,6 +61,14 @@ run_lint() {
 run_test() {
     echo "==> [test] pytest (SQLite, core.settings.testing)"
     pytest
+}
+
+run_migrations() {
+    # A model field changed with no migration generated is invisible until a
+    # deploy runs `migrate` and the schema does not match the code. This is the
+    # schema counterpart to run_export's artifact-freshness check.
+    echo "==> [migrations] manage.py makemigrations --check --dry-run"
+    python backend/manage.py makemigrations --check --dry-run --settings=core.settings.testing
 }
 
 run_export() {
@@ -90,7 +101,7 @@ run_policy() {
 
 # Default to all stages, in a fail-fast order (cheap lint/export first, tests last).
 if [ "$#" -eq 0 ]; then
-    stages="lint export docs policy test"
+    stages="lint migrations export docs policy test"
 else
     stages="$*"
 fi
@@ -98,12 +109,13 @@ fi
 for stage in $stages; do
     case "$stage" in
         lint) run_lint ;;
+        migrations) run_migrations ;;
         export) run_export ;;
         docs) run_docs ;;
         test) run_test ;;
         policy) run_policy ;;
         *)
-            echo "Unknown stage: '$stage' (valid: lint, export, docs, test, policy)" >&2
+            echo "Unknown stage: '$stage' (valid: lint, migrations, export, docs, test, policy)" >&2
             exit 2
             ;;
     esac
