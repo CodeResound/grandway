@@ -7,6 +7,10 @@ name: CI
 
 on:
   push:
+    # ci.yml owns branches; release.yml owns tags. Without this, pushing a
+    # release tag would run this entire suite a second time.
+    tags-ignore:
+      - "**"
   pull_request:
 
 jobs:
