@@ -21,7 +21,7 @@ Findings recorded during release preparation that were triaged as not blocking. 
 - **`/ready/` does not check the cache backend** (PATCH) — readiness opens a database connection only. In production the cache is the rate-limit store, so a failed Redis leaves throttling degraded without the readiness probe reporting it. Documented in `GUIDE.txt` §10.
 - **`requirements/README.md` documents two commands that do not exist** (PATCH) — `validate_organization_integrity` and `rebuild_organization_closure`, for an `organization` app that was removed. Also referenced in `core/management/commands/reset_dev_data.py`.
 
-## [1.0.0] - 2026-08-19
+## [1.0.0] - 2026-09-06
 
 First production release. The application has been in development since 2026-07; this release marks the point at which it is deployable by someone who did not build it.
 
@@ -30,6 +30,7 @@ First production release. The application has been in development since 2026-07;
 - **Deployment contract** — `GUIDE.txt` documents everything needed to deploy, operate, back up, and roll back without reading source: runtime requirements, the complete environment-variable contract, filesystem and reverse-proxy contracts, the ordered deploy sequence, first-boot bootstrap, scheduled jobs, health endpoints, backup/restore, rollback, and the enforced security posture.
 - **Reference deployment configs** — `deploy/env.production.example`, `deploy/gunicorn.conf.py`, `deploy/nginx.sample.conf`, and `deploy/crontab.sample`, all target-agnostic.
 - **Operator README** — repository entry point with a routing table to the contract written for each audience.
+- **Development env template** — `deploy/env.development.example`, tracked alongside the production one. The README's quick start told a new developer to copy `.env.development.example`, but every dotted env file is gitignored, so that template had never reached a clone; the first step of the quick start failed on a clean checkout.
 - **Version identity** — a repo-root `VERSION` file, `core.__version__`, and a `version` field on `GET /health/`, so a deployed host can report which build it is running even when its database is unreachable. Optional response field, non-breaking.
 - **Tag-triggered release verification** — `.github/workflows/release.yml` re-runs every gate against a tagged commit and asserts `VERSION` == tag == `core.__version__`.
 - **Migration drift check in CI** — `makemigrations --check` now runs as a first-class stage; two comments had long claimed an existing check "mirrored" it, but it had never actually run.
@@ -42,6 +43,8 @@ First production release. The application has been in development since 2026-07;
 - **An unwritable log directory now fails with a named error** — the directory was created by an unguarded `mkdir` at settings import, before `SECRET_KEY` was read, so a read-only filesystem or non-root user killed every worker, migration, and cron job with a bare traceback naming no setting.
 - **Staging now matches production's posture** — it was missing `SECURE_CONTENT_TYPE_NOSNIFF`, `SECURE_BROWSER_XSS_FILTER`, `X_FRAME_OPTIONS`, and the `ALLOWED_HOSTS` and `CACHE_BACKEND` requirements, so it could not validate production before production depended on it. HSTS remains deliberately weaker, asserted explicitly by a parity test.
 - **Live migration drift** — `notifications.notification_type` had gained choices with no migration.
+- **A stray `.env` can no longer downgrade a production host** — environment selection had one path that failed open: `ENVIRONMENT` unset *with* a developer's `.env` present silently selected development settings — `DEBUG=True`, no HTTPS redirect, no HSTS, no secure cookies, stack traces to clients — with no error and no warning. A deploy that copies a working directory (rsync, a `docker COPY` of the tree, a VM image built from a checkout) could carry one. Boot now refuses when the production env file is present and a `.env` disagrees.
+- **`GUIDE.txt` no longer documents a recovery command that does not exist** — the admin-lockout section listed `manage.py addstatictoken` as an emergency lever, but `otp_static` is deliberately not installed (recovery codes are concept-locked out), so the command fails with `Unknown command`. `reset_superadmin_mfa` is the only superadmin MFA recovery path and the section now says so.
 
 ### Security
 
