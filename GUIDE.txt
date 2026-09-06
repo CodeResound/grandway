@@ -302,7 +302,12 @@
 
    python backend/manage.py reset_superadmin_mfa        # clear the TOTP device
    python backend/manage.py reset_superadmin_password   # reset the password
-   python backend/manage.py addstatictoken <username>   # emergency static token
+
+ There are NO recovery or backup codes, by design. reset_superadmin_mfa is the
+ only superadmin MFA recovery path: it removes the TOTP device and revokes the
+ account's sessions, so the superadmin logs in with password alone and re-enrols
+ immediately. Both commands default to the 'superadmin' username (override with
+ --username, or the SUPERADMIN_USERNAME environment variable).
 
 -------------------------------------------------------------------------------
  9. SCHEDULED JOBS
