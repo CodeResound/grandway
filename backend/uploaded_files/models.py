@@ -68,10 +68,16 @@ def upload_destination(instance: UploadedFile, filename: str) -> str:
 def _single_owner_condition() -> models.Q:
     """Build the "exactly one owner FK is set" database condition.
 
-    Written as an explicit five-way disjunction rather than an arithmetic
+    Written as an explicit six-way disjunction rather than an arithmetic
     null-count so it evaluates identically on PostgreSQL and on the SQLite the
-    test suite runs against. Derived from ``OWNER_FIELDS`` rather than typed out,
-    so a sixth owner extends the constraint by extending one tuple.
+    test suite runs against. **Do not "simplify" it to ``num_nonnulls(...) = 1``**
+    — that is PostgreSQL-only, and the test suite would stop exercising the rule
+    it is here to enforce. Derived from ``OWNER_FIELDS`` rather than typed out,
+    so a seventh owner extends the constraint by extending one tuple.
+
+    Note that the *migration* inlines the expanded tree rather than calling this,
+    so extending ``OWNER_FIELDS`` also requires a migration that drops and
+    re-adds the constraint. ``0002_signatory_owner`` is the worked example.
     """
     condition = models.Q()
     for owner in OWNER_FIELDS:
@@ -89,22 +95,34 @@ class UploadedFile(BaseModel):
     catalogue; this owns the bytes and their lifecycle, and it is the only place
     in the project where bytes are stored at all.
 
-    **Nothing references this model yet.** No shipped app holds a foreign key to
-    it: ``applicants`` has no photograph field, ``offers`` has no attachment
-    field, and ``document_history`` has no generated-file field. The relationship
-    is one-way by design — a file knows its owner; an owner learns about its
-    files only through this app's list endpoint filtered by that record's id.
+    **Two apps reference this model, and both do it the same way.**
+    ``checklists.ChecklistItem.evidence_file`` cites the file that proves a
+    requirement was met, and ``document_templates.Signatory.signature_file``
+    names the signature image that renders on a certificate. Both are nullable
+    ``PROTECT`` foreign keys resolved through a function-local selector import.
+
+    Everywhere else the relationship is still one-way by design — ``applicants``
+    has no photograph field and ``offers`` has no attachment field, so a file
+    knows its owner while the owner learns about its files only through this
+    app's list endpoint filtered by that record's id. A reverse pointer is what
+    an app adds when *which* file is the answer to a question, rather than
+    merely *some* file among several.
     """
 
-    # --- Ownership: exactly one of five -------------------------------------
+    # --- Ownership: exactly one of six --------------------------------------
     #
-    # ``PROTECT`` on all five, matching every existing cross-app FK in the
+    # ``PROTECT`` on all six, matching every existing cross-app FK in the
     # project: a person with files on record cannot be removed out from under
     # them. There is no cascade here, deliberately, whatever a client may assume
     # about deleting an applicant.
     #
+    # ``signatory`` arrived last and is the only owner that is not applicant
+    # work — it holds a certificate signer's signature image. Adding it was one
+    # column plus one entry in ``OWNER_FIELDS``, exactly as this comment used to
+    # predict in the abstract.
+    #
     # ``education`` and ``test_scores`` are named in the concept and absent here
-    # because those apps do not exist. A sixth column plus one more entry in
+    # because those apps do not exist. A seventh column plus one more entry in
     # ``OWNER_FIELDS`` is the whole change when they ship.
     applicant = models.ForeignKey(
         "applicants.Applicant",
@@ -136,6 +154,13 @@ class UploadedFile(BaseModel):
     )
     snapshot = models.ForeignKey(
         "document_history.DocumentSnapshot",
+        on_delete=models.PROTECT,
+        related_name="uploaded_files",
+        null=True,
+        blank=True,
+    )
+    signatory = models.ForeignKey(
+        "document_templates.Signatory",
         on_delete=models.PROTECT,
         related_name="uploaded_files",
         null=True,
@@ -285,8 +310,10 @@ class UploadedFile(BaseModel):
                 opclasses=["gin_trgm_ops"],
             ),
         ]
-        # The ``snapshot`` FK gets only its implicit index: a snapshot has at
-        # most one generated file, so a composite would serve nothing a
+        # The ``snapshot`` and ``signatory`` FKs get only their implicit
+        # indexes: a snapshot has at most one generated file and a signatory
+        # holds one live signature plus a short chain of superseded and archived
+        # predecessors, so in both cases a composite would serve nothing a
         # single-row lookup does not.
 
     def __str__(self) -> str:
@@ -302,7 +329,7 @@ class UploadedFile(BaseModel):
 
     @property
     def owner_type(self) -> str | None:
-        """Which of the five business records this file belongs to."""
+        """Which of the six business records this file belongs to."""
         for owner in OWNER_FIELDS:
             if getattr(self, f"{owner}_id", None) is not None:
                 return owner

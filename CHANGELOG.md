@@ -8,6 +8,16 @@ Release tags are immutable: a released version is never rewritten, only supersed
 
 ## [Unreleased]
 
+### Added
+
+- **Signature images can be uploaded and rendered** (MINOR) — `POST /api/v1/document-templates/signatories/<id>/signature/` stores a real image against a certificate signatory instead of relying on an external link. Multipart, PNG/JPG/WEBP only, 10 MB cap, with the leading bytes checked against the extension.
+  - `uploaded_files` gained a **sixth owner type**, `signatory`, joining applicant, journey, offer, document, and print snapshot. One nullable `PROTECT` column plus one entry in `OWNER_FIELDS`, exactly as that app's model comments predicted; the `uploaded_file_single_owner` check constraint widens from a five-way to a six-way disjunction (migration `uploaded_files/0002_signatory_owner`).
+  - `document_templates.Signatory` gained `signature_file`, a nullable `PROTECT` foreign key to the stored image (migration `0003_signatory_signature_file`) — the app's first database relation outside itself, and the project's first bidirectional app pair.
+  - **`signature_image_url` is retained and still honoured**, so nothing shipped breaks. A new read-only `signature_source` field (`uploaded` / `url` / `none`) reports which of the two is in force, computed server-side because part of the rule — whether the linked file has been archived or superseded — is invisible to a client.
+  - Signature files are **Admin-only** in the file ledger (`signatory` joins `ADMIN_ONLY_OWNER_TYPES`), matching `document_templates`' own Admin-only-including-reads rule. Without it a Lead Manager refused the signatory list could still have downloaded and replaced signature images through `/api/v1/files/`.
+  - Signature files are **excluded from the file verification queue** and the three dashboard figures built on it. Every upload starts `pending`, and a signatory-owned row would otherwise render in Today's Work with no applicant and nowhere to click.
+  - `document_templates` gained a `docs/SECURITY.md` — the first artefact in the project whose threat model is forgery rather than disclosure.
+
 ### Deferred
 
 Findings recorded during release preparation that were triaged as not blocking. Each carries the version bump it would require. This registry is reviewed at every release: an item either ships, stays deferred, or is retired with a reason — it is never silently dropped.

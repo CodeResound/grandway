@@ -43,26 +43,41 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - Omit `status` here — the management screen should show draft and retired signers, not just
      active ones. That is the opposite of what the picker wants.
 
-2. **Signatory Library → Add** — host the signature image first, then create the record →
+2. **Signatory Library → Add** — create the record →
    `POST /api/v1/document-templates/signatories/` (`document_templates.signatory.create`)
    - **Requires state:** nothing.
    - **Side effects:** appends `signatory_created` to the audit log. Nothing outside this module
      changes.
-   - **There is still no image upload.** `signature_image_url` is a link to a host this project
-     knows nothing about — put the file somewhere yourself first. **Do not ship a file-picker
-     control.** `uploaded_files` shipped on 2026-07-24, but a `Signatory` is **not** one of its five
-     owner types, so there is nowhere to attach a signature image even by hand; migrating this field
-     is a separate, unscheduled decision.
    - **`name` is required.** It is a single English field.
-     field and its translation — collect both for a real person.
-   - 
-     you can search on it, not display it.
    - *Failure — `VALIDATION_ERROR` on `name`:* the name is mandatory. Make it a
      required field on the form.
    - *Failure — `VALIDATION_ERROR` on `signature_image_url`:* it must be a well-formed URL. The API
-     never fetches it, so a well-formed link to nothing passes.
+     never fetches it, so a well-formed link to nothing passes. This field is now the **fallback** —
+     prefer step 3.
 
-3. **Signatory Library** — activate once the signature is in place →
+3. **Signatory Library → Upload signature** — **ship a file-picker control here** →
+   `POST /api/v1/document-templates/signatories/<signatory_id>/signature/`
+   (`document_templates.signatory.upload_signature`)
+   - **Requires state:** the signatory must exist. **No status precondition** — a `draft`,
+     `active`, or `inactive` signatory may all receive a signature.
+   - **Side effects:** creates a file in the ledger owned by this signatory
+     *(cross-app: `uploaded_files`)*, supersedes the previous signature if one was in force,
+     re-points `signature_file`, and appends **two** audit events — one in each module.
+   - **This reverses earlier guidance in this file.** Until 2026-09-10 this step said *"there is
+     still no image upload … do not ship a file-picker control"*, because a `Signatory` was not one
+     of the file ledger's owner types. It is now the sixth. Build the picker.
+   - **`multipart/form-data`, exactly one `file` part.** PNG, JPG/JPEG, or WEBP, max 10 MB. A JSON
+     body gets **415**. A *second* file part fails during parsing as a **500**, not a validation
+     error — so enforce single-file selection in the control itself.
+   - *Failure — `DOCUMENT_TEMPLATES_SIGNATURE_NOT_AN_IMAGE`:* the file ledger accepts PDF and Office
+     formats; a signature may not be one. Filter the picker to images.
+   - *Failure — `DOCUMENT_TEMPLATES_SIGNATURE_FILE_TOO_LARGE`:* 10 MB. Check size client-side first;
+     a rejected 10 MB upload still costs the user the upload.
+   - *Failure — `DOCUMENT_TEMPLATES_SIGNATURE_FILE_CONTENT_MISMATCH`:* the bytes contradict the
+     extension. Almost always a renamed file.
+   - **No `UPLOADED_FILES_*` code ever reaches you here**, even though that module raised the error.
+
+4. **Signatory Library** — activate once the signature is in place →
    `POST /api/v1/document-templates/signatories/<signatory_id>/status/`
    (`document_templates.signatory.change_status`)
    - **Requires state:** the signatory. **No status precondition** — any transition from any state.
@@ -139,6 +154,71 @@ Authored and updated by the backend author in the same commit as any endpoint ch
      only the id and resolves it at render time.
    - **A retired signer is still retrievable by id** —
      `GET /api/v1/document-templates/signatories/<id>/` works forever. That is deliberate.
+   - **Their signature image is not archived either**, and that is also deliberate: a retired
+     signer's certificates must stay reprintable. Retiring a signatory changes nothing about its
+     file.
+
+---
+
+## Flow: Render a signature into a certificate
+
+- **Actor:** Admin
+- **Goal:** Draw a signatory's signature image into a rendered certificate.
+- **Entry point:** Document Workspace → certificate preview or print view
+
+**Steps:**
+
+1. **Read the signatory** → `GET /api/v1/document-templates/signatories/<id>/`
+   (`document_templates.signatory.read`), or take the row you already have from the picker list.
+   - **Branch on `signature_source` and nothing else.** `"uploaded"` → step 2. `"url"` → render
+     `signature_image_url` directly. `"none"` → render no signature.
+   - **Do not write your own precedence rule.** Part of it is invisible to you: a file that was
+     archived or superseded stops counting, and nothing in this payload tells you that happened.
+
+2. **Fetch the bytes** → `GET {signature_file.download_path}`
+   (`uploaded_files.file.download`) *(cross-app: `uploaded_files`)*
+   - **Requires state:** `signature_source == "uploaded"`.
+   - **Side effects:** appends `file_downloaded` to the audit log — **on every call**.
+   - **This is a `fetch` with the bearer token, not an `<img src>`.** The route is authenticated and
+     answers `Content-Disposition: attachment`. Point an `<img>` at `download_path` and you get a
+     401 and a broken image. Fetch it, then `URL.createObjectURL(blob)`.
+   - **Cache the object URL for the session.** The response carries `Cache-Control: no-store`, so
+     the browser will re-fetch every time, and every fetch writes an audit event. A certificate
+     naming two signers re-rendered thirty times is sixty rows in the project's only audited read.
+     Holding the blob is the whole mitigation and there is nothing server-side that does it for you.
+   - *Failure — 401:* you used an `<img src>`. See above.
+   - *Failure — 404:* the row exists but the bytes do not — a media volume restored older than the
+     database. No client action fixes it; report it.
+
+---
+
+## Flow: Replace or remove a signature
+
+- **Actor:** Admin
+- **Goal:** Update a signature that has changed, or withdraw one.
+- **Entry point:** Signatory Library → the signatory's row
+
+**Steps:**
+
+1. **Replace** → `POST /api/v1/document-templates/signatories/<signatory_id>/signature/`
+   (`document_templates.signatory.upload_signature`) with the new image
+   - **Requires state:** the signatory. No need to remove the old signature first.
+   - **Side effects:** the previous file is superseded (kept, not deleted), `version_number`
+     increments, `signature_file` re-points, two audit events.
+   - **Warn the user that this changes past certificates.** A snapshot freezes a signer's name and
+     role but **never the image**, so every historical reprint will render the new signature beside
+     the old frozen name. That is real and intended; it will look like a bug if unannounced.
+
+2. **Remove** → `POST /api/v1/files/<file_id>/archive/` with a `reason`
+   (`uploaded_files.file.archive`) *(cross-app: `uploaded_files`)*
+   - **Requires state:** `signature_file` must be present; take its `id` from the signatory payload.
+   - **Side effects:** the file is archived. `signature_file` returns to `null` and
+     `signature_source` falls back to `"url"` or `"none"`.
+   - **There is no remove endpoint in this module** — this is the gesture. Label it "Remove
+     signature"; the archive is an implementation detail the user should not have to know.
+   - The bytes are kept and the link still points at them. Nothing is destroyed.
+   - Uploading again afterwards works immediately and starts a fresh version chain at 1 — the user
+     does not have to un-remove anything.
 
 ---
 
@@ -215,6 +295,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 | `document_templates.signatory.create` | `POST /api/v1/document-templates/signatories/` | Add a signer | Always creates as `draft` |
 | `document_templates.signatory.read` | `GET /api/v1/document-templates/signatories/<id>/` | — | `unused by flow — resolving a single id, e.g. rendering a retired signer named by an old document` |
 | `document_templates.signatory.update` | `PATCH /api/v1/document-templates/signatories/<id>/` | Add a signer (corrections) | `status` rejected; use the status action |
+| `document_templates.signatory.upload_signature` | `POST /api/v1/document-templates/signatories/<id>/signature/` | Add a signer; Replace a signature; Render a signature | **Multipart.** Ship a file picker. Images only, one part, 10 MB |
 | `document_templates.signatory.change_status` | `POST /api/v1/document-templates/signatories/<id>/status/` | Add a signer; Retire a signer | **This is the retire button** |
 | `document_templates.template.list` | `GET /api/v1/document-templates/templates/` | Retire a partner; New Document picker (cross-app) | `?family=`, `?status=`, `?search=` |
 | `document_templates.template.create` | `POST /api/v1/document-templates/templates/` | Register a slug | `key` + `family` cross-validated |
@@ -224,7 +305,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 
 **Screens from `concepts/document_templates.txt`, and whether they are backed:**
 
-- **Signatory Library** — **fully backed.** List, create, edit, and retire.
+- **Signatory Library** — **fully backed.** List, create, edit, upload a signature, and retire.
 - **Template Catalog** — **backed.** List with family and status filters, create, edit, retire.
 - **Template Detail / Version History** — **partly backed, and the version half never will be.** The
   detail read exists; there is **no version chain**, so there is no history to show. See below.
@@ -243,20 +324,29 @@ Authored and updated by the backend author in the same commit as any endpoint ch
   document or snapshot stay available. That already holds without a version chain here:
   `document_history` freezes the template key, version string, and resolved signatories into each
   snapshot's `render_context`, so a snapshot reproduces itself without reading this app at all.
-- **Signature image upload.** `signature_image_url` is a link. No upload, no size or type check, no
-  reachability check. `uploaded_files` now exists but a `Signatory` is not one of its owner types, so
-  this field was deliberately left alone — repointing it would also change a shipped response shape.
+- **~~Signature image upload.~~ Closed 2026-09-10.** This read: *"`uploaded_files` now exists but a
+  `Signatory` is not one of its owner types, so this field was deliberately left alone."* A
+  `Signatory` is now its sixth owner type, and `signatory.upload_signature` uploads a real image
+  with size, type, and leading-byte checks. `signature_image_url` was **kept** rather than repointed,
+  so no shipped response shape changed — which is what unblocked it. What remains: **that fallback
+  link is still unvalidated and unfetched**, so a signatory relying on it can still render broken
+  with nothing reporting it. Uploading a real image is the per-signatory fix.
+- **No signature preview outside a certificate.** The Signatory Library can render a signature by
+  following the render flow above, but there is no thumbnail, no dimension metadata, and no server-
+  side crop or background removal. Whatever the Admin uploads is what prints.
 - **Lookup by key.** Every route takes the UUID `id`. Holding a `documents.template_key` and wanting
   its label means listing the catalogue and matching client-side — cheap at 53 rows, but there is no
   `?key=` filter.
 
 ## Cross-app dependencies
 
-- **This app references (outbound):** `none` at the HTTP level — no flow here calls another app's
-  endpoint. The backend imports three Python objects from `documents` (the `family` enum, the slug
-  validator, and the key/family rule) so the catalogue cannot accept a pairing that app would
-  reject; see `backend/document_templates/docs/INTEGRATION.md` §2. There is **no database relation
-  to any app but `authenticate`**.
+- **This app references (outbound):** `uploaded_files.file.download` — the "Render a signature" and
+  "Remove a signature" flows both call it *(cross-app: `uploaded_files`)*. That is new as of
+  2026-09-10; this section previously read `none`. The backend also imports three Python objects
+  from `documents` (the `family` enum, the slug validator, and the key/family rule) so the catalogue
+  cannot accept a pairing that app would reject, and holds one database relation outside itself —
+  `Signatory.signature_file` into `uploaded_files`. See
+  `backend/document_templates/docs/INTEGRATION.md` §2.
 - **Referenced by other apps (inbound):** `concepts/documents_flows.md` — its New Document picker
   calls `document_templates.template.list` and its certificate form calls
   `document_templates.signatory.list`. `concepts/document_history_flows.md` references the signatory
@@ -266,7 +356,8 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 **Note the asymmetry across the document stack.** `documents` depends on neither of its two
 siblings. `document_history` holds real foreign keys to `documents` and writes through its service.
 This app holds no database relation to either and is consulted by neither — it publishes two
-libraries that clients are trusted to use.
+libraries that clients are trusted to use. Its one real relation points outside the stack entirely,
+at the file ledger, and is the project's only two-way app pair.
 
 When an endpoint here is added, changed, or deprecated, grep `concepts/*_flows.md` for its
 `permission_key` and update every referencing flow in the same commit (the CLAUDE.md §36 ripple rule) —
@@ -286,3 +377,16 @@ not just this file.
 - **Should a template ever be renderable-but-not-offerable, or vice versa?** Today the catalogue and
   the frontend's union are maintained independently, so either can hold a slug the other lacks, in
   both directions, with nothing reporting the mismatch.
+- **Should a reprint freeze the signature image?** Right now it does not — a snapshot freezes the
+  signer's name and role, and the image resolves live, so replacing a signature rewrites the
+  appearance of every past certificate. Freezing it would mean adding a file id to
+  `render_context.signatories[]` and holding the bytes forever. Not decided; it is a
+  `document_history` change, not one this module can make alone.
+- **Should the signature download be exempt from the audit log?** Every render writes a
+  `file_downloaded` event to the project's only audited read, so a busy document workspace fills it
+  with signature noise. Deliberately not exempted — the value of "every file read is recorded" comes
+  from having no exceptions — and mitigated by the client caching contract in the render flow above.
+  Worth revisiting with real usage data.
+- **Should `signature_image_url` be deprecated now that uploads exist?** It is retained and still
+  honoured, so a signatory can render from an unvalidated external link. Removing it is a §29
+  breaking change and would need a migration path for any signatory still relying on it.

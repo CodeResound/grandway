@@ -172,21 +172,25 @@ class AuthorityTests(FilesAPITestCase):
                 self.assertEqual(response.status_code, 403)
                 self.assert_error_envelope(response, ErrorCode.ACTOR_FORBIDDEN)
 
-    def test_a_lead_manager_cannot_reach_a_document_owned_file(self) -> None:
+    def test_a_lead_manager_cannot_reach_an_admin_only_owned_file(self) -> None:
         """A file inherits the visibility of the record it belongs to.
 
-        `documents` and `document_history` are Admin-only on every route, so a
-        Lead Manager who cannot open a bank statement must not be able to list or
-        download the PDF attached to it. 404 rather than 403, because confirming
-        the file exists would leak exactly what those modules hide.
+        `documents`, `document_history`, and `document_templates` are Admin-only
+        on every route, so a Lead Manager who cannot open a bank statement must
+        not be able to list or download the PDF attached to it — nor a
+        director's signature image, which they equally cannot reach through the
+        owning app. 404 rather than 403, because confirming the file exists
+        would leak exactly what those modules hide.
         """
         document = f.make_document(self.admin, self.applicant)
         snapshot = f.make_snapshot(self.admin, document)
+        signatory = f.make_signatory(self.admin)
         doc_file = f.upload_for(self.admin, "document", document)
         snap_file = f.upload_for(self.admin, "snapshot", snapshot)
+        sig_file = f.upload_for(self.admin, "signatory", signatory)
 
         self.auth(self.lead_manager)
-        for restricted in (doc_file, snap_file):
+        for restricted in (doc_file, snap_file, sig_file):
             with self.subTest(owner=restricted.owner_type):
                 for url in (
                     f"{FILES}{restricted.id}/",
@@ -202,27 +206,37 @@ class AuthorityTests(FilesAPITestCase):
         would leak the existence of the record `documents` hides."""
         document = f.make_document(self.admin, self.applicant)
         doc_file = f.upload_for(self.admin, "document", document)
+        sig_file = f.upload_for(self.admin, "signatory", f.make_signatory(self.admin))
         own_file = self.stored
 
         self.auth(self.lead_manager)
         ids = [row["id"] for row in self.client.get(FILES).json()["data"]]
         self.assertIn(str(own_file.id), ids)
         self.assertNotIn(str(doc_file.id), ids)
+        self.assertNotIn(str(sig_file.id), ids)
 
         self.auth(self.admin)
         admin_ids = [row["id"] for row in self.client.get(FILES).json()["data"]]
         self.assertIn(str(doc_file.id), admin_ids)
+        self.assertIn(str(sig_file.id), admin_ids)
 
-    def test_a_lead_manager_cannot_upload_against_a_document(self) -> None:
+    def test_a_lead_manager_cannot_upload_against_an_admin_only_owner(self) -> None:
         document = f.make_document(self.admin, self.applicant)
+        signatory = f.make_signatory(self.admin)
         self.auth(self.lead_manager)
-        response = self.client.post(
-            FILES,
-            {"document": str(document.id), "category": FileCategory.OTHER, "file": f.pdf_upload()},
-            format="multipart",
-        )
-        self.assertEqual(response.status_code, 403)
-        self.assert_error_envelope(response, ErrorCode.ACTOR_FORBIDDEN)
+        for owner_field, owner_id in (("document", document.id), ("signatory", signatory.id)):
+            with self.subTest(owner=owner_field):
+                response = self.client.post(
+                    FILES,
+                    {
+                        owner_field: str(owner_id),
+                        "category": FileCategory.OTHER,
+                        "file": f.pdf_upload(),
+                    },
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, 403)
+                self.assert_error_envelope(response, ErrorCode.ACTOR_FORBIDDEN)
 
     def test_a_lead_manager_gets_403_before_404_on_a_missing_file(self) -> None:
         """Authority is checked first, so a refused caller cannot probe for ids."""
@@ -270,12 +284,14 @@ class UploadTests(FilesAPITestCase):
         offer = f.make_manual_offer(self.admin, journey)
         document = f.make_document(self.admin, self.applicant)
         snapshot = f.make_snapshot(self.admin, document)
+        signatory = f.make_signatory(self.admin)
 
         cases = {
             "journey": journey.id,
             "offer": offer.id,
             "document": document.id,
             "snapshot": snapshot.id,
+            "signatory": signatory.id,
         }
         for owner_field, owner_id in cases.items():
             with self.subTest(owner=owner_field):
@@ -385,7 +401,7 @@ class ListTests(FilesAPITestCase):
 
 
 class FileListQueryCountTests(FilesAPITestCase):
-    """N+1 guard (§6). The list joins five owner tables and four user columns;
+    """N+1 guard (§6). The list joins six owner tables and four user columns;
     the query count must not grow with the number of rows."""
 
     def setUp(self) -> None:
@@ -393,9 +409,16 @@ class FileListQueryCountTests(FilesAPITestCase):
         self.auth(self.admin)
 
     def _populate(self, count: int) -> None:
+        """Three owner types in rotation, so the sixth join is actually exercised.
+
+        Two would leave ``signatory`` unjoined in every row of the page, and a
+        ``select_related`` that is never populated proves nothing.
+        """
         journey = f.make_journey(self.admin, self.applicant)
+        signatory = f.make_signatory(self.admin)
+        rotation = [("applicant", self.applicant), ("journey", journey), ("signatory", signatory)]
         for index in range(count):
-            owner_field, owner = ("applicant", self.applicant) if index % 2 else ("journey", journey)
+            owner_field, owner = rotation[index % 3]
             f.upload_for(self.admin, owner_field, owner, upload=f.pdf_upload(f"scan{index}.pdf"))
 
     def test_query_count_does_not_grow_with_the_number_of_rows(self) -> None:

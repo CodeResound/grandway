@@ -13,6 +13,7 @@ afterwards. Mocking the storage backend would leave the one thing this app does
 from __future__ import annotations
 
 import hashlib
+import itertools
 import re
 import shutil
 import tempfile
@@ -26,8 +27,11 @@ from django.test import TestCase, override_settings
 
 from uploaded_files import services
 from uploaded_files.constants import (
+    ADMIN_ONLY_OWNER_TYPES,
     MAX_UPLOAD_BYTES,
+    OWNER_FIELDS,
     FileCategory,
+    OwnerType,
     UploadedFilesAuditAction,
     VerificationStatus,
 )
@@ -47,7 +51,13 @@ from uploaded_files.exceptions import (
     ReasonRequiredError,
 )
 from uploaded_files.models import UploadedFile
-from uploaded_files.selectors import filter_files, get_files, get_version_chain
+from uploaded_files.selectors import (
+    filter_files,
+    get_file_verification_counts,
+    get_files,
+    get_files_awaiting_verification,
+    get_version_chain,
+)
 from uploaded_files.tests import factories as f
 
 MISSING_ID = "2b3c4d5e-6f70-4819-a2b3-c4d5e6f70819"
@@ -186,6 +196,7 @@ class OwnershipTests(FileServiceTestCase):
         self.offer = f.make_manual_offer(self.admin, self.journey)
         self.document = f.make_document(self.admin, self.applicant)
         self.snapshot = f.make_snapshot(self.admin, self.document)
+        self.signatory = f.make_signatory(self.admin)
 
     def test_each_owner_type_can_hold_a_file(self) -> None:
         cases = {
@@ -194,6 +205,7 @@ class OwnershipTests(FileServiceTestCase):
             "offer": self.offer,
             "document": self.document,
             "snapshot": self.snapshot,
+            "signatory": self.signatory,
         }
         for owner_field, owner in cases.items():
             with self.subTest(owner=owner_field):
@@ -240,6 +252,36 @@ class OwnershipTests(FileServiceTestCase):
         stored = f.upload_for_applicant(self.admin, self.applicant)
         with self.assertRaises(IntegrityError), transaction.atomic():
             UploadedFile.objects.filter(pk=stored.pk).update(applicant=None)
+
+    def test_the_constraint_covers_every_pair_of_owners(self) -> None:
+        """Every pair, not a sample — this is what catches a forgotten clause.
+
+        The constraint is regenerated from ``OWNER_FIELDS`` in the model but
+        **inlined expanded** in the migration, so the two can silently disagree:
+        an owner added to the tuple without a migration that drops and re-adds
+        the CHECK leaves a constraint that permits two owners for the new
+        column. Sweeping all pairs is the only assertion that notices.
+        """
+        owners = {
+            "applicant": self.applicant,
+            "journey": self.journey,
+            "offer": self.offer,
+            "document": self.document,
+            "snapshot": self.snapshot,
+            "signatory": self.signatory,
+        }
+        self.assertEqual(set(owners), set(OWNER_FIELDS), "a new owner needs a case here")
+
+        for first, second in itertools.combinations(OWNER_FIELDS, 2):
+            with self.subTest(first=first, second=second):
+                stored = f.upload_for(self.admin, first, owners[first])
+                with self.assertRaises(IntegrityError), transaction.atomic():
+                    UploadedFile.objects.filter(pk=stored.pk).update(**{f"{second}_id": owners[second].pk})
+
+    def test_owner_fields_and_the_enum_stay_in_step(self) -> None:
+        """A seventh owner added to one and not the other fails here, not in production."""
+        self.assertEqual(set(OWNER_FIELDS), set(OwnerType.values))
+        self.assertLessEqual(set(ADMIN_ONLY_OWNER_TYPES), set(OWNER_FIELDS))
 
 
 # ---------------------------------------------------------------------------
@@ -547,6 +589,38 @@ class SelectorTests(FileServiceTestCase):
     def test_owner_filter_narrows_to_that_record(self) -> None:
         rows = filter_files(get_files(), {"applicant": self.applicant.id})
         self.assertEqual([row.id for row in rows], [self.passport.id])
+
+    def test_the_signatory_owner_filter_works(self) -> None:
+        signatory = f.make_signatory(self.admin)
+        signature = f.upload_for(self.admin, "signatory", signatory)
+
+        rows = filter_files(get_files(), {"signatory": signatory.id})
+
+        self.assertEqual([row.id for row in rows], [signature.id])
+
+    def test_a_signature_is_not_review_queue_work(self) -> None:
+        """Excluded from ``_live_files``, and so from three dashboard figures.
+
+        Every upload starts ``pending``, so without this a director's signature
+        would sit in the Admin review queue and render in Today's Work as a row
+        with no applicant and nowhere to click — ``dashboards.FileRowSerializer``
+        reads ``applicant_id``/``journey_id``, both null here.
+
+        The file is still fully in the ledger, which the last two assertions
+        pin: absent from the *queue*, not from the app.
+        """
+        signatory = f.make_signatory(self.admin)
+        signature = f.upload_for(self.admin, "signatory", signatory)
+
+        queued = get_files_awaiting_verification(is_admin=True)
+        counts = get_file_verification_counts(is_admin=True)
+
+        self.assertNotIn(signature.id, [row.id for row in queued])
+        self.assertIn(self.passport.id, [row.id for row in queued])
+        self.assertEqual(counts[VerificationStatus.PENDING], 2)
+
+        self.assertIn(signature.id, [row.id for row in get_files()])
+        self.assertEqual([row.id for row in filter_files(get_files(), {"signatory": signatory.id})], [signature.id])
 
     def test_category_filter(self) -> None:
         rows = filter_files(get_files(), {"category": FileCategory.ACADEMIC_TRANSCRIPT})

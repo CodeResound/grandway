@@ -1,10 +1,10 @@
 # Data Contract — Document Templates
 
 **Owner app:** `document_templates`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-24
-**Purpose:** Owns the signatory library that certificate documents point at, and the catalogue of template slugs the document picker offers. It does **not** own the editable document record (`documents`), the immutable print snapshot (`document_history`), file storage (`uploaded_files`, which now exists but which this app does not call), or the template *rendering* — which lives in the frontend as code, not here.
+**Purpose:** Owns the signatory library that certificate documents point at, and the catalogue of template slugs the document picker offers. It does **not** own the editable document record (`documents`), the immutable print snapshot (`document_history`), file storage (`uploaded_files`, which this app now calls but does not own — signature bytes live there, not here), or the template *rendering* — which lives in the frontend as code, not here.
 
 ---
 
@@ -16,6 +16,7 @@
 | 1.0.1 | 2026-07-24 | AI (Claude) | No schema change. Renamed the `PATCH` status guard's error code and documented the `name` re-derivation rule |
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Same, for `signature_image_url` |
 | 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (Signatory `name`/`title`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.2.0 | 2026-09-10 | AI (Claude Opus 5) | Added `Signatory.signature_file` — a nullable `PROTECT` FK into `uploaded_files`, the app's first database relation outside itself. `signature_image_url` retained as the fallback with a documented precedence rule. Migration `0003_signatory_signature_file`. Additive, non-breaking |
 
 ---
 
@@ -41,7 +42,13 @@ A second rule follows: **nothing here is ever deleted.** Documents reference a t
 - **No template version chain, no section metadata, no field hints, no signature slots, and no preview.** The concept names all five, and the frontend consumes none of them — it has no endpoint for any, and its templates are code. Building them would mean inventing a schema against zero consumers, which §32 forbids and which would guarantee drift from the templates that actually exist. **`concepts/document_templates.txt`'s Template Editor, Template Detail / Version History, and Template Preview screens therefore have no backing endpoints.** Recorded in `docs/INTEGRATION.md` §9 rather than silently omitted, so a frontend author reading the concept knows they are absent by decision.
 - **Historical reproduction does not need a version chain here, and already works.** The concept's requirement — "Once a version has been used by a document or history snapshot, it should remain available for historical reproduction" — is already satisfied by `document_history`, which freezes the template key, the template version string, and the resolved signatories into each snapshot's `render_context`. A snapshot is self-sufficient for reproduction; it does not read back through this app. Adding an immutable version chain would duplicate a guarantee that already holds.
 - **The catalogue is advisory, not enforcing.** `documents` does **not** consult this table. Creating a document with a `template_key` absent from the catalogue still succeeds. Enforcing it would narrow a shipped endpoint's accepted input (§29 breaking change) and add a runtime dependency from `documents` to this app; that is its own decision with its own approval gate. The consequence is that `documents`' documented gap — *"a typo that happens to match the family prefix is accepted"* — stays open.
-- **The signature image is a URL, not an upload.** §14 requires a full file contract — allowed types, max size, storage location, filename rule, MIME validation, access control — and `concepts/project_overview.txt` names a dedicated `uploaded_files` domain that does not exist. `signature_image_url` is a plain link to an image hosted elsewhere, mirroring `clients.logo_url` field-for-field. **Fourth deferral of this kind**, after the applicant photograph, offer attachments, and the client logo. The concept explicitly permits it: *"In V1 this can be a stored path or URL-like value."*
+- **~~The signature image is a URL, not an upload.~~ The deferral ended on 2026-09-10.** It read: *"§14 requires a full file contract … and `concepts/project_overview.txt` names a dedicated `uploaded_files` domain that does not exist."* That domain shipped on 2026-07-24, which removed the entire premise. The concept had always permitted either form — *"In V1 this can be a stored path or URL-like value"* — and flagged the URL as "additively replaceable later", which is exactly how it was replaced.
+
+  **What replaced it, and what did not change.** `signature_file` is a `PROTECT` FK into `uploaded_files`; the bytes, the §14 contract, the versioning, and the archive lifecycle all live there, so this app still stores no files of its own. `signature_image_url` is **retained and still honoured** — removing it would be a §29 breaking change for no gain, and a signatory whose signature was never uploaded still renders from it. The precedence rule is below.
+
+  Three of the four deferrals this one was grouped with are still open: the applicant photograph, offer attachments, and `clients.logo_url`. What made this one solvable first is that a signatory needed a *single* answer to "which image renders", which is what justifies the reverse pointer; the applicant photograph has the same need and no such pointer, which `concepts/applicants_flows.md` records as an open dead end.
+
+- **Two signature fields, and an uploaded file always wins.** `selectors.get_current_signature_file` is the single place that judgement is made, and `signature_source` on the API response is how a client learns the outcome without re-deriving it. Order: an uploaded file that is neither archived nor superseded → `uploaded`; else a non-empty `signature_image_url` → `url`; else `none`. The rule is server-side because part of it is invisible to a client — nothing in the signatory payload reveals that the linked file was archived.
 - **`role` is free text, not an enum.** The frontend picks signatories into `instructorId` and `directorId` slots and `document_history`'s worked example carries `"role": "director"` — but the signature-slot metadata that would fix the vocabulary is not built, so an enum would be a guess that starts rejecting real roles the moment a template needs a fourth one.
 - **`Signatory.name` and `DocumentTemplate.label` are both single English fields (§39.1).** A signatory is a named person; a template label is operational shorthand from a picker ("Vyas Statement"). Both are one field, Unicode-normalized on write (§39.2).
 - **`title` is a single optional field.** Search is over the name only — nobody looks up a signatory by job title.
@@ -61,7 +68,8 @@ A second rule follows: **nothing here is ever deleted.** Documents reference a t
 | name | CharField(255) | No | No | No | Roman name — an independent identity, not a translation |
 | title | CharField(255) | No | No | No | |
 | role | CharField(100) | No | No | No | Free text, e.g. `director`, `instructor`. **Not an enum** |
-| signature_image_url | URLField(500) | No | No | No | A link to an image hosted elsewhere — **not an upload** |
+| signature_image_url | URLField(500) | No | No | No | A link to an image hosted elsewhere. **The fallback** — used only when no uploaded file is in force |
+| signature_file | FK → `uploaded_files.UploadedFile` | No | **Yes** | No | `PROTECT`, `related_name="signature_of"`. The uploaded signature that renders. Written **only** by `services.set_signatory_signature` |
 | status | CharField(20) | No | No | No | Defaults to `draft`; indexed |
 | status_note | Text | No | No | No | Optional on every transition |
 | created_by | FK → `authenticate.User` | Yes | No | No | `PROTECT` |
@@ -78,6 +86,8 @@ A second rule follows: **nothing here is ever deleted.** Documents reference a t
 - `name` is required; every other text field is optional.
 - All user-entered text is Unicode-normalized on write (§39.2), in the service layer as well as the serializer.
 - `signature_image_url` must be a well-formed URL when present → `VALIDATION_ERROR`.
+- `signature_file` is **never accepted from a request**. `PATCH` carrying it is refused with `DOCUMENT_TEMPLATES_SIGNATURE_FILE_IMMUTABLE` rather than ignored, and the Django admin renders it read-only. Both guards exist for one reason: a bare file id would let a caller point a signatory at any file on the platform — an applicant's passport included — with no ownership check and no bytes ever uploaded for that signer.
+- A signature upload must be `png`, `jpg`, `jpeg`, or `webp` (`SIGNATURE_IMAGE_EXTENSIONS`), a strict subset of the ledger's allowlist, checked before the ledger's own size, allowlist, and leading-byte validation.
 - **`status` and `status_note` are not settable through update** → `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE`. Both move through the status action, so a change of standing is always a recorded transition rather than a field diff. The code is named for immutability rather than for a transition because **no transition here is ever invalid** — `LifecycleStatus` allows every state from every state.
 - A new signatory is created as **`draft`**, never `active`. A signatory with no signature image yet is not one a certificate should be able to name, so activation is a decision rather than a default.
 
@@ -88,7 +98,9 @@ A second rule follows: **nothing here is ever deleted.** Documents reference a t
 
 Ordering is `name` — a reference library read as a picker, not a worklist, so recency means nothing. Same call `clients` made.
 
-**Soft Delete:** `N/A — no deletion at all.` There is no delete endpoint and no delete service, enforced by a test that fails if one appears (`tests/test_services.py::NothingIsDeletedTests`). A signatory whose id is frozen into a snapshot's `render_context` must keep resolving forever; deactivating removes them from the picker and nothing else. `created_by` is `PROTECT`.
+**Soft Delete:** `N/A — no deletion at all.` There is no delete endpoint and no delete service, enforced by a test that fails if one appears (`tests/test_services.py::NothingIsDeletedTests`). A signatory whose id is frozen into a snapshot's `render_context` must keep resolving forever; deactivating removes them from the picker and nothing else. `created_by` and `signature_file` are both `PROTECT`.
+
+**Removing a signature is archiving its file**, through `POST /api/v1/files/<file_id>/archive/` on the file module — not a delete, and not an operation this app exposes. `signature_file` deliberately keeps pointing at the archived row so the audit trail stays intact; `get_current_signature_file` is what makes the signature stop rendering. Four plausible service names (`remove_signature`, `delete_signature`, `clear_signature`, `unset_signatory_signature`) are pinned in the no-delete test so a future session cannot quietly add one and leave the bytes un-archived, still listed, and still pending review.
 
 **Cross-App Dependencies:**
 
@@ -143,7 +155,7 @@ Ordering is `family`, `display_order`, `label` — grouped by family, then curat
 
 ---
 
-## 3. Cross-App Dependencies — three imports from `documents`
+## 3. Cross-App Dependencies — three imports from `documents`, and one relation to `uploaded_files`
 
 §4 forbids duplicating enums, validators, and service functions across apps. That rule outranks the fact that `constants.py` and `validators.py` are not on §4's list of importable modules: a second copy of any of these three could accept a template key `documents` would reject, letting an Admin publish a catalogue row no document could ever be created from.
 
@@ -153,7 +165,24 @@ Ordering is `family`, `display_order`, `label` — grouped by family, then curat
 | `validate_template_key` | `documents.validators` | The same slug, for the same purpose, under the same rule. `documents` declared its own rather than importing `institutions`' because those rules genuinely differ; here they are the same rule |
 | `assert_template_key_matches_family` | `documents.services` | The prefix/suffix cross-check. §4 explicitly permits importing another app's `services.py` |
 
-`document_history` set the opposite precedent for `MAX_RENDER_CONTEXT_BYTES`, declaring it locally to avoid coupling. The distinction holds: a size cap may legitimately diverge between two apps, a shared vocabulary may not.
+`document_history` set the opposite precedent for `MAX_RENDER_CONTEXT_BYTES`, declaring it locally to avoid coupling. The distinction holds: a size cap may legitimately diverge between two apps, a shared vocabulary may not. `SIGNATURE_IMAGE_EXTENSIONS` follows the `document_history` precedent, not the `documents` one: it is declared locally because it is not a shared vocabulary but this app's own policy about which of the ledger's accepted types mean anything as a signature. A test asserts it stays a subset of the ledger's allowlist.
+
+### The `uploaded_files` relation
+
+**This is the app's only database relation outside itself, and the project's only bidirectional app pair.**
+
+| Direction | Relation | Why |
+|---|---|---|
+| This app → `uploaded_files` | `Signatory.signature_file` FK (`PROTECT`, nullable) | Which file renders as this signatory's signature |
+| `uploaded_files` → this app | `UploadedFile.signatory` FK (`PROTECT`, nullable), the ledger's sixth owner type | Which signatory these bytes belong to |
+
+The two are not redundant. Ownership is true of every superseded and archived predecessor; the pointer names the one that renders. Deriving the second from the first is not possible, because two independent uploads (or an archived file restored through the ledger) both satisfy "current, non-archived, owned by this signatory" and the tie would break on row ordering — decided by an action taken on a different app's endpoint, with nothing in the database to notice.
+
+**Runtime coupling** (documented in `docs/INTEGRATION.md` §2 as §4 requires): `services.set_signatory_signature` calls `uploaded_files.services.upload_file` and `replace_file` through a **function-local** import. That direction is deferred to call time on purpose — `uploaded_files.services` imports `document_templates.selectors` at module level for its owner lookup, and a module-level import on both sides would leave the pair acyclic only by accident. The invariant that holds it open is written at both import sites: **`document_templates/selectors.py` must never import `document_templates/services.py`.**
+
+**`PROTECT` in both directions** means neither a signatory nor its signature file can be deleted while the other exists. Inert in practice — nothing in this project deletes either — and consistent with `checklists.ChecklistItem.evidence_file`, the ledger's other inbound reference.
+
+**A signatory going `inactive` does not archive its signature file**, deliberately. A retired signer's certificates must stay reprintable, and `document_templates/docs/INTEGRATION.md` guarantees a retired signatory stays retrievable forever for exactly that reason. No other owner type has a lifecycle coupling into the ledger either.
 
 **What this app does *not* do to `documents`:** it holds no foreign key in either direction, calls no write service, and is not consulted by that app. The relationship is one-way and read-only at the Python level. The consequence is stated plainly in the Deliberate Deviations above and in `docs/INTEGRATION.md` §9 — **the signatory ids in `content` and `render_context` are still unvalidated.** What changed is that a client now has a real list to pick from; what did not change is that nothing stops it sending an id that was never in that list.
 

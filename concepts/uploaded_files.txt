@@ -86,6 +86,16 @@ This can be embedded inside parent workflows, but the underlying state should st
 - Whether generated PDFs live here immediately or only later.
 - Which categories require verification before use.
 - Which assets move from URL-based references into this app first, such as logos or signatures.
+  -> ANSWERED (2026-09-10): signatures first. document_templates.Signatory became this app's sixth
+     owner type and its signature image is now a real upload, stored here with the full file
+     contract. clients.logo_url is unchanged -- Client is still not an owner type.
+     Two things decided the order. A signatory renders exactly ONE signature, so the owning record
+     can hold a single pointer at the file that counts; a partner logo has the same property but no
+     consumer pressing for it, while the applicant photograph has real pressure and NO single
+     answer, so it stays blocked. And the migration was made additive: the old URL field was kept
+     and still renders for any signatory without an upload, so no shipped response shape broke.
+     That combination -- one canonical file, plus an additive migration -- is the bar for the next
+     asset to move.
 
 ## Outcome
 This app should make file handling consistent across the platform without taking over the frontend document generation flow.

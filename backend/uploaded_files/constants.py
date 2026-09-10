@@ -27,7 +27,8 @@ class FileCategory(models.TextChoices):
     These eleven cover every owner type the concept lists — an applicant's
     identity and photograph, academic records, test results, an offer letter,
     financial and sponsorship evidence, a signature image, and a
-    platform-produced PDF.
+    platform-produced PDF. ``SIGNATURE_IMAGE`` was declared here before anything
+    could use it; ``OwnerType.SIGNATORY`` is what finally gave it an owner.
 
     ``OTHER`` is deliberate. An enum with no escape hatch turns every
     unanticipated document into a migration, and the operator who needs to
@@ -74,17 +75,23 @@ class VerificationStatus(models.TextChoices):
 
 
 class OwnerType(models.TextChoices):
-    """The five business records a file may belong to.
+    """The six business records a file may belong to.
 
-    **Derived, never stored.** Each value names one of the five nullable
+    **Derived, never stored.** Each value names one of the six nullable
     foreign keys on the model; the column that is set determines the value.
     Storing it as well would create a second source of truth that could disagree
     with the foreign keys — exactly what the ``uploaded_file_single_owner``
     constraint exists to prevent.
 
+    ``signatory`` is the newest and the only one that is not applicant work: a
+    certificate signatory's signature image, which lived as an external URL on
+    ``document_templates.Signatory`` until this app could hold it. It is the
+    worked example of the claim this docstring used to make in the abstract —
+    a sixth value plus its column really was the whole change.
+
     ``education`` and ``test_scores`` are named in the concept and absent here
-    because those apps do not exist. Adding a sixth value plus its column is one
-    additive migration when they do.
+    because those apps do not exist. Adding a seventh value plus its column is
+    one additive migration when they do.
     """
 
     APPLICANT = "applicant", "Applicant"
@@ -92,25 +99,43 @@ class OwnerType(models.TextChoices):
     OFFER = "offer", "Offer"
     DOCUMENT = "document", "Document"
     SNAPSHOT = "snapshot", "Document Snapshot"
+    SIGNATORY = "signatory", "Signatory"
 
 
 #: The model field name behind each owner type, in the order the serializer and
-#: the database constraint both walk them. One tuple, so a sixth owner is added
-#: in exactly one place.
+#: the database constraint both walk them. One tuple, so a seventh owner is
+#: added in exactly one place.
 OWNER_FIELDS: tuple[str, ...] = (
     OwnerType.APPLICANT,
     OwnerType.JOURNEY,
     OwnerType.OFFER,
     OwnerType.DOCUMENT,
     OwnerType.SNAPSHOT,
+    OwnerType.SIGNATORY,
 )
+
+#: The owner names spelled out in the two "exactly one owner" error messages,
+#: derived rather than typed so a seventh owner never leaves a message naming
+#: six. Message text is not contract (``docs/INTEGRATION.md`` §3 says not to
+#: assert on it), but a message that lies is still a defect.
+OWNER_NAMES: str = ", ".join(OWNER_FIELDS)
 
 #: Owner types whose files are Admin-only, because their **owning records** are.
 #:
-#: ``documents`` and ``document_history`` are Admin-only on every route, reads
-#: included. Without this, a Lead Manager who cannot open a bank statement could
-#: list and download the PDF attached to it — the file ledger would become a
-#: side door around another module's access rule, and neither module would know.
+#: ``documents``, ``document_history``, and ``document_templates`` are Admin-only
+#: on every route, reads included. Without this, a Lead Manager who cannot open a
+#: bank statement could list and download the PDF attached to it — the file
+#: ledger would become a side door around another module's access rule, and
+#: neither module would know.
+#:
+#: ``signatory`` joins for the same structural reason and one of its own. The
+#: structural reason: ``document_templates.access.require_template_actor``
+#: refuses a Lead Manager on **every** route including ``GET``, so listing or
+#: downloading a signatory's file here would hand them an artefact from an app
+#: they cannot open at all. Its own reason: a signature image is the most
+#: forgeable asset in the system — it is what makes an issued certificate look
+#: authoritative — so read access to the bytes is not a smaller ask than read
+#: access to the signatory row, it is a larger one.
 #:
 #: A file inherits the visibility of the record it belongs to. That is the rule;
 #: this tuple is its current membership, and it must be revisited in the same
@@ -118,6 +143,7 @@ OWNER_FIELDS: tuple[str, ...] = (
 ADMIN_ONLY_OWNER_TYPES: tuple[str, ...] = (
     OwnerType.DOCUMENT,
     OwnerType.SNAPSHOT,
+    OwnerType.SIGNATORY,
 )
 
 #: Statuses the verify action may set. ``pending`` is absent deliberately: it is

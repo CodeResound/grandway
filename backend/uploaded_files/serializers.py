@@ -28,6 +28,7 @@ from rest_framework import serializers
 
 from uploaded_files.constants import (
     OWNER_FIELDS,
+    OWNER_NAMES,
     FileCategory,
     UploadSource,
     VerificationStatus,
@@ -160,12 +161,7 @@ class _OwnerMixin:
         supplied = [field for field in OWNER_FIELDS if attrs.get(field) is not None]
         if len(supplied) != 1:
             raise serializers.ValidationError(
-                {
-                    "owner": [
-                        "Supply exactly one of: applicant, journey, offer, document, snapshot. "
-                        f"Received {len(supplied)}."
-                    ]
-                }
+                {"owner": [f"Supply exactly one of: {OWNER_NAMES}. Received {len(supplied)}."]}
             )
         return attrs
 
@@ -188,6 +184,7 @@ class FileUploadSerializer(_NormalizedTextMixin, _OwnerMixin, serializers.Serial
     offer = serializers.UUIDField(required=False, allow_null=True)
     document = serializers.UUIDField(required=False, allow_null=True)
     snapshot = serializers.UUIDField(required=False, allow_null=True)
+    signatory = serializers.UUIDField(required=False, allow_null=True)
 
     category = serializers.ChoiceField(choices=FileCategory.choices)
     upload_source = serializers.ChoiceField(
@@ -288,6 +285,7 @@ class FileSearchSerializer(serializers.Serializer):
     offer = serializers.UUIDField(required=False)
     document = serializers.UUIDField(required=False)
     snapshot = serializers.UUIDField(required=False)
+    signatory = serializers.UUIDField(required=False)
 
     category = serializers.ChoiceField(choices=FileCategory.choices, required=False)
     verification_status = serializers.ChoiceField(choices=VerificationStatus.choices, required=False)

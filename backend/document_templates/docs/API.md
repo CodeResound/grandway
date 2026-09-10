@@ -1,13 +1,15 @@
 # API — Document Templates
 
 **Owner app:** `document_templates`
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/document-templates/`
 **Auth:** Bearer access JWT (`authenticate.SessionBoundJWTAuthentication`) on every endpoint
-**Throttle:** project defaults only — `UserRateThrottle` at 1000/hour. No endpoint here is public. Both resources are small and bounded (one row per signer, 53 template slugs), and no response carries a large payload, so there is no per-endpoint cost worth calling out.
-**Access level:** protected. **Admin only, on every route including reads.** Lead Manager and Superadmin both denied.
+**Throttle:** project defaults only — `UserRateThrottle` at 1000/hour, no per-endpoint scope. No endpoint here is public. Nine of the ten routes are cheap: both resources are small and bounded (one row per signer, 53 template slugs) and no response carries a large payload.
+
+**§1.6 is the exception and is worth calling out.** It accepts up to 10 MB of multipart per request and writes it to the storage volume, so at the shared 1000/hour user budget one account could push roughly 10 GB through it. That is the same accepted v1 limit `uploaded_files/docs/API.md` records for `POST /files/`, inherited here because this endpoint delegates to that module's upload service — it is not a second, separately-budgeted path. A dedicated throttle scope is the obvious mitigation and is deliberately not added in v1: it would be a settings change (§28 item 11) for a route only Admins can reach.
+**Access level:** protected. **Admin only, on every route including reads.** Lead Manager and Superadmin both denied. Signature files inherit that rule inside `uploaded_files` — `signatory` is one of its `ADMIN_ONLY_OWNER_TYPES`, so a Lead Manager gets 404 on a signature file's routes rather than a 403 that would confirm it exists.
 
 ---
 
@@ -18,6 +20,7 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 10 endpoints across two resources |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Renamed the `PATCH` status guard's code to `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE` and recorded that `..._STATUS_INVALID_TRANSITION` is unreachable over HTTP; documented that a rename re-derives `name` |
 | 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (Signatory `name`/`title`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.2.0 | 2026-09-10 | AI (Claude Opus 5) | Added §1.6, the signature upload endpoint — the app's first multipart route and its first byte write. Five new error codes; two new `Signatory` response fields; the throttle and access-level notes above rewritten because both were made false by a 10 MB upload route. Additive and non-breaking: `signature_image_url` is unchanged |
 
 ---
 
@@ -53,10 +56,19 @@ All codes live in `document_templates/constants.py` `ErrorCode`.
 | `DOCUMENT_TEMPLATES_TEMPLATE_KEY_INVALID` | 400 | The slug does not agree with the family |
 | `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE` | 400 | A `PATCH` carried `status` or `status_note` |
 | `DOCUMENT_TEMPLATES_STATUS_INVALID_TRANSITION` | 400 | **Unreachable over HTTP** — see below |
+| `DOCUMENT_TEMPLATES_SIGNATURE_NOT_AN_IMAGE` | 400 | A signature upload was not PNG, JPG/JPEG, or WEBP |
+| `DOCUMENT_TEMPLATES_SIGNATURE_FILE_TOO_LARGE` | 400 | A signature upload exceeded 10 MB |
+| `DOCUMENT_TEMPLATES_SIGNATURE_FILE_CONTENT_MISMATCH` | 400 | The leading bytes contradict the extension |
+| `DOCUMENT_TEMPLATES_SIGNATURE_FILE_EMPTY` | 400 | **Unreachable over HTTP** — see below |
+| `DOCUMENT_TEMPLATES_SIGNATURE_FILE_IMMUTABLE` | 400 | A `PATCH` carried `signature_file` |
 
 Serializer-level failures return the project-wide `VALIDATION_ERROR` (400) with the offending fields in `error.details`.
 
 **`DOCUMENT_TEMPLATES_STATUS_INVALID_TRANSITION` has no reachable HTTP path.** Both status serializers declare `status` as a `ChoiceField`, so a value outside the enum fails there with the project-wide `VALIDATION_ERROR` and never reaches `services.assert_status_selectable`. The code is registered so the envelope is defined if a non-serializer caller is ever added. It was originally used for the `PATCH`-carrying-`status` guard as well; that was renamed to `DOCUMENT_TEMPLATES_STATUS_IMMUTABLE` — matching `documents`' equivalent — because **no transition in this app is ever invalid**: `LifecycleStatus` allows every state from every state, so a code named for an invalid transition described a rule that does not exist.
+
+**`DOCUMENT_TEMPLATES_SIGNATURE_FILE_EMPTY` has no reachable HTTP path either**, for a different reason: DRF's own `FileField` refuses a zero-byte part with the project-wide `VALIDATION_ERROR` before the view reaches the service, so `uploaded_files`' `FileEmptyError` never escapes. The view still catches it — a service must not assume it was called through a serializer — but do not write client handling for this code.
+
+**Four of the six signature codes re-code an exception `uploaded_files` raised.** `SIGNATURE_NOT_AN_IMAGE` additionally covers this app's own stricter narrowing. The translation happens at this app's view boundary for the same reason the `documents` one does, below: **no response from a `/document-templates/` route ever carries an `UPLOADED_FILES_*` code**, and a test asserts it.
 
 **`DOCUMENT_TEMPLATES_TEMPLATE_KEY_INVALID` is re-coded from `documents`.** The key/family agreement rule is imported wholesale from `documents.services`, so it raises that app's `TemplateKeyInvalidError`. It is translated at this app's view boundary, because a consumer calling a `/document-templates/` route should never receive a `DOCUMENTS_*` code naming a route it did not call.
 
@@ -126,6 +138,32 @@ The signature library. This is the record `documents`' `content.instructorId` an
 - **Response:** the updated `Signatory`.
 - **Business rules:** any of the three statuses may be set, in any order. **The note is optional on every transition** — unlike archiving a document, which demands a reason because the record leaves circulation forever, deactivating here is reversible and loses nothing. Deactivating removes the signatory from the picker and **does not** affect documents or snapshots that already name them.
 - **Errors:** `DOCUMENT_TEMPLATES_ACTOR_FORBIDDEN` (403), `DOCUMENT_TEMPLATES_SIGNATORY_NOT_FOUND` (404), `VALIDATION_ERROR` (400) — including a status outside the enum.
+
+### 1.6 Upload a signatory's signature
+
+- **URI:** `POST /api/v1/document-templates/signatories/<signatory_id>/signature/`
+- **Permission key:** `document_templates.signatory.upload_signature` (risk `high` — the only route in this app rated above `medium`, because it is the only one that writes bytes)
+- **Auth:** Bearer access JWT. Admin only.
+- **Throttle:** inherits `UserRateThrottle` at 1000/hour. See the header note — this is the one endpoint here with a real per-request cost.
+- **Content type:** `multipart/form-data`. **A JSON body is refused with 415** before any handler runs.
+- **Request:** one `file` part (PNG/JPG/JPEG/WEBP, max 10 MB) and an optional `notes` text field. **No `category`, no `upload_source`, no owner** — all three are fixed by the service; accepting any of them would let a caller store something other than a signature under a signer's name.
+- **Response:** **201** with the updated `Signatory` — not the file. The client re-renders the whole row from one response, and `signature_source` (which the file shape alone could not supply) travels with it.
+- **Validation rules:**
+  - The extension must be in `SIGNATURE_IMAGE_EXTENSIONS` (`png`, `jpg`, `jpeg`, `webp`) — a strict subset of the file ledger's seven-type allowlist, applied first.
+  - `uploaded_files.validators.validate_upload` then applies size, allowlist, and leading-byte checks. A PDF renamed `signature.png` fails on the third.
+  - **Exactly one file part.** `DATA_UPLOAD_MAX_NUMBER_FILES` is 1; a second part raises during multipart parsing, before any handler runs, and surfaces as a **500**, not a 400. Documented rather than fixed — it is pre-existing behaviour shared with `POST /files/`.
+- **Business rules:**
+  - Which ledger service runs is decided **before** dispatch. A signature that is currently in force is *replaced* (version *n+1*, predecessor superseded); no signature, or one that has been archived or superseded directly, starts a **fresh chain at version 1**. `AlreadySupersededError` and `FileArchivedError` are therefore unreachable from this route by construction.
+  - **Any status may receive a signature** — `draft`, `active`, or `inactive`. A retired signer's certificates must stay reprintable.
+  - The stored file is always `category=signature_image`, `upload_source=staff_upload`, and **`verification_status=pending`** — every upload in this project starts pending. It is deliberately **excluded from the Admin file-verification queue and the dashboard counts** (see the query access pattern below); it remains reviewable directly through `POST /api/v1/files/<id>/verify/`.
+  - **An uploaded file takes precedence over `signature_image_url`**, which is retained and still honoured. `signature_source` reports the outcome.
+  - **Removal is archiving the file** through `POST /api/v1/files/<file_id>/archive/`. There is no removal endpoint and no delete service here.
+- **Query access pattern:** none for this endpoint, but note the change it forces on the file module: `uploaded_files.selectors._live_files` now excludes `signatory`-owned rows, so signature images do not appear in `get_files_awaiting_verification`, `get_file_verification_counts`, or `get_rejected_files`, and therefore not in the three `dashboards` figures built on them. Excluded by **owner**, not by category — `signature_image` can legitimately be used against an applicant owner.
+- **Errors:** `DOCUMENT_TEMPLATES_ACTOR_FORBIDDEN` (403), `DOCUMENT_TEMPLATES_SIGNATORY_NOT_FOUND` (404, checked after authority so a refused caller cannot probe ids), `DOCUMENT_TEMPLATES_SIGNATURE_NOT_AN_IMAGE` (400), `DOCUMENT_TEMPLATES_SIGNATURE_FILE_TOO_LARGE` (400), `DOCUMENT_TEMPLATES_SIGNATURE_FILE_CONTENT_MISMATCH` (400), `VALIDATION_ERROR` (400, no `file` part or an empty one), 415 (JSON sent), 405 (any other method).
+- **AI debugging notes:**
+  - If `signature_source` stays `"url"` after a 201, the file was stored but is archived or superseded — check `selectors.get_current_signature_file`, which is the single place that judgement is made.
+  - If a file lands under `mediafiles/uploaded_files/unassigned/`, the owner FK was assigned after `save()` rather than before. `services.upload_file` assigns `.file` after constructing the instance precisely so `upload_destination` can read `owner_type`.
+  - An `IntegrityError` on `uploaded_file_single_owner` during an upload means the model's `OWNER_FIELDS` and the migration's inlined CHECK have diverged. `tests/test_services.py::test_the_constraint_covers_every_pair_of_owners` is the guard.
 
 ---
 

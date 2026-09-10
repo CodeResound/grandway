@@ -113,15 +113,47 @@ class Signatory(BaseModel, LifecycleMixin):
 
     # --- The signature itself ----------------------------------------------
     #
-    # A URL, not an upload. §14 requires a full file contract — allowed types,
-    # max size, MIME validation, filename rule, access control — and
-    # ``uploaded_files`` does not exist. Fourth deferral of this kind, after the
-    # applicant photograph, offer attachments, and ``clients.logo_url``, whose
-    # field this mirrors exactly.
+    # Two fields, because there were two eras. ``signature_image_url`` shipped
+    # first, as a link to a host this API knows nothing about: §14 requires a
+    # full file contract — allowed types, max size, MIME validation, filename
+    # rule, access control — and ``uploaded_files`` did not exist yet. That
+    # deferral ended when it shipped on 2026-07-24, and
+    # ``concepts/document_templates.txt`` had always called the resolution
+    # "additively replaceable later".
+    #
+    # So it was replaced additively. The URL field is **kept and still
+    # honoured** — removing it would be a §29 breaking change for no gain — but
+    # ``signature_file`` takes precedence whenever it points at a file that is
+    # neither archived nor superseded. ``selectors.get_current_signature_file``
+    # is the one place that judgement is made, and the serializer's
+    # ``signature_source`` field is how a client learns the outcome without
+    # re-deriving it.
     signature_image_url = models.URLField(
         max_length=500,
         blank=True,
-        help_text="A link to a signature image hosted elsewhere. Not an upload — see docs/DATA_CONTRACT.md.",
+        help_text="A link to a signature image hosted elsewhere. The fallback — see docs/DATA_CONTRACT.md.",
+    )
+
+    # ``PROTECT`` and by string, matching ``checklists.ChecklistItem.evidence_file``
+    # — the project's other inbound reference to the file ledger. §4 permits
+    # importing another app's ``selectors.py``/``services.py``, not its
+    # ``models.py``, so this FK is declared by name and never imported.
+    #
+    # This is the *pointer*; ``UploadedFile.signatory`` is the *ownership*. They
+    # answer different questions: which file renders, versus which signatory
+    # these bytes belong to. The second is true of every superseded and archived
+    # predecessor too, which is exactly why the first cannot be derived from it.
+    #
+    # Written only by ``services.set_signatory_signature``. ``PATCH`` refuses it
+    # and the admin renders it read-only, because an unguarded FK here is a
+    # dropdown over every file in the system.
+    signature_file = models.ForeignKey(
+        "uploaded_files.UploadedFile",
+        on_delete=models.PROTECT,
+        related_name="signature_of",
+        null=True,
+        blank=True,
+        help_text="The uploaded signature image. Takes precedence over signature_image_url.",
     )
 
     created_by = models.ForeignKey(

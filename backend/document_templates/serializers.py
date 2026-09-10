@@ -15,12 +15,14 @@ from __future__ import annotations
 from typing import Any
 
 from core.nepal.text import normalize_unicode
+from django.urls import reverse
 from documents.constants import DocumentFamily
 from documents.validators import validate_template_key
 from rest_framework import serializers
 
 from document_templates.constants import LifecycleStatus
 from document_templates.models import DocumentTemplate, Signatory
+from document_templates.selectors import get_current_signature_file
 
 
 class _NormalizedTextMixin:
@@ -41,16 +43,56 @@ class _NormalizedTextMixin:
 # ---------------------------------------------------------------------------
 
 
+class _SignatureFileSerializer(serializers.Serializer):
+    """The six file facts a client needs to render a signature.
+
+    Declared locally rather than reusing ``uploaded_files.UploadedFileSerializer``
+    — §4 permits importing another app's ``selectors.py``/``services.py``, not
+    its ``serializers.py``, and re-exporting that app's 29-field shape from a
+    signatory payload would make every future change to it a breaking change
+    here.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    download_path = serializers.SerializerMethodField()
+    original_filename = serializers.CharField(read_only=True)
+    content_type = serializers.CharField(read_only=True)
+    size_bytes = serializers.IntegerField(read_only=True)
+    version_number = serializers.IntegerField(read_only=True)
+    uploaded_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    def get_download_path(self, obj: Any) -> str:
+        """The relative path the bytes are fetched from.
+
+        **This is a ``fetch`` target, not an ``<img src>``.** The route requires
+        the bearer token and answers with ``Content-Disposition: attachment``, so
+        pointing an ``<img>`` at it yields a 401 and a broken image. Fetch it
+        with credentials, then ``URL.createObjectURL`` the blob.
+
+        Relative on purpose — a path cannot be mistaken for a public asset URL.
+        Built with ``reverse()`` rather than an f-string so a route change breaks
+        at server start instead of silently emitting a dead path.
+        """
+        return reverse("v1:uploaded_files:file-download", kwargs={"file_id": obj.id})
+
+
 class SignatorySerializer(serializers.ModelSerializer):
     """One signatory, list and detail alike.
 
     A single shape rather than the list/detail pair the other apps declare:
     there is no large column to withhold from a list, so a second serializer
     would exist only to drift from this one.
+
+    ``signature_file`` is declared as a ``SerializerMethodField``, which
+    **shadows the model foreign key** — the response carries the nested file
+    object rather than a bare UUID. That is the intent, and it is non-obvious
+    enough to say out loud.
     """
 
     is_active = serializers.BooleanField(read_only=True)
     created_by_username = serializers.CharField(source="created_by.username", read_only=True)
+    signature_file = serializers.SerializerMethodField()
+    signature_source = serializers.SerializerMethodField()
 
     class Meta:
         model = Signatory
@@ -60,6 +102,8 @@ class SignatorySerializer(serializers.ModelSerializer):
             "title",
             "role",
             "signature_image_url",
+            "signature_file",
+            "signature_source",
             "status",
             "is_active",
             "status_note",
@@ -68,6 +112,31 @@ class SignatorySerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = fields
+
+    def get_signature_file(self, obj: Signatory) -> dict[str, Any] | None:
+        """The uploaded signature, or ``null`` when none currently renders.
+
+        ``null`` covers three different situations — never uploaded, uploaded
+        then archived, uploaded then superseded directly through the ledger —
+        and a client cannot tell them apart from this field alone. It does not
+        need to: ``signature_source`` is what it renders from.
+        """
+        current = get_current_signature_file(obj)
+        return _SignatureFileSerializer(current).data if current is not None else None
+
+    def get_signature_source(self, obj: Signatory) -> str:
+        """Which signature a client should render: ``uploaded``, ``url``, or ``none``.
+
+        **This field exists so the precedence rule is not prose.** Without it
+        every consumer re-implements "an uploaded file wins, else the legacy
+        URL, else nothing" — including the archived-and-superseded half of the
+        rule, which it cannot see, because a client has no way to know that the
+        file behind a signatory was archived. One server-computed enum, and the
+        client renders exactly one branch.
+        """
+        if get_current_signature_file(obj) is not None:
+            return "uploaded"
+        return "url" if obj.signature_image_url else "none"
 
 
 class DocumentTemplateSerializer(serializers.ModelSerializer):
@@ -131,6 +200,30 @@ class SignatoryUpdateSerializer(_NormalizedTextMixin, serializers.Serializer):
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
     role = serializers.CharField(max_length=100, required=False, allow_blank=True)
     signature_image_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
+
+
+class SignatureUploadSerializer(_NormalizedTextMixin, serializers.Serializer):
+    """``POST /signatories/<id>/signature/`` — the image, and an optional note.
+
+    Two fields, and the absences matter more than the presences. No
+    ``category``, no ``upload_source``, no owner: all three are fixed by the
+    service. Accepting any of them would let a client store something other than
+    a signature under a signatory's name, or attach a signature to someone else.
+
+    The extension check lives in ``services.set_signatory_signature`` rather than
+    a ``validate_file`` method here, so a direct service caller cannot bypass it
+    — the same discipline ``uploaded_files`` applies to ownership, which it
+    checks in the serializer, the service, and the database.
+
+    **Exactly one file part.** ``DATA_UPLOAD_MAX_NUMBER_FILES`` is 1, and a
+    second part raises during multipart parsing, before any handler runs, which
+    surfaces as a 500 rather than a 400. Documented in ``docs/API.md``.
+    """
+
+    text_fields = ("notes",)
+
+    file = serializers.FileField()
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class TemplateCreateSerializer(_NormalizedTextMixin, serializers.Serializer):
