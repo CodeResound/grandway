@@ -109,7 +109,7 @@ Paginated (`StandardPagination`, 20 per page, max 100). Response `data` is an ar
 | `checksum` | string | Exact (case-insensitive) SHA-256 match — duplicate discovery |
 | `search` | string | Substring of `original_filename` only |
 
-**Query access pattern (§6).** The selector joins all five owner tables plus `replaces` and the four user columns in one `select_related`. Nine joins is unusual and is what keeps this endpoint at a fixed query count: the response reads `owner_type` off whichever foreign key is set, so a page of twenty mixed-owner files would otherwise fire twenty owner queries plus up to eighty user queries. Guarded by `tests/test_views.py::FileListQueryCountTests`, which asserts the count does not grow when the row count quadruples.
+**Query access pattern (§6).** The selector joins all six owner tables plus `replaces` and the four user columns in one `select_related`. Ten joins is unusual and is what keeps this endpoint at a fixed query count: the response reads `owner_type` off whichever foreign key is set, so a page of twenty mixed-owner files would otherwise fire twenty owner queries plus up to eighty user queries. Guarded by `tests/test_views.py::FileListQueryCountTests`, which asserts the count does not grow when the row count quadruples.
 
 **`search` covers one field, and that is a real limitation.** It matches `original_filename` only. `notes` is deliberately not searched: it is operator free text that may carry applicant details, which should not be reachable by guessing.
 
@@ -221,7 +221,7 @@ Every failure on this route still uses the standard error envelope.
 - **Nothing is overwritten.** The predecessor keeps its bytes, its verdict, its notes, and its place in the chain; only `superseded_at`/`superseded_by` are set on it.
 - The successor **starts `pending`** even if the predecessor was `verified`. A re-scan is a different artefact; carrying the verdict across would mark a file nobody looked at as reviewed.
 - A file may be replaced **once** → `UPLOADED_FILES_ALREADY_SUPERSEDED`. The chain stays linear, so "which file is current" always has exactly one answer.
-- The same five upload validation rules as §1.2 apply.
+- The same upload validation rules as §1.2 apply.
 
 **Error codes:** `UPLOADED_FILES_ALREADY_SUPERSEDED`, `UPLOADED_FILES_FILE_ARCHIVED`, `UPLOADED_FILES_FILE_TOO_LARGE`, `UPLOADED_FILES_FILE_TYPE_NOT_ALLOWED`, `UPLOADED_FILES_FILE_CONTENT_MISMATCH`, `UPLOADED_FILES_FILE_NOT_FOUND`, `UPLOADED_FILES_ACTOR_FORBIDDEN`, `VALIDATION_ERROR`.
 

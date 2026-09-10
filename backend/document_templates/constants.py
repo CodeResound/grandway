@@ -57,6 +57,7 @@ class DocumentTemplatesAuditAction:
     SIGNATORY_CREATED = "signatory_created"
     SIGNATORY_UPDATED = "signatory_updated"
     SIGNATORY_STATUS_CHANGED = "signatory_status_changed"
+    SIGNATORY_SIGNATURE_UPLOADED = "signatory_signature_uploaded"
 
     TEMPLATE_CREATED = "template_created"
     TEMPLATE_UPDATED = "template_updated"
@@ -98,3 +99,58 @@ class ErrorCode:
     #: Registered so the envelope is defined if a non-serializer caller is ever
     #: added; do not write client handling for it.
     STATUS_INVALID_TRANSITION = "DOCUMENT_TEMPLATES_STATUS_INVALID_TRANSITION"
+
+    # --- Signature upload ---------------------------------------------------
+    #
+    # Four of these five re-code a rejection raised inside ``uploaded_files``.
+    # They are re-coded rather than passed through for the reason already stated
+    # in ``views.py`` about ``documents.exceptions.TemplateKeyInvalidError``: a
+    # consumer calling a ``/document-templates/`` route should never receive an
+    # ``UPLOADED_FILES_*`` code for a route it did not call. The ledger's own
+    # codes remain correct on the ledger's own routes.
+
+    #: The upload was not PNG, JPG/JPEG, or WEBP. Raised by this app's own
+    #: narrowing (``SIGNATURE_IMAGE_EXTENSIONS``), which is stricter than the
+    #: ledger's seven-type allowlist, and also covers the ledger's
+    #: ``FileTypeNotAllowedError`` for anything that slips past the name check.
+    SIGNATURE_NOT_AN_IMAGE = "DOCUMENT_TEMPLATES_SIGNATURE_NOT_AN_IMAGE"
+
+    #: A zero-byte upload. ← ``uploaded_files.exceptions.FileEmptyError``.
+    #:
+    #: **Unreachable over HTTP**, like ``STATUS_INVALID_TRANSITION`` above and for
+    #: the same kind of reason: DRF's own ``FileField`` refuses an empty part
+    #: with the project-wide ``VALIDATION_ERROR`` before the view calls the
+    #: service, so ``FileEmptyError`` never escapes the ledger on this route.
+    #: The view still catches it, because a service must not depend on having
+    #: been called through a serializer — but do not write client handling for
+    #: this code. Covered by ``tests/test_views.py::test_an_empty_file_is_refused``,
+    #: which asserts the behaviour that actually occurs.
+    SIGNATURE_FILE_EMPTY = "DOCUMENT_TEMPLATES_SIGNATURE_FILE_EMPTY"
+
+    #: Over the ledger's 10 MB limit. ← ``FileTooLargeError``.
+    SIGNATURE_FILE_TOO_LARGE = "DOCUMENT_TEMPLATES_SIGNATURE_FILE_TOO_LARGE"
+
+    #: The leading bytes do not match the extension — a PDF wearing a ``.png``
+    #: name. ← ``FileContentMismatchError``.
+    SIGNATURE_FILE_CONTENT_MISMATCH = "DOCUMENT_TEMPLATES_SIGNATURE_FILE_CONTENT_MISMATCH"
+
+    #: A ``PATCH`` carried ``signature_file``. The field is set only by the
+    #: signature upload action, which stores the bytes and re-points the link in
+    #: one transaction; accepting a bare file id here would let an Admin point a
+    #: signatory at any file in the system, including an applicant's passport.
+    SIGNATURE_FILE_IMMUTABLE = "DOCUMENT_TEMPLATES_SIGNATURE_FILE_IMMUTABLE"
+
+
+#: Extensions accepted as a signature image — a strict subset of the file
+#: ledger's ``ALLOWED_EXTENSIONS``, which also accepts PDF, DOCX, and XLSX.
+#:
+#: Declared here rather than imported because it is not a duplicated vocabulary
+#: (§4): the ledger's allowlist answers "what bytes will this platform hold",
+#: and this answers "what counts as a signature", which is this app's question
+#: about what a signatory record means. The two are applied in that order —
+#: narrower first, then the ledger's own check — so they can only ever be
+#: narrower-then-wider, never contradictory.
+#:
+#: ``tests/test_services.py`` asserts this stays a subset, so a future removal
+#: from the ledger's allowlist fails a test rather than a request.
+SIGNATURE_IMAGE_EXTENSIONS: frozenset[str] = frozenset({"png", "jpg", "jpeg", "webp"})

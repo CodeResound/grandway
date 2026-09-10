@@ -6,8 +6,8 @@ several staff legitimately work on their file. This is the most sensitive data
 in the project, so the decision is argued rather than assumed — see ``access.py``
 and ``docs/SECURITY.md`` §2.
 
-**Every selector that returns rows joins the five owner tables and the four user
-columns.** Nine ``select_related`` targets is unusual, and it is what keeps the
+**Every selector that returns rows joins the six owner tables and the four user
+columns.** Ten ``select_related`` targets is unusual, and it is what keeps the
 list endpoint at a bounded query count: the serializer reads ``owner_type`` off
 whichever foreign key is set, so a list of twenty mixed-owner files would
 otherwise fire twenty owner queries plus up to eighty user queries. Covered by
@@ -94,8 +94,8 @@ def filter_files(
 ) -> QuerySet[UploadedFile]:
     """Apply the documented file list filters.
 
-    Recognised keys: the five owner ids (``applicant``, ``journey``, ``offer``,
-    ``document``, ``snapshot``), ``category``, ``verification_status``,
+    Recognised keys: the six owner ids (``applicant``, ``journey``, ``offer``,
+    ``document``, ``snapshot``, ``signatory``), ``category``, ``verification_status``,
     ``upload_source``, ``is_archived``, ``is_current``, ``checksum``, ``search``.
 
     Omitting ``is_archived`` returns archived files too. That is deliberate:
@@ -192,12 +192,34 @@ def get_version_chain(uploaded_file: UploadedFile) -> list[UploadedFile]:
 
 
 def _live_files(*, is_admin: bool) -> QuerySet[UploadedFile]:
-    """Visible, non-archived, current-version files.
+    """Visible, non-archived, current-version files that are review work.
 
     Superseded versions are excluded: a replaced file's verification status is
     history, and counting it would make every replacement look like fresh work.
+
+    **Signatory-owned files are excluded too, and that one is not obvious.**
+    Every upload starts ``pending``, so a signature image would otherwise land
+    in the review queue and in three dashboard figures. Two reasons it must not.
+    The visible one: ``dashboards.FileRowSerializer`` renders a file row through
+    ``applicant_id``/``journey_id``, both ``None`` for a signatory-owned file, so
+    Today's Work would show a filename with no applicant and nowhere to click.
+    The structural one: these aggregates answer "what applicant work is waiting
+    on someone", and a director's signature is reference data an Admin uploaded
+    for themselves, not work owed to a client.
+
+    Excluded by **owner**, deliberately, not by ``category=signature_image`` —
+    that category can legitimately be used against an applicant owner today, and
+    filtering on it would silently hide an applicant's file from the queue.
+
+    The files stay fully in the ledger: listable, downloadable, and reviewable
+    directly through ``POST /files/<id>/verify/``. They are absent from the
+    *queue*, not from the app.
     """
-    return get_visible_files(is_admin=is_admin).filter(archived_at__isnull=True, superseded_at__isnull=True)
+    return (
+        get_visible_files(is_admin=is_admin)
+        .filter(archived_at__isnull=True, superseded_at__isnull=True)
+        .filter(signatory__isnull=True)
+    )
 
 
 def get_file_verification_counts(

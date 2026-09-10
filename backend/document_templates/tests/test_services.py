@@ -11,30 +11,38 @@ Two things here are load-bearing beyond ordinary coverage:
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import unicodedata
 from io import StringIO
 from typing import Any
 
 from audit.models import AuditEvent
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from documents.constants import DocumentFamily
 from documents.exceptions import TemplateKeyInvalidError
 
 from document_templates import services
 from document_templates.constants import (
     AUDIT_APP_LABEL,
+    SIGNATURE_IMAGE_EXTENSIONS,
     DocumentTemplatesAuditAction,
     LifecycleStatus,
 )
 from document_templates.exceptions import (
     InvalidStatusTransitionError,
+    SignatureNotAnImageError,
     TemplateKeyAlreadyExistsError,
     TemplateKeyImmutableError,
 )
 from document_templates.models import DocumentTemplate, Signatory
 from document_templates.seed_data import EXPECTED_TEMPLATE_COUNT, build_seed_rows
-from document_templates.selectors import get_active_signatories, search_signatories
+from document_templates.selectors import (
+    get_active_signatories,
+    get_current_signature_file,
+    search_signatories,
+)
 from document_templates.tests import factories as f
 
 
@@ -224,6 +232,14 @@ class NothingIsDeletedTests(DocumentTemplatesTestCase):
             "remove_signatory",
             "delete_template",
             "remove_template",
+            # A signature is removed by archiving its file through the ledger,
+            # never by a service here. Pinning the four plausible names is what
+            # stops a future session quietly adding one and leaving the bytes
+            # un-archived, still listed, and still pending review.
+            "remove_signature",
+            "delete_signature",
+            "clear_signature",
+            "unset_signatory_signature",
         }
         self.assertEqual(forbidden & set(dir(services)), set())
 
@@ -334,3 +350,102 @@ class SeedDataTests(TestCase):
         call_command("seed_document_templates", "--dry-run", "--username", self.admin.username, stdout=StringIO())
 
         self.assertEqual(DocumentTemplate.objects.count(), 0)
+
+
+class SignatureServiceTests(DocumentTemplatesTestCase):
+    """``set_signatory_signature`` — the two writes it makes, and their agreement."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._media_root = tempfile.mkdtemp(prefix="document-templates-signature-service-test-")
+        cls._media_override = override_settings(MEDIA_ROOT=cls._media_root)
+        cls._media_override.enable()
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        super().tearDownClass()
+        cls._media_override.disable()
+        shutil.rmtree(cls._media_root, ignore_errors=True)
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.signatory = f.make_signatory(self.admin)
+
+    def upload(self, **kwargs: Any) -> Any:
+        return services.set_signatory_signature(
+            actor=self.admin, signatory=self.signatory, upload=f.png_upload(**kwargs)
+        )
+
+    def test_the_stored_file_is_owned_by_the_signatory(self) -> None:
+        updated = self.upload()
+
+        stored = updated.signature_file
+        self.assertEqual(stored.owner_type, "signatory")
+        self.assertEqual(str(stored.owner_id), str(self.signatory.id))
+
+    def test_the_stored_file_is_categorised_as_a_signature_image(self) -> None:
+        """Fixed by the service, never accepted from a caller."""
+        stored = self.upload().signature_file
+
+        self.assertEqual(stored.category, "signature_image")
+        self.assertEqual(stored.upload_source, "staff_upload")
+
+    def test_the_link_and_the_ownership_agree(self) -> None:
+        """The one invariant a two-pointer design can violate."""
+        updated = self.upload()
+
+        self.assertEqual(str(updated.signature_file.signatory_id), str(self.signatory.id))
+
+    def test_the_storage_path_is_namespaced_by_owner_type(self) -> None:
+        stored = self.upload().signature_file
+
+        self.assertTrue(stored.file.name.startswith("uploaded_files/signatory/"), stored.file.name)
+
+    def test_two_audit_events_are_written_one_per_app(self) -> None:
+        """The ledger records bytes arriving; this app records the signature changing."""
+        self.upload()
+
+        self.assertEqual(
+            AuditEvent.objects.filter(
+                app_label=AUDIT_APP_LABEL,
+                action=DocumentTemplatesAuditAction.SIGNATORY_SIGNATURE_UPLOADED,
+            ).count(),
+            1,
+        )
+        self.assertEqual(AuditEvent.objects.filter(app_label="uploaded_files", action="file_uploaded").count(), 1)
+
+    def test_the_signature_event_records_the_file_change(self) -> None:
+        updated = self.upload()
+
+        event = AuditEvent.objects.get(action=DocumentTemplatesAuditAction.SIGNATORY_SIGNATURE_UPLOADED)
+        self.assertEqual(event.changes["signature_file"]["from"], "")
+        self.assertEqual(event.changes["signature_file"]["to"], str(updated.signature_file.id))
+        self.assertEqual(event.metadata["original_filename"], "signature.png")
+
+    def test_a_non_image_is_refused_before_the_ledger_is_called(self) -> None:
+        """A direct service caller cannot bypass the narrowing."""
+        from uploaded_files.models import UploadedFile
+
+        with self.assertRaises(SignatureNotAnImageError):
+            services.set_signatory_signature(actor=self.admin, signatory=self.signatory, upload=f.pdf_upload())
+
+        self.assertEqual(UploadedFile.objects.count(), 0)
+
+    def test_an_archived_signature_stops_rendering_but_stays_linked(self) -> None:
+        """The removal gesture, at the service layer."""
+        from uploaded_files.services import archive_file
+
+        updated = self.upload()
+        stored = updated.signature_file
+        archive_file(actor=self.admin, uploaded_file=stored, reason="signer left")
+
+        self.signatory.refresh_from_db()
+        self.assertEqual(self.signatory.signature_file_id, stored.id)
+        self.assertIsNone(get_current_signature_file(self.signatory))
+
+    def test_the_narrowing_is_a_subset_of_the_ledgers_allowlist(self) -> None:
+        """If the ledger ever drops an image type, this fails rather than a request."""
+        from uploaded_files.constants import ALLOWED_EXTENSIONS
+
+        self.assertLessEqual(SIGNATURE_IMAGE_EXTENSIONS, set(ALLOWED_EXTENSIONS))

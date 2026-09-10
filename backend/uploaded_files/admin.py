@@ -52,6 +52,7 @@ class UploadedFileAdmin(admin.ModelAdmin):
         "offer",
         "document",
         "snapshot",
+        "signatory",
         "uploaded_by",
     )
 

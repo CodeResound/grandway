@@ -31,10 +31,16 @@ class SignatoryAdmin(_NoDeleteAdmin):
     list_display = ("name", "role", "status", "updated_at")
     list_filter = ("status", "role")
     search_fields = ("name",)
-    readonly_fields = ("id", "created_by", "created_at", "updated_at")
+    # ``signature_file`` is read-only for a sharper reason than the rest of this
+    # tuple. This admin blocks delete but allows change, so an unguarded foreign
+    # key would render as a dropdown over **every** ``UploadedFile`` in the
+    # system: an operator could point a signatory at an applicant's passport,
+    # with no ownership check, no bytes ever uploaded for that signer, and no
+    # audit event. It is set only by ``services.set_signatory_signature``.
+    readonly_fields = ("id", "created_by", "signature_file", "created_at", "updated_at")
 
     def get_queryset(self, request: HttpRequest) -> Any:
-        return super().get_queryset(request).select_related("created_by")
+        return super().get_queryset(request).select_related("created_by", "signature_file")
 
 
 @admin.register(DocumentTemplate)

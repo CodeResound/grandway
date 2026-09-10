@@ -231,7 +231,12 @@ One related gap is now backed, and one still is not:
 
 - **Signatory selection is backed** —
   `GET /api/v1/document-templates/signatories/?status=active`
-  (`document_templates.signatory.list`) **(cross-app: `document_templates`)**. Populate the
+  (`document_templates.signatory.list`) **(cross-app: `document_templates`)**. Each row now carries
+  `signature_source` and, when it is `"uploaded"`, a `signature_file` object — so the picker can show
+  a real signature preview rather than a name alone. Rendering it is an authenticated `fetch` of
+  `signature_file.download_path` (`uploaded_files.file.download`, **cross-app: `uploaded_files`**)
+  turned into a blob URL, **never an `<img src>`** against that path; see
+  `concepts/document_templates_flows.md` → "Render a signature into a certificate". Populate the
   instructor and director dropdowns from it and put the chosen record's `id` into
   `content.instructorId` / `content.directorId`. See
   `concepts/document_templates_flows.md` → "Fill the instructor and director selects".
@@ -295,8 +300,9 @@ it itself. The signatory dropdown must be backed by the real endpoint rather tha
   Document type picker and `document_templates.signatory.list` for the instructor and director
   dropdowns. Both are **advisory** — this app validates neither the `template_key` nor the signatory
   ids against them. See `concepts/document_templates_flows.md`.
-- **This app also references (outbound, new 2026-07-24):** `uploaded_files.file.upload` and
-  `uploaded_files.file.list` for the Document Workspace attachments panel — see
+- **This app also references (outbound, new 2026-07-24):** `uploaded_files.file.upload`,
+  `uploaded_files.file.list`, and — since 2026-09-10, for rendering a signatory's signature into a
+  certificate — `uploaded_files.file.download` for the Document Workspace attachments panel — see
   `concepts/uploaded_files_flows.md`. The coupling is one-way: this app returns no file references,
   so the panel is always a separate call.
 - **Blocked on (not yet existing):** nothing. `document_history`, `document_templates`, and

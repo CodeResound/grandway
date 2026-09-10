@@ -6,6 +6,17 @@ population that may read is one authority type, and it reads everything.
 Both tables are small and bounded: one row per signatory, one per template slug
 (53 today). Every selector returns the whole set narrowed by explicit filters,
 and none defers a column, because there is no large column to defer.
+
+**Signatory reads join ``signature_file``.** That is one extra LEFT JOIN on a
+table this app does not own, and it is what keeps the list endpoint's query
+count flat while the serializer renders a signature for every row. Note that
+``search.selectors`` deliberately clears these joins with ``select_related(None)``
+— a search hit shows a name, never a signature — and that this still works,
+because ``select_related(None)`` clears exactly what ``select_related`` set.
+
+**This module must never import ``document_templates.services``.** That is the
+invariant holding the ``uploaded_files`` import cycle open; see the note on
+``uploaded_files.services._OWNER_LOOKUPS``.
 """
 
 from __future__ import annotations
@@ -19,13 +30,40 @@ from document_templates.models import DocumentTemplate, Signatory
 
 
 def get_signatories() -> QuerySet[Signatory]:
-    """Every signatory, alphabetical, with the creator joined."""
-    return Signatory.objects.select_related("created_by")
+    """Every signatory, alphabetical, with the creator and signature joined."""
+    return Signatory.objects.select_related("created_by", "signature_file")
 
 
 def get_signatory_by_id(signatory_id: str) -> Signatory | None:
     """One signatory, or None."""
-    return Signatory.objects.select_related("created_by").filter(pk=signatory_id).first()
+    return Signatory.objects.select_related("created_by", "signature_file").filter(pk=signatory_id).first()
+
+
+def get_current_signature_file(signatory: Signatory) -> Any | None:
+    """The uploaded signature that actually renders for this signatory, if any.
+
+    ``signature_file`` is the *pointer*; this is the pointer **plus its
+    validity**. Two states leave a stored pointer that must not render:
+
+    * **Archived.** Archiving the file through ``POST /files/<id>/archive/`` is
+      how a signature is removed — there is no remove endpoint and no delete
+      service anywhere in this app. The link deliberately keeps pointing at the
+      archived row so the audit trail stays intact; this function is what makes
+      the signature stop rendering anyway.
+    * **Superseded.** Someone called ``POST /files/<id>/replace/`` on the ledger
+      directly, so the linked row is no longer the head of its chain.
+
+    Reads two properties off an already-joined row, so it costs nothing when the
+    caller came through ``get_signatories``/``get_signatory_by_id``.
+
+    Returns ``Any`` rather than ``UploadedFile`` because §4 permits importing
+    another app's ``selectors.py``/``services.py``, not its ``models.py`` — the
+    same call ``checklists`` made for ``evidence_file``.
+    """
+    stored = signatory.signature_file
+    if stored is None or stored.is_archived or not stored.is_current:
+        return None
+    return stored
 
 
 def get_active_signatories() -> QuerySet[Signatory]:

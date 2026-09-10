@@ -135,3 +135,18 @@ def upload_for(actor: Any, owner_field: str, owner: Any, **overrides: Any) -> An
         **overrides,
     }
     return services.upload_file(actor=actor, upload=upload, data=data)
+
+
+def make_signatory(actor: Any, **overrides: Any) -> Any:
+    """A signatory, re-exported by call rather than by import.
+
+    ``document_templates.tests.factories`` imports the upload part builders from
+    this module at module level. A module-level re-export in this direction as
+    well would close a cycle, and ``png_upload`` is defined below this module's
+    import block — so whichever module loaded second would fail with "cannot
+    import name … from partially initialized module". Deferring to call time
+    keeps both suites able to reach each other.
+    """
+    from document_templates.tests.factories import make_signatory as _make_signatory
+
+    return _make_signatory(actor, **overrides)

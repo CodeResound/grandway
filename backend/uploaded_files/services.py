@@ -33,6 +33,7 @@ from core.nepal.text import normalize_unicode
 from django.db import transaction
 from django.utils import timezone
 from document_history.selectors import get_snapshot_by_id
+from document_templates.selectors import get_signatory_by_id
 from documents.selectors import get_document_by_id
 from offers.selectors import get_offer_by_id
 
@@ -41,6 +42,7 @@ from uploaded_files.constants import (
     AUDIT_ENTITY_FILE,
     CHECKSUM_CHUNK_BYTES,
     OWNER_FIELDS,
+    OWNER_NAMES,
     REVIEWABLE_STATUSES,
     OwnerType,
     UploadedFilesAuditAction,
@@ -130,19 +132,36 @@ def _record(
 #: One lookup per owner type, each the owning app's own selector.
 #:
 #: §4 permits importing another app's ``selectors.py``, and this is the only
-#: cross-app coupling in the module. Five imports is a lot, and the alternative
+#: cross-app coupling in the module. Six imports is a lot, and the alternative
 #: is worse: assigning a raw id to a foreign key would push a nonexistent owner
 #: all the way to an ``IntegrityError``, which surfaces to a client as a 500
-#: with no indication of which of the five fields was wrong.
+#: with no indication of which of the six fields was wrong.
+#:
+#: **Import-cycle note.** ``document_templates`` imports back into this module
+#: (``services.set_signatory_signature`` calls ``upload_file``/``replace_file``),
+#: making these two the project's first bidirectional app pair. It does not
+#: deadlock, and the reason is narrow enough to write down: the edge *out* of
+#: here lands in ``document_templates.selectors``, which imports only its own
+#: ``constants`` and ``models``, while the edge *back* is function-local. The
+#: invariant that keeps it acyclic is therefore:
+#:
+#:     ``document_templates/selectors.py`` must never import
+#:     ``document_templates/services.py``, and this app's ``selectors.py`` must
+#:     never import this app's ``services.py``.
+#:
+#: Break either and Django fails at startup with a "partially initialized
+#: module" traceback naming neither app's real problem.
 #:
 #: Documented in ``docs/DATA_CONTRACT.md`` and in ``docs/INTEGRATION.md`` §2, as
-#: §4 requires for a runtime dependency.
+#: §4 requires for a runtime dependency, and in ``document_templates``' §2 for
+#: the other direction.
 _OWNER_LOOKUPS: dict[str, Any] = {
     OwnerType.APPLICANT: get_applicant_by_id,
     OwnerType.JOURNEY: get_journey_by_id,
     OwnerType.OFFER: get_offer_by_id,
     OwnerType.DOCUMENT: get_document_by_id,
     OwnerType.SNAPSHOT: get_snapshot_by_id,
+    OwnerType.SIGNATORY: get_signatory_by_id,
 }
 
 
@@ -162,9 +181,7 @@ def resolve_owner(data: dict[str, Any]) -> dict[str, Any]:
     """
     supplied = {field: data[field] for field in OWNER_FIELDS if data.get(field) is not None}
     if len(supplied) != 1:
-        raise OwnerNotResolvedError(
-            "Exactly one of applicant, journey, offer, document, or snapshot must be supplied."
-        )
+        raise OwnerNotResolvedError(f"Exactly one of {OWNER_NAMES} must be supplied.")
 
     field, value = next(iter(supplied.items()))
     instance = _OWNER_LOOKUPS[field](str(value))

@@ -8,12 +8,12 @@ error envelope, and shape the response. No business logic lives here.
 module holding no applicant data is nonetheless the strictest kind in the
 project.
 
-One exception class is caught here that this app does not define:
+Five exception classes are caught here that this app does not define:
 ``documents.exceptions.TemplateKeyInvalidError``, raised by the imported
-key/family agreement rule. It is re-coded under this app's
-``DOCUMENT_TEMPLATES_TEMPLATE_KEY_INVALID``, because a consumer calling a
-``/document-templates/`` route should never receive a ``DOCUMENTS_*`` code for a
-route it did not call.
+key/family agreement rule, and the file ledger's four upload rejections. Every
+one is re-coded under a ``DOCUMENT_TEMPLATES_*`` code, because a consumer
+calling a ``/document-templates/`` route should never receive a ``DOCUMENTS_*``
+or ``UPLOADED_FILES_*`` code for a route it did not call.
 """
 
 from __future__ import annotations
@@ -24,10 +24,17 @@ from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from documents.exceptions import TemplateKeyInvalidError
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from uploaded_files.exceptions import (
+    FileContentMismatchError,
+    FileEmptyError,
+    FileTooLargeError,
+    FileTypeNotAllowedError,
+)
 
 from document_templates import services
 from document_templates.access import require_template_actor
@@ -35,6 +42,7 @@ from document_templates.constants import ErrorCode
 from document_templates.exceptions import (
     ActorNotPermittedError,
     InvalidStatusTransitionError,
+    SignatureNotAnImageError,
     TemplateKeyAlreadyExistsError,
     TemplateKeyImmutableError,
 )
@@ -53,6 +61,7 @@ from document_templates.serializers import (
     SignatorySearchSerializer,
     SignatorySerializer,
     SignatoryUpdateSerializer,
+    SignatureUploadSerializer,
     StatusChangeSerializer,
     TemplateCreateSerializer,
     TemplateSearchSerializer,
@@ -64,6 +73,14 @@ from document_templates.serializers import (
 #: the old slug had been renamed along with it.
 IMMUTABLE_TEMPLATE_FIELDS = frozenset({"key"})
 STATUS_FIELDS = frozenset({"status", "status_note"})
+
+#: Fields a signatory PATCH may not carry beyond the status pair. Rejected
+#: loudly for a sharper reason than the others: ``signature_file`` is set only
+#: by the signature action, which stores bytes and re-points the link in one
+#: transaction. Accepting a bare file id here would let an Admin point a
+#: signatory at any file in the system — an applicant's passport included — with
+#: no ownership check and no bytes ever having been uploaded for that signer.
+SIGNATURE_FIELDS = frozenset({"signature_file"})
 
 
 def _client_ip(request: Request) -> str | None:
@@ -185,12 +202,22 @@ class SignatoryDetailView(SignatoryScopedView):
         if err:
             return err
 
-        standing = sorted(STATUS_FIELDS & set(request.data or {}))
+        submitted = set(request.data or {})
+
+        standing = sorted(STATUS_FIELDS & submitted)
         if standing:
             return _bad_request(
                 ErrorCode.STATUS_IMMUTABLE,
                 "A signatory's status is changed through the status action.",
                 details={field: ["This field cannot be set directly."] for field in standing},
+            )
+
+        signature = sorted(SIGNATURE_FIELDS & submitted)
+        if signature:
+            return _bad_request(
+                ErrorCode.SIGNATURE_FILE_IMMUTABLE,
+                "A signatory's signature is set by uploading one to the signature action.",
+                details={field: ["This field cannot be set directly."] for field in signature},
             )
 
         serializer = SignatoryUpdateSerializer(data=request.data, partial=True)
@@ -226,6 +253,58 @@ class SignatoryStatusView(SignatoryScopedView):
             return _bad_request(ErrorCode.STATUS_INVALID_TRANSITION, str(exc))
 
         return success_response(data=SignatorySerializer(updated).data, message="Signatory status updated.")
+
+
+class SignatorySignatureView(SignatoryScopedView):
+    """POST /signatories/<id>/signature/ — store or replace the signature image.
+
+    **The app's first multipart route and its first ``parser_classes``
+    declaration.** Every other handler here parses JSON; a client sending JSON to
+    this one gets 415 from DRF before any handler runs. The parsers are pinned
+    explicitly rather than left to the project default — the two existing upload
+    views in ``uploaded_files`` both do the same, and relying on an unset global
+    that a future settings edit could narrow is how this breaks silently.
+
+    Returns the **signatory**, not the file. That is what lets a client re-render
+    the row from one response, and it is where ``signature_source`` lives — the
+    field that says which signature actually renders.
+
+    Four exception types this app does not define are caught and re-coded; see
+    the module docstring.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request: Request, signatory_id: str) -> Response:
+        signatory, err = self.resolve(request, signatory_id)
+        if err:
+            return err
+
+        serializer = SignatureUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            updated = services.set_signatory_signature(
+                actor=request.user,
+                signatory=signatory,
+                upload=serializer.validated_data["file"],
+                notes=serializer.validated_data.get("notes", ""),
+                ip_address=_client_ip(request),
+            )
+        except (SignatureNotAnImageError, FileTypeNotAllowedError) as exc:
+            return _bad_request(ErrorCode.SIGNATURE_NOT_AN_IMAGE, str(exc), details={"file": [str(exc)]})
+        except FileEmptyError as exc:
+            return _bad_request(ErrorCode.SIGNATURE_FILE_EMPTY, str(exc), details={"file": [str(exc)]})
+        except FileTooLargeError as exc:
+            return _bad_request(ErrorCode.SIGNATURE_FILE_TOO_LARGE, str(exc), details={"file": [str(exc)]})
+        except FileContentMismatchError as exc:
+            return _bad_request(ErrorCode.SIGNATURE_FILE_CONTENT_MISMATCH, str(exc), details={"file": [str(exc)]})
+
+        return success_response(
+            data=SignatorySerializer(updated).data,
+            message="Signature uploaded.",
+            http_status=status.HTTP_201_CREATED,
+        )
 
 
 # ---------------------------------------------------------------------------

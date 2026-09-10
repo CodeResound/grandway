@@ -4250,7 +4250,7 @@
       "get": {
         "operationId": "document_templates.signatory.list",
         "summary": "List Signatories",
-        "description": "List signatory records. Filter with ?status=active for the certificate signer picker.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "List signatories with their signature file and source. Filter with ?status=active for the signer picker.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "document_templates"
         ],
@@ -4290,7 +4290,7 @@
       "post": {
         "operationId": "document_templates.signatory.create",
         "summary": "Create Signatory",
-        "description": "Add a person and signature image to the library. Created as draft.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "Add a person to the signature library. Created as draft, with no signature image yet.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "document_templates"
         ],
@@ -4332,7 +4332,7 @@
       "get": {
         "operationId": "document_templates.signatory.read",
         "summary": "View Signatory",
-        "description": "Retrieve one signatory record, including its signature image link.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "Retrieve one signatory, including its signature file, source, and legacy URL.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "document_templates"
         ],
@@ -4382,7 +4382,7 @@
       "patch": {
         "operationId": "document_templates.signatory.update",
         "summary": "Edit Signatory",
-        "description": "Correct a signatory's names, title, role, or signature link. Status is unaffected.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "Correct a signatory's name, title, role, or legacy signature URL. Status and signature file are unaffected.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "document_templates"
         ],
@@ -4394,6 +4394,58 @@
         "x-permission-key": "document_templates.signatory.update",
         "x-risk-level": "medium",
         "x-operation-type": "update",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "signatory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/document-templates/signatories/{signatory_id}/signature/": {
+      "post": {
+        "operationId": "document_templates.signatory.upload_signature",
+        "summary": "Upload Signatory Signature",
+        "description": "Store or replace a signatory's signature image. Multipart, PNG/JPG/WEBP only, max 10 MB. Creates a file in the ledger owned by the signatory and links it atomically; a second upload supersedes the first.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "document_templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "document_templates.signatory.upload_signature",
+        "x-risk-level": "high",
+        "x-operation-type": "custom",
         "responses": {
           "200": {
             "description": "Success",
@@ -5156,7 +5208,7 @@
       "get": {
         "operationId": "uploaded_files.file.list",
         "summary": "List Files",
-        "description": "List file records. Filter by owner (applicant, journey, offer, document, snapshot), category, verification status, archive state, or checksum.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "List file records. Filter by owner (applicant, journey, offer, document, snapshot, signatory), category, verification status, archive state, or checksum.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "uploaded_files"
         ],

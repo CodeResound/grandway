@@ -1,7 +1,7 @@
 # Integration — Uploaded Files
 
 **Owner app:** `uploaded_files`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -13,6 +13,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial integration contract — 10 endpoints, one resource, the project's first file storage |
 | 1.0.1 | 2026-07-24 | AI (Claude) | Defects found by the §19.5 consumer-comprehension test. **One was a real authorization leak and was fixed in code, not in prose:** a Lead Manager could list and download files owned by a `document` or a print snapshot, which `documents` and `document_history` hide from them entirely. Also **split `UPLOADED_FILES_FILE_EMPTY` out of `..._FILE_TOO_LARGE`** (one code for two opposite problems), **added `superseded_by_username`** (stored and never returned, so "who replaced this?" was unanswerable), corrected a nullable-field miscount and a false "every endpoint takes an id" claim, resolved the missing-owner error contradiction, stated the `details` rule for every custom code, and added seven gaps a client would have hit |
+| 1.1.0 | 2026-09-10 | AI (Claude Opus 5) | **`signatory` added as a sixth owner type**, so `document_templates` can store certificate signature images here. Signatory-owned files are Admin-only (§3) and excluded from the review queue (§3). New `?signatory=` list filter and upload field. §2 now records **two** inbound references and the project's only bidirectional app pair. **A §19.5 review of the 1.0.x text caught that the first pass updated §1–§3 and left the rest stale**, and the following were wrong rather than merely incomplete: §5 `owner_type` listed five values, §6 and §7 listed five owner fields in three places, §9 asserted "no other module links to a file" and "`document_templates.signature_image_url` … has no upload endpoint" — both refuted by §2 of the same file. Also corrected two errors predating this session: **"Sending JSON to either returns 400" is actually 415** (verified against both routes), and a stray brace in the `details` rule. Cross-module side effects added to archive, restore, and replace |
 
 ---
 
@@ -35,22 +36,29 @@
 | `offers` | FK + service call | Same, through `offers.selectors.get_offer_by_id`. | No offer could hold its letter. |
 | `documents` | FK + service call | Same, through `documents.selectors.get_document_by_id`. | No document could hold an attachment. |
 | `document_history` | FK + service call | Same, through `document_history.selectors.get_snapshot_by_id`. | No print snapshot could hold a generated PDF. |
+| `document_templates` | FK + service call | Same, through `document_templates.selectors.get_signatory_by_id`. **The one dependency that runs both ways** — that module also calls this one's `upload_file`/`replace_file` to store a signature. | No signatory could hold a signature image, and `POST /api/v1/document-templates/signatories/<id>/signature/` would fail. |
 | `audit` | service call | Every write **and every download** appends one immutable event. This module stores no history of its own. | Records still save but leave no trace of who uploaded, reviewed, archived, or downloaded a file. |
 | Local filesystem | infrastructure | `MEDIA_ROOT` is the byte store. **No URL maps to it in any environment** — reachable only through the download endpoint. | Uploads fail; existing rows return 404 `UPLOADED_FILES_FILE_BYTES_MISSING` on download. |
 
-**Nothing outside this module references it.** No shipped app holds a foreign key to a file or calls into this app. That has one consequence you must plan around, and it is the single most important thing in this document:
+**Two modules reference this one, and only two.** `checklists.ChecklistItem.evidence_file` cites the file proving a requirement was met, and `document_templates.Signatory.signature_file` names the signature image that renders on a certificate. Both hold a nullable `PROTECT` foreign key to a file. Everywhere else the relationship is still one-way, and that has a consequence you must plan around:
 
-> **There is no "attach" action on any other module's endpoints.** `applicants` has no photograph field, `offers` has no attachment field, `documents` has no attachment field, `document_history` has no generated-file field, and `clients.logo_url` / `document_templates.signature_image_url` are still plain URLs to hosts this API knows nothing about. To attach a passport to an applicant you `POST /api/v1/files/` with `applicant=<id>`; to show that applicant's files you `GET /api/v1/files/?applicant=<id>`. The relationship is one-way — a file knows its owner, an owner does not know its files.
+> **There is no "attach" action on most other modules' endpoints.** `applicants` has no photograph field, `offers` has no attachment field, `documents` has no attachment field, `document_history` has no generated-file field, and `clients.logo_url` is still a plain URL to a host this API knows nothing about. To attach a passport to an applicant you `POST /api/v1/files/` with `applicant=<id>`; to show that applicant's files you `GET /api/v1/files/?applicant=<id>`. A file knows its owner; an owner does not know its files.
+
+**The exception is worth understanding, because it is the pattern the others will follow.** A reverse pointer earns its place when *which* file is the answer to a question, rather than merely *some* file among several. A signatory renders exactly one signature, so `document_templates` holds a pointer and exposes a `signature_source` field saying which of its two possible sources won. An applicant has many files and no single "the photograph", so `applicants` holds nothing and `concepts/applicants_flows.md` records the resulting dead end. **Do not try to derive "the current X" from a `?owner=` filter** — two independent uploads both satisfy "current and non-archived", and the tie breaks on row ordering.
+
+**One module writes here through its own route.** `POST /api/v1/document-templates/signatories/<id>/signature/` stores a signature image in this ledger, owned by the signatory, and links it in one transaction. That endpoint re-codes every rejection this module raises into its own `DOCUMENT_TEMPLATES_*` namespace, so a client calling it never sees an `UPLOADED_FILES_*` code. **Uploading a signature through `POST /api/v1/files/` with `signatory=<id>` is possible and does not set the link** — the file will be owned by the signatory and will never render. Use that module's route.
 
 ## 3. Conventions
 
 - **Access — two levels, and the split is the module's design, not an oversight.** `admin` and `lead_manager` may list, read, **edit**, upload, replace, download, and read version chains. **Only `admin`** may `verify`, `archive`, or `restore`. `superadmin` is refused everywhere. Render the review and archive controls only for an `admin`; a Lead Manager pressing them gets 403, not a validation error.
-- **A third rule cuts across both: a file inherits the visibility of the record it belongs to.** Files owned by a `document` or a `snapshot` are **Admin-only**, because `documents` and `document_history` are Admin-only on every route including reads — without this, the file ledger would be a side door around another module's access rule. For a `lead_manager` such a file **does not appear in any list** and every per-file route returns **404, not 403**, deliberately: confirming it exists would leak exactly what those modules hide. Uploading against a `document` or `snapshot` owner returns **403** (there is nothing to conceal — the client named the owner itself).
+- **A third rule cuts across both: a file inherits the visibility of the record it belongs to.** Files owned by a `document`, a `snapshot`, or a `signatory` are **Admin-only**, because `documents`, `document_history`, and `document_templates` are Admin-only on every route including reads — without this, the file ledger would be a side door around another module's access rule. For a `lead_manager` such a file **does not appear in any list** and every per-file route returns **404, not 403**, deliberately: confirming it exists would leak exactly what those modules hide. Uploading against one of those owners returns **403** (there is nothing to conceal — the client named the owner itself). A signature image is not applicant data, so it would be easy to assume it is the looser case; it is not — see `docs/SECURITY.md` §2.1.
+- **Signature files are excluded from the review queue.** Every upload starts `pending`, but `signatory`-owned files do not appear in `get_files_awaiting_verification`, the verification counts, or the three `dashboards` figures built on them. They remain listable, downloadable, and reviewable directly through `POST /files/<id>/verify/`. Excluded by **owner**, not by category — `signature_image` can legitimately be used against an applicant owner, and filtering on the category would hide an applicant's file from the queue.
 - **Reads are otherwise not owner-scoped.** Any `admin` or `lead_manager` may read and download any file on any applicant, journey, or offer, regardless of who is assigned to it. Do not build a UI that assumes otherwise.
 - **All three refusals share one code, `UPLOADED_FILES_ACTOR_FORBIDDEN`, and differ only in `message`.** Since you should not branch on `message`, **do not try to distinguish them from the response** — decide what to render from the authority you already hold. A 403 from this module means "this actor may not do this", and that is the whole contract.
 - **Nothing is ever deleted.** There is **no `DELETE` method on any endpoint**, no delete action, and no way for any actor to remove a file or its bytes. Withdrawal from use is `POST /files/<id>/archive/`, which is reversible.
-- **The bytes are never in a JSON response.** There is no `file` field, no URL, and no storage path in any payload. `GET /files/<id>/download/` is the only way to obtain a file's contents, and it requires the same authorization as everything else. Do not build `<img src>` or `<a href>` against anything in a file payload — there is no address to point at.
-- **Request encoding:** `application/json`, **except** `POST /files/` and `POST /files/<id>/replace/`, which are `multipart/form-data`. Sending JSON to either returns 400.
+- **The bytes are never in a JSON response.** There is no `file` field, no URL, and no storage path in any payload from **this** module. `GET /files/<id>/download/` is the only way to obtain a file's contents, and it requires the same authorization as everything else. Do not build `<img src>` or `<a href>` against anything in a file payload from here — there is no address to point at.
+  **One sibling module does publish a path, and it is not a contradiction.** `document_templates` embeds a `signature_file` object carrying `download_path`, a **relative path to the authenticated download route** — still not a public URL, still not usable as an `<img src>` (it 401s), and still fetched with the bearer token. It exists because a certificate has to render a signature and reconstructing the route from an id is exactly the guesswork a contract should remove. Treat `download_path` as a `fetch` target, never as an address.
+- **Request encoding:** `application/json`, **except** `POST /files/` and `POST /files/<id>/replace/`, which are `multipart/form-data`. **Sending JSON to either returns 415**, not 400 — the parser rejects it before any handler runs, so there is no error code in the body.
 - **Response:** the standard project envelope — `success`, `message`, `data`, `meta`. Below, `data` is **abridged to four fields to show the envelope**; a real upload returns the full `UploadedFile` shape defined in §4.
 
 ```json
@@ -71,7 +79,7 @@
 
 - **The download response is the one exception to the envelope.** On success it is the raw file, not JSON, with `Content-Type` set to the stored type, `Content-Disposition: attachment; filename="<original_filename>"`, `X-Content-Type-Options: nosniff`, and `Cache-Control: private, no-store`. Every **failure** on that route still uses the standard error envelope.
 - **Error:** `success` is `false` and `error` carries a stable `code`, a human `message`, and a `details` object that is always present — `{}` when there are no field-level errors.
-- **The `details` rule for this module, stated once so you need no worked body per code:** every `UPLOADED_FILES_FILE_*` upload rejection keys its message under `file`; `UPLOADED_FILES_OWNER_NOT_FOUND` keys under the owner field that failed (`applicant`, `journey`, `offer`, `document`, or `snapshot`); `UPLOADED_FILES_FIELD_IMMUTABLE` keys under **each** refused field name; `UPLOADED_FILES_REJECTION_REASON_REQUIRED` and `UPLOADED_FILES_ARCHIVE_REASON_REQUIRED` key under `reason`. **Every other code in this module returns `details: {}}`** — including all three 403s, all three 404s, `UPLOADED_FILES_ALREADY_SUPERSEDED`, `UPLOADED_FILES_FILE_ARCHIVED`, `UPLOADED_FILES_ALREADY_ARCHIVED`, and `UPLOADED_FILES_NOT_ARCHIVED`.
+- **The `details` rule for this module, stated once so you need no worked body per code:** every `UPLOADED_FILES_FILE_*` upload rejection keys its message under `file`; `UPLOADED_FILES_OWNER_NOT_FOUND` keys under the owner field that failed (`applicant`, `journey`, `offer`, `document`, `snapshot`, or `signatory`); `UPLOADED_FILES_FIELD_IMMUTABLE` keys under **each** refused field name; `UPLOADED_FILES_REJECTION_REASON_REQUIRED` and `UPLOADED_FILES_ARCHIVE_REASON_REQUIRED` key under `reason`. **Every other code in this module returns `details: {}`** — including all three 403s, all three 404s, `UPLOADED_FILES_ALREADY_SUPERSEDED`, `UPLOADED_FILES_FILE_ARCHIVED`, `UPLOADED_FILES_ALREADY_ARCHIVED`, and `UPLOADED_FILES_NOT_ARCHIVED`.
 
 ```json
 {
@@ -85,7 +93,7 @@
 }
 ```
 
-  Field-level serializer failures use the project-wide `VALIDATION_ERROR` with the offending fields in `details`. The missing-owner case is keyed under the synthetic field `owner`, because the request could legitimately have carried any of five:
+  Field-level serializer failures use the project-wide `VALIDATION_ERROR` with the offending fields in `details`. The missing-owner case is keyed under the synthetic field `owner`, because the request could legitimately have carried any of six:
 
 ```json
 {
@@ -144,7 +152,7 @@
 
 - **One shape for list, detail, upload, replace, and every lifecycle action.** There is no large column to withhold from a list — the bytes are not in the row — so a second shape would exist only to drift from this one.
 - **There is no `file` field and there never will be.** No path, no URL. Use the download endpoint.
-- `owner_type` names which of the five owner kinds this file belongs to; `owner_id` is that record's UUID. **Exactly one owner always, never zero and never two** — enforced by a database constraint, not only by validation.
+- `owner_type` names which of the six owner kinds this file belongs to; `owner_id` is that record's UUID. **Exactly one owner always, never zero and never two** — enforced by a database constraint, not only by validation.
 - `is_current` (nothing has replaced this file) and `is_archived` (it is out of active use) are **independent**. A file can be archived and current, or superseded and not archived. Neither implies the other, and a UI that collapses them will misreport version chains.
 - `replaces` is the id of the file this one superseded, or `null` for a v1.
 - `checksum_sha256` is a lowercase hex SHA-256 of the bytes. **Duplicates are permitted** — two rows may share it.
@@ -246,7 +254,7 @@ Its predecessor, still readable and still downloadable:
 
 ## 5. Enums
 
-- `UploadedFile.owner_type`: `applicant` | `journey` | `offer` | `document` | `snapshot`
+- `UploadedFile.owner_type`: `applicant` | `journey` | `offer` | `document` | `snapshot` | `signatory`
 - `UploadedFile.category`: `passport` | `photograph` | `academic_transcript` | `academic_certificate` | `test_score_report` | `offer_letter` | `financial` | `sponsorship` | `signature_image` | `generated_document` | `other`
 - `UploadedFile.upload_source`: `staff_upload` | `system_generated`
 - `UploadedFile.verification_status`: `pending` | `verified` | `rejected` — **but the verify action accepts only `verified` and `rejected`.** `pending` is a starting state, not a verdict, and cannot be set back.
@@ -254,7 +262,7 @@ Its predecessor, still readable and still downloadable:
 
 ## 6. Dependency order
 
-- An `UploadedFile` needs exactly one of: an `Applicant`, an `ApplicantJourney`, an `Offer`, a `Document`, or a `DocumentSnapshot` (all **external modules**) — the record must already exist.
+- An `UploadedFile` needs exactly one of: an `Applicant`, an `ApplicantJourney`, an `Offer`, a `Document`, a `DocumentSnapshot`, or a `Signatory` (all **external modules**) — the record must already exist.
 - An `ApplicantJourney` needs an `Applicant` (external module).
 - An `Offer` needs an `ApplicantJourney` (external module).
 - A `DocumentSnapshot` needs a `Document` (external module).
@@ -276,7 +284,7 @@ Its predecessor, still readable and still downloadable:
 - `PATCH /api/v1/files/<file_id>/` — edit (`uploaded_files.file.update`)
 
 **Send (upload — `multipart/form-data`):**
-- exactly one of `applicant`, `journey`, `offer`, `document`, `snapshot` — the owning record's UUID
+- exactly one of `applicant`, `journey`, `offer`, `document`, `snapshot`, `signatory` — the owning record's UUID
 - `category` — required, one of the eleven values in §5
 - `file` — required, the file part, ≤ 10 MB
 - `upload_source` — optional, defaults to `staff_upload`
@@ -286,7 +294,7 @@ Its predecessor, still readable and still downloadable:
 - `category` and/or `notes`. **Nothing else.** Any other field is refused by name with `UPLOADED_FILES_FIELD_IMMUTABLE`, not silently dropped
 
 **Query parameters (list):**
-- `applicant`, `journey`, `offer`, `document`, `snapshot` — UUID, narrows to that record's files
+- `applicant`, `journey`, `offer`, `document`, `snapshot`, `signatory` — UUID, narrows to that record's files
 - `category`, `verification_status`, `upload_source` — enum values from §5
 - `is_archived` — boolean. **Omitting it returns archived files too**; pass `false` for the active-only view
 - `is_current` — boolean. `false` returns only superseded versions
@@ -395,6 +403,8 @@ Its predecessor, still readable and still downloadable:
 - `file` — required, the new bytes, ≤ 10 MB, same rules as upload
 - `notes` — optional free text for the **new** file
 
+> **Do not use this route on a signatory's signature image.** It succeeds and quietly breaks the signature: the successor is a **new row with a new id**, and `document_templates.Signatory.signature_file` still points at the superseded predecessor, so that module reports `signature_file: null` and `signature_source` falls back to `"url"` or `"none"`. Replace a signature through `POST /api/v1/document-templates/signatories/<id>/signature/`, which supersedes the old file **and** re-points the link in one transaction. The same caution applies to any future owner module that holds a pointer — `checklists.evidence_file` today.
+
 **Returns:** `UploadedFile` — **the successor**, a new record with a new id, not the file you addressed. 201.
 
 **Requires state:** the addressed file must exist, must not be archived, and must not already have been replaced.
@@ -463,7 +473,7 @@ Its predecessor, still readable and still downloadable:
 
 **Requires state:** the file must exist and must not already be archived. **`admin` authority.**
 
-**Side effects:** sets `archived_at`/`archived_by_username`/`archive_reason`, appends a `file_archived` event to the `audit` log.
+**Side effects:** sets `archived_at`/`archived_by_username`/`archive_reason`, appends a `file_archived` event to the `audit` log. **Across modules:** archiving a file that is a signatory's signature stops it rendering — `document_templates` reports `signature_file: null` and `signature_source` falls back to `"url"` or `"none"`. **This is the documented way to remove a signature**; that module has no removal endpoint of its own.
 
 **Notes:**
 - **Nothing is deleted.** The bytes stay and the file is still downloadable.
@@ -492,7 +502,7 @@ Its predecessor, still readable and still downloadable:
 
 **Requires state:** the file must exist and must currently be archived. **`admin` authority.**
 
-**Side effects:** clears all three archive fields, appends a `file_restored` event to the `audit` log.
+**Side effects:** clears all three archive fields, appends a `file_restored` event to the `audit` log. **Across modules:** restoring a file that is a signatory's signature makes it render again — `document_templates` reports `signature_source: "uploaded"` once more, provided the file is also still current. **Restoring is a real undo of the remove-signature gesture**, and the link was never broken; only its validity was.
 
 **Notes:**
 - `archive_reason` is cleared to `""` and `archived_at`/`archived_by_username` to `null` — **the record keeps no trace of having been archived.** The history lives in the `audit` log, so do not expect to reconstruct "was this ever archived" from the file payload.
@@ -549,8 +559,10 @@ Its predecessor, still readable and still downloadable:
 
 ## 9. Gaps
 
-- **No other module links to a file.** `applicants` has no photograph field, `offers` has no attachment field, `documents` has no attachment field, `document_history` has no generated-file field. There is no "primary photo", no "the offer letter", and no way to mark one file as the canonical one for a record — only a list filtered by owner and category. If you need "the applicant's photograph", you must take the newest `category=photograph` file yourself and decide what to do when there are two.
-- **`clients.logo_url` and `document_templates.signature_image_url` are still plain URLs** to hosts this API knows nothing about. Neither has been migrated to a file record, and neither module has an upload endpoint. A signature image is still a link that can rot with nothing reporting it.
+- **Most modules do not link to a file.** `applicants` has no photograph field, `offers` has no attachment field, `documents` has no attachment field, `document_history` has no generated-file field. For those there is no "primary photo", no "the offer letter", and no way to mark one file as the canonical one for a record — only a list filtered by owner and category. If you need "the applicant's photograph" you must take the newest `category=photograph` file yourself and decide what to do when there are two.
+  **Two modules do link, and are the exception:** `checklists.ChecklistItem.evidence_file` and `document_templates.Signatory.signature_file` (see §2). Do not generalise from them — nothing else has a pointer, and "the newest current one" remains a client convention everywhere else, not a backend rule.
+- **`clients.logo_url` is still a plain URL** to a host this API knows nothing about — `Client` is not an owner type, so there is nowhere to attach a logo, and it can rot with nothing reporting it.
+  **`document_templates.signature_image_url` is no longer in that position.** As of 2026-09-10 `signatory` is an owner type here and that module has its own upload route (§2). The URL field was retained as a fallback rather than repointed, so both forms exist and that module publishes a `signature_source` field saying which is in force.
 - **Verification gates nothing, anywhere.** No endpoint in Grandway refuses an operation because a file is `pending` or `rejected`. If your product requires "the offer cannot be accepted until the passport is verified", that rule does not exist in the backend and must not be assumed.
 - **A file belongs to exactly one record.** There is no way to attach one scan to both an applicant and a journey. Doing it means uploading twice, producing two rows with the same `checksum_sha256`.
 - **`education` and `test_scores` are not owner types**, because those modules do not exist yet. A transcript or a test-score report currently attaches to the applicant. When those modules ship, existing files will **not** be re-pointed automatically.

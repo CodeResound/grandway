@@ -39,3 +39,22 @@ class TemplateKeyImmutableError(Exception):
 
 class InvalidStatusTransitionError(Exception):
     """Raised when the status action targets a status outside the enum."""
+
+
+class SignatureNotAnImageError(Exception):
+    """Raised when a signature upload is not PNG, JPG/JPEG, or WEBP.
+
+    Narrower than the file ledger's own allowlist, which also accepts PDF,
+    DOCX, and XLSX. Refused here rather than there because "a signature is an
+    image" is this app's rule about what a signatory record means, not the
+    ledger's rule about what bytes it will hold — and a 10 MB spreadsheet
+    stored under a director's name would pass every check downstream of this
+    one.
+
+    The ledger's four upload rejections (``FileEmptyError``,
+    ``FileTooLargeError``, ``FileTypeNotAllowedError``,
+    ``FileContentMismatchError``) are deliberately **not** redeclared here.
+    They are caught by type in the view and re-coded, the same way
+    ``documents.exceptions.TemplateKeyInvalidError`` is — a second exception
+    class for a rule another app owns is the drift §4 exists to prevent.
+    """

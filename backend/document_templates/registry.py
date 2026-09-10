@@ -8,10 +8,20 @@ document apps, and that is the judgement worth recording.** ``documents`` rates
 even its plain list ``medium`` because the list reveals which applicants have
 financial documents on file; ``document_history`` rates its snapshot read
 ``high`` because it returns a frozen bank statement. This app holds **no
-applicant data at all** — a signatory is a staff member's name and a link to
-their signature image, a template is a slug and a label. Reads are ``low``,
-writes are ``medium`` because they shape what the whole document workspace is
-allowed to offer.
+applicant data at all** — a signatory is a staff member's name and their
+signature image, a template is a slug and a label. Reads are ``low``, writes are
+``medium`` because they shape what the whole document workspace is allowed to
+offer.
+
+**One endpoint escapes that band, and the exception is the point.**
+``signatory.upload_signature`` is rated ``high``, matching
+``uploaded_files.file.upload``. The low/medium reasoning above rests entirely on
+this app holding no sensitive content — true of every other route here, and
+false of this one. It is the only endpoint in the app that writes bytes to the
+storage volume, and those bytes are the artefact that makes an issued
+certificate look authoritative. A signature image is the most forgeable thing in
+the system; routing the write through a signatory does not make it less
+consequential than routing it through the file ledger.
 
 The access rule does **not** follow the risk rating: this app is Admin-only like
 its two siblings, inherited from its consumer rather than its content. See
@@ -68,6 +78,11 @@ _REQUIRES_TEMPLATE_READ = [
 
 _PHASE = "document_templates app initial build."
 
+#: The signature-upload work is its own phase: it postdates the initial build by
+#: six weeks and reverses a documented deferral, so reusing ``_PHASE`` would put
+#: a false date on the changelog entry.
+_PHASE_SIGNATURE = "Signatory signature image upload — the app's first byte-writing endpoint."
+
 
 POLICY_ENDPOINTS: list[dict[str, Any]] = [
     # 1. The signature library, and the one endpoint the frontend actually calls
@@ -78,7 +93,7 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "document_templates.signatory.list",
         "operation_type": "list",
         "display_name": "List Signatories",
-        "description": "List signatory records. Filter with ?status=active for the certificate signer picker.",
+        "description": "List signatories with their signature file and source. Filter with ?status=active for the signer picker.",
         "http_method": "GET",
         "route_pattern": "/api/v1/document-templates/signatories/",
         "view_import_path": "document_templates.views.SignatoryListCreateView",
@@ -99,7 +114,7 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "document_templates.signatory.create",
         "operation_type": "create",
         "display_name": "Create Signatory",
-        "description": "Add a person and signature image to the library. Created as draft.",
+        "description": "Add a person to the signature library. Created as draft, with no signature image yet.",
         "http_method": "POST",
         "route_pattern": "/api/v1/document-templates/signatories/",
         "view_import_path": "document_templates.views.SignatoryListCreateView",
@@ -117,7 +132,7 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "document_templates.signatory.read",
         "operation_type": "read",
         "display_name": "View Signatory",
-        "description": "Retrieve one signatory record, including its signature image link.",
+        "description": "Retrieve one signatory, including its signature file, source, and legacy URL.",
         "http_method": "GET",
         "route_pattern": "/api/v1/document-templates/signatories/<signatory_id>/",
         "view_import_path": "document_templates.views.SignatoryDetailView",
@@ -133,7 +148,7 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "document_templates.signatory.update",
         "operation_type": "update",
         "display_name": "Edit Signatory",
-        "description": "Correct a signatory's names, title, role, or signature link. Status is unaffected.",
+        "description": "Correct a signatory's name, title, role, or legacy signature URL. Status and signature file are unaffected.",
         "http_method": "PATCH",
         "route_pattern": "/api/v1/document-templates/signatories/<signatory_id>/",
         "view_import_path": "document_templates.views.SignatoryDetailView",
@@ -157,6 +172,39 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "dependencies": _REQUIRES_SIGNATORY_READ,
         "change_summary": "Initial registration of the signatory status endpoint.",
         "change_reason": _PHASE,
+    },
+    # 5b. The only route in this app that writes bytes. See the module docstring
+    #     for why it alone is rated high.
+    {
+        **_SIGNATORY,
+        "endpoint_key": "signatory-signature-upload",
+        "permission_key": "document_templates.signatory.upload_signature",
+        "operation_type": "custom",
+        "display_name": "Upload Signatory Signature",
+        "description": (
+            "Store or replace a signatory's signature image. Multipart, PNG/JPG/WEBP only, "
+            "max 10 MB. Creates a file in the ledger owned by the signatory and links it "
+            "atomically; a second upload supersedes the first."
+        ),
+        "http_method": "POST",
+        "route_pattern": "/api/v1/document-templates/signatories/<signatory_id>/signature/",
+        "view_import_path": "document_templates.views.SignatorySignatureView",
+        "risk_level": "high",
+        "dependencies": [
+            *_REQUIRES_SIGNATORY_READ,
+            _dep(
+                "uploaded_files.file.upload",
+                "The signature is stored through the file ledger's upload service; a caller who "
+                "may not put bytes on the platform must not do it through a signatory route.",
+            ),
+            _dep(
+                "uploaded_files.file.replace",
+                "A second signature supersedes the first through the ledger's replace service, "
+                "which writes a new row and marks the predecessor superseded.",
+            ),
+        ],
+        "change_summary": "Initial registration of the signatory signature upload endpoint.",
+        "change_reason": _PHASE_SIGNATURE,
     },
     # 6. The template catalogue — the picker's backing list.
     {

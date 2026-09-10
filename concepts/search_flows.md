@@ -75,9 +75,16 @@ Authored and updated by the backend author in the same commit as any endpoint ch
      same visibility rule.
    - **Side effects:** none.
    - *Failure — empty bucket for a Lead Manager where an Admin sees a result:* not a failure. The file
-     belongs to a document or a print snapshot and is outside a Lead Manager's visibility. Show the
-     ordinary empty state; do not retry, and do not surface an "access denied" message for a record
-     the user was never told exists.
+     belongs to a document, a print snapshot, or a signatory, and is outside a Lead Manager's
+     visibility. Show the ordinary empty state; do not retry, and do not surface an "access denied"
+     message for a record the user was never told exists.
+   - **Known inconsistency, and it is inside one response body.** The `uploaded_file` bucket is
+     narrowed by authority; the `signatory`, `document`, and `document_template` buckets are **not**.
+     So a Lead Manager searching a signer's name gets a populated `signatory` hit whose hand-off link
+     (`document_templates.signatory.read`) returns 403, while that signatory's signature file is
+     correctly hidden. This predates the signature work — `documents` and `document_templates` hits
+     have always had it — and is recorded here so it is not filed as a regression against signature
+     uploads. Guard the hand-off client-side until the buckets are narrowed.
 
 ## Flow: Look up an institution while advising, then shortlist
 

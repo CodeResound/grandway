@@ -166,8 +166,11 @@
    §5 the admin interface renders with no CSS.
 
  MEDIA_ROOT    recommended /var/lib/grandway/media
-   Applicant passports, transcripts, bank statements. Files are written 0o640
-   inside 0o750 directories.
+   Applicant passports, transcripts, bank statements, and staff signature
+   images. Files are written 0o640 inside 0o750 directories, laid out as
+   uploaded_files/<owner_type>/<YYYY>/<MM>/<uuid>.<ext> — so new top-level
+   directories appear over time as owner types are used. No action required;
+   the tree is backed up wholesale.
 
    *** DELIBERATELY OUTSIDE ANY WEB ROOT. ***
    Note it is /var/lib/..., NOT /var/www/... . That is not an oversight and it
@@ -178,6 +181,15 @@
    web root means a careless `root /var/www/grandway;` cannot reach it even by
    accident. Do not relocate it under the web root, and do not add a media
    location block (§5).
+
+   One temptation is worth naming in advance, because it will look reasonable:
+   the uploaded_files/signatory/ directory holds signature images that a
+   certificate renders, and those look like ordinary web assets in a way a
+   passport scan does not. Serving "just the signatures" is one location block
+   that would publish every applicant passport beside them, because they share
+   this volume. The application already renders signatures correctly without it
+   — the frontend fetches them through the authenticated download endpoint. There
+   is no supported configuration in which any part of this volume is web-served.
 
    This is the primary backup target alongside the database (§11).
 
@@ -269,6 +281,13 @@
  registry is declared in code and synced into the database; skipping it leaves
  the database describing the previous release's endpoints.
 
+ Step 3 takes brief exclusive locks. Most migrations here add nullable columns
+ and are effectively instant, but a migration that adds or alters a CHECK
+ constraint takes ACCESS EXCLUSIVE on its table and scans it to validate — the
+ table is unavailable for the duration. Harmless on a young database; once
+ uploaded_files_uploadedfile has grown, schedule such a deploy off-peak. The
+ release notes name any migration of that kind.
+
  Step 5 is a gate: A NON-ZERO EXIT MUST ABORT THE DEPLOY. It means the shipped
  code and the permission registry disagree, and authorization metadata is not
  something to run inconsistent.
@@ -302,7 +321,12 @@
 
    python backend/manage.py reset_superadmin_mfa        # clear the TOTP device
    python backend/manage.py reset_superadmin_password   # reset the password
-   python backend/manage.py addstatictoken <username>   # emergency static token
+
+ There are NO recovery or backup codes, by design. reset_superadmin_mfa is the
+ only superadmin MFA recovery path: it removes the TOTP device and revokes the
+ account's sessions, so the superadmin logs in with password alone and re-enrols
+ immediately. Both commands default to the 'superadmin' username (override with
+ --username, or the SUPERADMIN_USERNAME environment variable).
 
 -------------------------------------------------------------------------------
  9. SCHEDULED JOBS
@@ -365,6 +389,13 @@
  Back up both, and back them up together — a database referencing files that
  the media backup does not contain is a broken restore.
 
+ That coupling is tighter than it used to be. A signatory row points at its
+ signature image, so a database restored newer than the media volume does not
+ merely leave a file panel short an entry: the signature fails to load with
+ UPLOADED_FILES_FILE_BYTES_MISSING (404) and the certificate that names that
+ signatory renders without a signature. Same failure, more visible surface.
+ Snapshot both volumes at the same moment.
+
  Restore sequence:
    1. restore the database
    2. restore MEDIA_ROOT
@@ -391,6 +422,14 @@
    - reverse them explicitly:  manage.py migrate <app> <previous_number>
      (only if that migration is genuinely reversible — check first), or
    - restore from backup (§11).
+
+ "Check first" is not boilerplate. A migration can be reversible when it is
+ applied and irreversible once the release has run, because the reverse may
+ restore a constraint that live data no longer satisfies. uploaded_files
+ migration 0002 is the worked example: reversing it drops a column and restores
+ a narrower CHECK, which fails if any file has been stored against the owner
+ type that column added. Every migration's docstring states its own reverse
+ conditions; read it before reversing, and prefer §11 restore when in doubt.
 
  1.0.0 policy: FORWARD-FIX BY DEFAULT. Ship a patch release rather than rolling
  back across a schema change. Release tags are immutable, so v1.0.1 supersedes

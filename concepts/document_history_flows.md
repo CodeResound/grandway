@@ -254,6 +254,15 @@ Authored and updated by the backend author in the same commit as any endpoint ch
   - **Keep freezing the name and role alongside the id.** This app validates nothing inside
     `render_context`, and an id alone would leave a snapshot dependent on a lookup that may return a
     since-renamed record — which is exactly what freezing exists to prevent.
+  - **The signature *image* is not frozen, and a reprint therefore renders the current one.** Since
+    2026-09-10 a signatory can carry a real uploaded signature, and a reprint resolves it live
+    through `document_templates.signatory.read` and `uploaded_files.file.download`
+    **(cross-app: `uploaded_files`)**. Replace a director's signature and every historical reprint
+    shows the new image beside the old frozen name. **This is a real divergence, not a bug** — the
+    snapshot records the name that was issued, while the image tracks the signatory record — but it
+    will read as one if unannounced. If byte-identical reprints matter for a document class, freeze
+    the image on your side at print time; nothing in this app or `document_templates` will do it,
+    and `render_context.signatories[]` has no file field to put one in.
 
 ## Cross-app dependencies
 

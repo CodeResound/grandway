@@ -57,6 +57,11 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** Admin authority. A Lead Manager reaching this screen gets 403 on every row;
      hide the screen from them entirely rather than rendering it empty.
    - **Side effects:** none
+   - **Signature images never appear in this queue.** They start `pending` like everything else, but
+     `signatory`-owned files are excluded from the queue and from the dashboard verification counts
+     — they are reference data an Admin uploaded for themselves, not work owed to an applicant, and
+     a queue row for one would render with no applicant and nowhere to click. They remain reviewable
+     directly by id if you ever need to.
 5. **File Review queue → row action** — accept or refuse →
    `POST /api/v1/files/<file_id>/verify/` (`uploaded_files.file.verify`)
    - **Requires state:** Admin authority; the file exists and is not archived.
@@ -192,7 +197,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 
 | `permission_key` | `METHOD /path` | Used by flow(s) | Notes |
 |------------------|----------------|-----------------|-------|
-| `uploaded_files.file.list` | `GET /api/v1/files/` | Attach a document; Retire a file | **Every** files panel in the product is this endpoint with a filter |
+| `uploaded_files.file.list` | `GET /api/v1/files/` | Attach a document; Retire a file | **Every** files panel in the product is this endpoint with a filter. Owner filters: `?applicant=`, `?journey=`, `?offer=`, `?document=`, `?snapshot=`, `?signatory=` |
 | `uploaded_files.file.upload` | `POST /api/v1/files/` | Attach a document | `multipart/form-data` |
 | `uploaded_files.file.read` | `GET /api/v1/files/<file_id>/` | Replace a rejected document; Correct a misfiled document | |
 | `uploaded_files.file.update` | `PATCH /api/v1/files/<file_id>/` | Correct a misfiled document | `category` and `notes` only |
@@ -209,7 +214,8 @@ here without a screen behind it.
 ## Cross-app dependencies
 
 - **This app references (outbound):** `none`. No flow above calls another app's endpoint. Every flow
-  begins from a record that already exists — an applicant, journey, offer, document, or snapshot —
+  begins from a record that already exists — an applicant, journey, offer, document, snapshot, or
+  signatory —
   but reads and writes only this app's endpoints. **The owning record is a precondition, not a step.**
 - **Referenced by other apps (inbound):** `none yet`. No other app's flow file calls a
   `uploaded_files.*` endpoint today, because no other module has a file-bearing screen wired up. The
@@ -219,17 +225,26 @@ here without a screen behind it.
 
 When an endpoint here is added, changed, or deprecated, grep `concepts/*_flows.md` for its
 `permission_key` and update every referencing flow in the same commit (the CLAUDE.md §36 ripple rule) —
-not just this file. **That ripple will matter soon:** the moment an applicant photograph or an offer
-letter gets a first-class field in its own module, `uploaded_files.file.upload` will appear in that
-module's flows.
+not just this file. **That ripple already happened once:** `document_templates` gained a
+signature-upload endpoint on 2026-09-10 that stores bytes here, so
+`concepts/document_templates_flows.md` now carries `uploaded_files.file.download` and
+`uploaded_files.file.archive` as cross-app steps. Expect the same the moment an applicant photograph
+or an offer letter gets a first-class field in its own module.
 
 ## Open questions
 
 - **Which screen owns the review queue?** `?verification_status=pending` is a global cross-applicant
   list. `concepts/uploaded_files.txt` names a "review queue" but not where it lives in the navigation.
-- **How does a screen pick *the* photograph or *the* passport?** There is no primary-file concept.
-  Filtering by category can return several files, and nothing marks one as canonical. Today the
-  answer is "the newest current one", which is a client-side convention, not a backend rule.
+- **How does a screen pick *the* photograph or *the* passport?** There is no primary-file concept
+  *in this module*. Filtering by category can return several files, and nothing marks one as
+  canonical; "the newest current one" is a client-side convention, not a backend rule, and it is
+  wrong often enough to matter — two independent uploads both look current, and restoring an
+  archived file resurrects a second candidate.
+  **`document_templates` answered this for signatures and the answer generalises:** the *owning*
+  module holds a nullable pointer to the one file that counts, written only by its own upload
+  endpoint, and publishes a `*_source` field saying which source is in force. The pointer lives in
+  the owning app, not here — this module stays the ledger that "decides nothing about what those
+  bytes mean".
 - **Should a Lead Manager see files on applicants not assigned to them?** Today yes — reads are not
   owner-scoped. `concepts/project_overview.txt` leaves the underlying question open, and this app is
   where the answer bites hardest: an unscoped read here exposes a passport, not a name.

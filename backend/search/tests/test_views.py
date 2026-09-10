@@ -302,6 +302,26 @@ class TestSearchScoping(SearchApiTestCase):
         manager_total = self.buckets(self.search(q=f"{TOKEN}-secret"))["uploaded_file"]["total"]
         self.assertEqual(manager_total, 0)
 
+    def test_a_lead_manager_does_not_find_a_signature_file(self) -> None:
+        """The same rule, for the newest Admin-only owner type.
+
+        A signature image is not applicant data, so it would be easy to assume
+        search may surface it. It may not: ``document_templates`` refuses a Lead
+        Manager on every route, and a signature is the most forgeable artefact
+        in the system.
+        """
+        from document_templates.tests.factories import make_signatory
+        from uploaded_files.tests.factories import upload_for
+
+        signatory = make_signatory(self.admin)
+        upload_for(self.admin, "signatory", signatory, upload=pdf_upload(f"{TOKEN}-signature.pdf"))
+
+        self.auth(self.admin)
+        self.assertEqual(self.buckets(self.search(q=f"{TOKEN}-signature"))["uploaded_file"]["total"], 1)
+
+        self.auth(self.manager)
+        self.assertEqual(self.buckets(self.search(q=f"{TOKEN}-signature"))["uploaded_file"]["total"], 0)
+
     def test_two_authorities_legitimately_see_different_totals(self) -> None:
         """Documented in `docs/API.md` §1 so it is not reported as a bug."""
         self.auth(self.admin)

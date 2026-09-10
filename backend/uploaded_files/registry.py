@@ -28,8 +28,8 @@ through ``file.read``. Nothing enforces the split from this file — §9's inter
 inline pattern is still what runs — but when the permissions app is wired into
 the request path, this graph is what it will read.
 
-One model is registered, not five: a file is one entity that happens to point at
-five different owners.
+One model is registered, not six: a file is one entity that happens to point at
+six different owners.
 """
 
 from typing import Any
@@ -76,8 +76,8 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "operation_type": "list",
         "display_name": "List Files",
         "description": (
-            "List file records. Filter by owner (applicant, journey, offer, document, snapshot), "
-            "category, verification status, archive state, or checksum."
+            "List file records. Filter by owner (applicant, journey, offer, document, "
+            "snapshot, signatory), category, verification status, archive state, or checksum."
         ),
         "http_method": "GET",
         "route_pattern": "/api/v1/files/",

@@ -14,6 +14,7 @@ from django.urls import path
 from document_templates.views import (
     SignatoryDetailView,
     SignatoryListCreateView,
+    SignatorySignatureView,
     SignatoryStatusView,
     TemplateDetailView,
     TemplateListCreateView,
@@ -25,6 +26,11 @@ app_name = "document_templates"
 urlpatterns = [
     path("signatories/", SignatoryListCreateView.as_view(), name="signatory-list"),
     path("signatories/<uuid:signatory_id>/", SignatoryDetailView.as_view(), name="signatory-detail"),
+    path(
+        "signatories/<uuid:signatory_id>/signature/",
+        SignatorySignatureView.as_view(),
+        name="signatory-signature",
+    ),
     path("signatories/<uuid:signatory_id>/status/", SignatoryStatusView.as_view(), name="signatory-status"),
     path("templates/", TemplateListCreateView.as_view(), name="template-list"),
     path("templates/<uuid:template_id>/", TemplateDetailView.as_view(), name="template-detail"),

@@ -33,13 +33,22 @@ is not on that list. An access rule silently inherited across a boundary is the
 coupling that makes a later divergence invisible.
 
 **A file inherits the visibility of the record it belongs to.** A file owned by a
-``document`` or a ``document_snapshot`` is Admin-only, because ``documents`` and
-``document_history`` are Admin-only on every route, reads included. Without that
-rule this module would be a side door around another module's access decision: a
-Lead Manager who cannot open a bank statement could list and download the PDF
-attached to it, and neither module would know. Found by the §19.5
-consumer-comprehension review, not by design — the flat "Admin + Lead Manager for
-reads" rule looked correct until someone asked what a `document`-owned file was.
+``document``, a ``document_snapshot``, or a ``signatory`` is Admin-only, because
+``documents``, ``document_history``, and ``document_templates`` are Admin-only on
+every route, reads included. Without that rule this module would be a side door
+around another module's access decision: a Lead Manager who cannot open a bank
+statement could list and download the PDF attached to it, and neither module
+would know. Found by the §19.5 consumer-comprehension review, not by design — the
+flat "Admin + Lead Manager for reads" rule looked correct until someone asked
+what a `document`-owned file was.
+
+``signatory`` joined the rule when signature images became uploadable. Note that
+it is **not** there because a signature is sensitive applicant data — it is not
+applicant data at all. It is there because the owning app refuses a Lead Manager
+outright, and because a signature image is the most forgeable artefact in the
+system: it is what makes an issued certificate look authoritative, so read access
+to the bytes is a larger ask than read access to the signatory row, not a
+smaller one.
 
 The rule is enforced in three places, because a file can be reached three ways:
 per-file routes check the resolved file's owner, the upload route checks the
@@ -86,9 +95,9 @@ def require_admin(user: object) -> None:
 def require_owner_visibility(user: object, owner_type: str | None) -> None:
     """Refuse a non-Admin access to a file whose owning record is Admin-only.
 
-    A file owned by a ``document`` or a ``document_snapshot`` inherits those
-    modules' Admin-only rule. Applied on read, download, update, and replace of
-    an existing file, and on upload against such an owner.
+    A file owned by a ``document``, a ``document_snapshot``, or a ``signatory``
+    inherits those modules' Admin-only rule. Applied on read, download, update,
+    and replace of an existing file, and on upload against such an owner.
 
     ``owner_type`` is ``None`` only for an unsaved instance, which no caller
     here holds; it is permitted rather than refused so this never becomes a
@@ -96,5 +105,5 @@ def require_owner_visibility(user: object, owner_type: str | None) -> None:
     """
     if owner_type in ADMIN_ONLY_OWNER_TYPES and not is_admin(user):
         raise ActorNotPermittedError(
-            "Admin authority is required for files belonging to a document or a print snapshot."
+            "Admin authority is required for files belonging to a document, " "a print snapshot, or a signatory."
         )

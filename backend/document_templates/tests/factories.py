@@ -8,6 +8,17 @@ The actor helpers are re-exported from ``documents.tests.factories`` rather than
 reimplemented — the same call ``document_history`` made. Duplicating account
 creation across three suites would let them drift on the one thing every test
 in all three depends on.
+
+The upload part builders are re-exported from ``uploaded_files.tests.factories``
+for the same reason: they carry real minimal file bodies with correct magic
+bytes, and a hand-rolled ``SimpleUploadedFile`` here would be refused by the
+ledger's content check for reasons that look like a test bug.
+
+**The re-export is one-directional on purpose.** ``uploaded_files``' own suite
+reaches back for ``make_signatory`` through a function-local import rather than a
+module-level one; doing it at module level on both sides would close a cycle and
+fail whichever module loaded second with "cannot import name … from partially
+initialized module".
 """
 
 from __future__ import annotations
@@ -22,6 +33,15 @@ from documents.tests.factories import (  # noqa: F401 — re-exported for this s
     make_superadmin,
     make_user,
     token_for,
+)
+from uploaded_files.tests.factories import (  # noqa: F401 — re-exported for this suite's tests
+    disallowed_upload,
+    empty_upload,
+    jpeg_upload,
+    mislabelled_upload,
+    oversize_upload,
+    pdf_upload,
+    png_upload,
 )
 
 from document_templates import services
@@ -51,6 +71,17 @@ def make_active_signatory(actor: Any, **overrides: Any) -> Any:
         signatory=signatory,
         status=LifecycleStatus.ACTIVE,
     )
+
+
+def make_signatory_with_signature(actor: Any, **overrides: Any) -> Any:
+    """A signatory carrying a real uploaded signature image.
+
+    Goes through ``set_signatory_signature``, so the file is owned by the
+    signatory, categorised ``signature_image``, and linked — the three facts a
+    test asserting on rendering depends on.
+    """
+    signatory = make_signatory(actor, **overrides)
+    return services.set_signatory_signature(actor=actor, signatory=signatory, upload=png_upload())
 
 
 def make_template(actor: Any, **overrides: Any) -> Any:

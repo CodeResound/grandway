@@ -33,15 +33,17 @@ from document_templates.constants import (
     AUDIT_ENTITY_SIGNATORY,
     AUDIT_ENTITY_TEMPLATE,
     SELECTABLE_STATUSES,
+    SIGNATURE_IMAGE_EXTENSIONS,
     DocumentTemplatesAuditAction,
 )
 from document_templates.exceptions import (
     InvalidStatusTransitionError,
+    SignatureNotAnImageError,
     TemplateKeyAlreadyExistsError,
     TemplateKeyImmutableError,
 )
 from document_templates.models import DocumentTemplate, Signatory
-from document_templates.selectors import get_template_by_key
+from document_templates.selectors import get_current_signature_file, get_template_by_key
 
 _ACTOR_TYPES = {ActorType.SUPERADMIN, ActorType.ADMIN, ActorType.LEAD_MANAGER}
 
@@ -230,6 +232,129 @@ def change_signatory_status(
         summary=f"Signatory '{signatory.name}' moved from {previous} to {status}.",
         reason=note,
         changes={"status": {"from": previous, "to": status}},
+        ip_address=ip_address,
+    )
+    return signatory
+
+
+def assert_signature_extension(upload: Any) -> None:
+    """Refuse anything that is not an image, before the ledger ever sees it.
+
+    The ledger accepts PDF, DOCX, and XLSX as well. None of them is a signature,
+    and a 10 MB spreadsheet stored under a director's name would satisfy every
+    check downstream of this one.
+
+    Reads the filename only. The ledger's ``assert_content_matches_extension``
+    then checks the leading bytes against that same extension, so a PDF renamed
+    ``signature.png`` is refused there — this narrows *which* extensions are
+    meaningful, and the ledger proves the bytes match the claim.
+    """
+    _, _, extension = (getattr(upload, "name", "") or "").rpartition(".")
+    if extension.strip().lower() not in SIGNATURE_IMAGE_EXTENSIONS:
+        raise SignatureNotAnImageError(
+            f"A signature image must be one of: {', '.join(sorted(SIGNATURE_IMAGE_EXTENSIONS))}."
+        )
+
+
+@transaction.atomic
+def set_signatory_signature(
+    *,
+    actor: Any,
+    signatory: Signatory,
+    upload: Any,
+    notes: str = "",
+    ip_address: str | None = None,
+) -> Signatory:
+    """Store or replace this signatory's signature image, and link it atomically.
+
+    One call, two writes, one transaction: the bytes enter the file ledger owned
+    by this signatory, and ``signature_file`` is re-pointed at the result. A
+    caller must never have to do those two separately, because a file stored
+    without the link renders nowhere and reads as a silent success.
+
+    **Which ledger service runs is decided before dispatch, not by catching its
+    errors.** ``get_current_signature_file`` returns the linked file only when it
+    is neither archived nor superseded:
+
+    * nothing usable → ``upload_file`` starts a fresh chain at v1;
+    * a usable predecessor → ``replace_file`` supersedes it and the chain grows,
+      so "what did this director's signature look like when we issued that
+      certificate" stays answerable.
+
+    An **archived** predecessor therefore starts a fresh chain rather than
+    failing. Archiving is the removal gesture; if removal required an unarchive
+    dance before a new signature could be added, replacing a departed signer's
+    signature would take three calls including restoring the thing you just
+    removed. An **already superseded** one does the same, rather than walking to
+    the head of a chain this endpoint never linked.
+
+    The consequence is that ``AlreadySupersededError`` and ``FileArchivedError``
+    are unreachable from here **by construction** — deliberately, because neither
+    is a sentence an operator replacing a signature should ever read.
+    ``OwnerNotResolvedError`` and ``OwnerNotFoundError`` cannot be raised either:
+    the owner is an instance the caller already resolved.
+
+    ``category`` and ``upload_source`` are fixed here and never accepted from a
+    client.
+
+    Two audit events are written per call, and that is correct rather than
+    duplication: the ledger records *bytes entered the ledger*, and this records
+    *this signatory's signature changed*. Someone reading a signatory's history
+    must not have to join to the file ledger to see that it happened.
+    """
+    # Function-local, and this is load-bearing rather than stylistic.
+    # ``uploaded_files.services`` imports ``document_templates.selectors`` at
+    # module level for its owner lookup, making these the project's first
+    # bidirectional app pair. Deferring this direction to call time keeps the
+    # module graph acyclic under any import order instead of merely happening to
+    # terminate under the current one. Same shape as
+    # ``checklists.services._resolve_evidence``.
+    from uploaded_files.constants import FileCategory, UploadSource
+    from uploaded_files.services import replace_file, upload_file
+
+    assert_signature_extension(upload)
+    notes = normalize_unicode(notes) if notes else ""
+
+    predecessor = get_current_signature_file(signatory)
+    if predecessor is not None:
+        stored = replace_file(
+            actor=actor,
+            uploaded_file=predecessor,
+            upload=upload,
+            notes=notes,
+            ip_address=ip_address,
+        )
+    else:
+        stored = upload_file(
+            actor=actor,
+            upload=upload,
+            data={
+                "signatory": signatory.id,
+                "category": FileCategory.SIGNATURE_IMAGE,
+                "upload_source": UploadSource.STAFF_UPLOAD,
+                "notes": notes,
+            },
+            ip_address=ip_address,
+        )
+
+    previous_id = signatory.signature_file_id
+    signatory.signature_file = stored
+    signatory.save(update_fields=["signature_file", "updated_at"])
+
+    _record(
+        action=DocumentTemplatesAuditAction.SIGNATORY_SIGNATURE_UPLOADED,
+        actor=actor,
+        entity_type=AUDIT_ENTITY_SIGNATORY,
+        entity_id=str(signatory.id),
+        summary=f"Signature image for '{signatory.name}' set to '{stored.original_filename}'.",
+        changes={"signature_file": {"from": str(previous_id or ""), "to": str(stored.id)}},
+        metadata={
+            "file_id": str(stored.id),
+            "version_number": stored.version_number,
+            "original_filename": stored.original_filename,
+            "content_type": stored.content_type,
+            "size_bytes": stored.size_bytes,
+        },
         ip_address=ip_address,
     )
     return signatory
