@@ -1,42 +1,72 @@
 #!/usr/bin/env bash
-# pre-push hook — CLAUDE.md §34 Commit Guardrails.
+# pre-push hook — CLAUDE.md §34 (the git cycle) and §41 (releases).
 #
-# Gates pushes to `main` behind the same mechanical checks as CI (scripts/ci.sh),
-# so no code reaches the remote's release branch without passing them. Other
-# branches push freely: they are for work in progress and offsite backup.
+# What happens to a push, by the branch it targets on the remote:
+#
+#   main, dev            PR-only. BLOCKED unless ALLOW_DIRECT_PUSH=1 (human-only override
+#                        for bootstrap and the main -> dev merge-back); deletion is always
+#                        blocked. With the override, the CI gates below run first.
+#   release/*, hotfix/*  Gated: scripts/ci.sh (lint, migrations, export, docs, test) plus
+#                        the DB-backed policy stage when PostgreSQL is reachable. These
+#                        branches PR into main, so they must be green before they leave
+#                        the machine.
+#   everything else      feature/*, fix/*, refactor/*, chore/* push freely — the PR into
+#                        dev and its CI (.github/workflows/ci.yml) are their gate.
 #
 # Tracked in .githooks/ (not .git/hooks/, which is untracked and lost on clone).
 # Enable once per clone:
 #
 #     git config core.hooksPath .githooks
 #
-# Backstop only — a local hook is advisory and bypassable. GitHub branch
-# protection + .github/workflows/ci.yml are the authoritative enforcement.
+# Advisory backstop only — a local hook is bypassable. GitHub branch protection
+# (.github/branch-protection/*.json) and the workflows in .github/workflows/ are the
+# authoritative enforcement.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-PROTECTED_REF="refs/heads/main"
 ZERO_SHA="0000000000000000000000000000000000000000"
+ALLOW_DIRECT_PUSH="${ALLOW_DIRECT_PUSH:-0}"
 
 # Git feeds us one line per pushed ref:
 #   <local_ref> <local_sha> <remote_ref> <remote_sha>
-# Gate only if this push updates the protected branch. A local_sha of all zeros
-# means a branch deletion — nothing to verify.
-pushing_protected=0
+# A local_sha of all zeros means the push deletes the remote branch.
+gated_branches=""
 while read -r _local_ref local_sha remote_ref _remote_sha; do
   [[ -z "${remote_ref:-}" ]] && continue
-  [[ "$remote_ref" != "$PROTECTED_REF" ]] && continue
-  [[ "$local_sha" == "$ZERO_SHA" ]] && continue
-  pushing_protected=1
+  branch="${remote_ref#refs/heads/}"
+  case "$branch" in
+    main|dev)
+      if [[ "$local_sha" == "$ZERO_SHA" ]]; then
+        echo "pre-push: BLOCKED — refusing to delete '${branch}' (CLAUDE.md §34)." >&2
+        exit 1
+      fi
+      if [[ "$ALLOW_DIRECT_PUSH" != "1" ]]; then
+        echo "pre-push: BLOCKED — '${branch}' is PR-only (CLAUDE.md §34)." >&2
+        echo "  Open a PR:  gh pr create --base ${branch}" >&2
+        echo "  Human-only override (bootstrap / merge-back):  ALLOW_DIRECT_PUSH=1 git push ..." >&2
+        exit 1
+      fi
+      echo "pre-push: ALLOW_DIRECT_PUSH=1 — direct push to '${branch}' permitted; running the CI gates first." >&2
+      gated_branches="${gated_branches} ${branch}"
+      ;;
+    release/*|hotfix/*)
+      [[ "$local_sha" == "$ZERO_SHA" ]] && continue
+      gated_branches="${gated_branches} ${branch}"
+      ;;
+    *)
+      # Task branches are gated by their PR's CI, not here.
+      ;;
+  esac
 done
 
-if [[ "$pushing_protected" -eq 0 ]]; then
+if [[ -z "$gated_branches" ]]; then
   exit 0
 fi
 
-echo "pre-push: push targets ${PROTECTED_REF} — running the CI gates (CLAUDE.md §34)." >&2
+gated_branches="${gated_branches# }"
+echo "pre-push: push targets gated branch(es): ${gated_branches} — running the CI gates (CLAUDE.md §34)." >&2
 
 # Work whether or not the developer activated the venv in this shell.
 if [[ -d "$REPO_ROOT/.venv/bin" ]]; then
@@ -52,7 +82,7 @@ fi
 
 fail() {
   echo "" >&2
-  echo "pre-push: BLOCKED — the '$1' stage failed. Push aborted." >&2
+  echo "pre-push: BLOCKED — the '$1' stage failed. Push to ${gated_branches} aborted." >&2
   echo "  Fix the failure and push again. Do NOT use --no-verify (CLAUDE.md §34)." >&2
   exit 1
 }
@@ -80,10 +110,10 @@ if (exec 3<>"/dev/tcp/${db_host}/${db_port}") 2>/dev/null; then
 else
   echo "" >&2
   echo "pre-push: WARNING — PostgreSQL unreachable at ${db_host}:${db_port}; skipping the 'policy' stage." >&2
-  echo "  Start it with:  docker start grandway-postgres" >&2
+  echo "  Start it and retry to run the policy stage locally." >&2
   echo "  Policy-engine drift is still enforced by GitHub Actions after this push lands." >&2
 fi
 
 echo "" >&2
-echo "pre-push: all gates passed — allowing the push to ${PROTECTED_REF}." >&2
+echo "pre-push: all gates passed — allowing the push to ${gated_branches}." >&2
 exit 0

@@ -1,26 +1,28 @@
-name: Release
+name: Staging
 
-# Fires when a v* tag is pushed. This workflow VERIFIES a release; it never
-# authors one (CLAUDE.md §41.3/§41.5). The human writes the release prose and
-# creates the release; this job re-runs every gate against the tagged commit,
-# proves the version chain agrees, and attaches the machine-readable artifacts.
-# Two authors of one release body is how release notes rot.
+# Fires on every push to dev — which, because dev is PR-only, is always a
+# squash-merged PR landing. Re-runs the CI stages on the integrated branch and
+# packages a release-candidate bundle that a staging deployer pulls by hand.
+# No SSH, no cloud, no deployment: this workflow only uploads an artifact.
 #
-# ci.yml owns branches (its push trigger ignores tags); this file owns tags.
-# Never add a `branches:` filter to ci.yml — maintenance branches have no local
-# pre-push gate and depend on its unfiltered push trigger as their only CI.
+# ci.yml also runs on this push (its push trigger is unfiltered). That
+# duplication is accepted: ci.yml answers "is the branch green", this answers
+# "here is what staging should run".
+#
+# staging.yml owns the dev release candidate; ci.yml owns branches;
+# production.yml owns tags.
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [dev]
 
-permissions:
-  contents: write
+concurrency:
+  group: staging-dev
+  cancel-in-progress: true
 
 jobs:
-  # Everything that needs no database, plus the check that can only exist here:
-  # VERSION == tag == core.__version__ (CLAUDE.md §41.2).
+  # Database-less gates on the integrated dev branch (mirrors production.yml
+  # `verify`, minus the tag-only checks).
   verify:
     runs-on: ubuntu-latest
     env:
@@ -34,20 +36,6 @@ jobs:
           cache-dependency-path: requirements/development.txt
       - name: Install dependencies
         run: pip install -r requirements/development.txt
-
-      - name: Version chain agrees with the tag
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME#v}"
-          file="$(cat VERSION)"
-          pkg="$(python -c 'import sys; sys.path.insert(0, "backend"); import core; print(core.__version__)')"
-          echo "tag=$tag  VERSION=$file  core.__version__=$pkg"
-          if [ "$tag" != "$file" ] || [ "$tag" != "$pkg" ]; then
-            echo "::error::Version mismatch — tag '$tag', VERSION '$file', core.__version__ '$pkg'."
-            echo "::error::A tag was almost certainly cut without bumping VERSION (CLAUDE.md §41.2)."
-            exit 1
-          fi
-
       - name: Lint
         run: bash scripts/ci.sh lint
       - name: Check every model change has a migration
@@ -66,22 +54,22 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: grandway_ci
-          POSTGRES_USER: grandway_ci
-          POSTGRES_PASSWORD: grandway_ci
+          POSTGRES_DB: ci_db
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U grandway_ci"
+          --health-cmd "pg_isready -U ci"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     env:
       SECRET_KEY: ci-dummy-secret-key-not-for-production
       ENVIRONMENT: development
-      DB_NAME: grandway_ci
-      DB_USER: grandway_ci
-      DB_PASSWORD: grandway_ci
+      DB_NAME: ci_db
+      DB_USER: ci
+      DB_PASSWORD: ci
       DB_HOST: localhost
       DB_PORT: "5432"
     steps:
@@ -96,14 +84,11 @@ jobs:
       - name: Validate policy engine
         run: bash scripts/ci.sh policy
 
-  # Attach what a consumer cannot reconstruct without cloning. Runs only after
-  # both verification jobs pass, and only if the human has already published the
-  # release — it never publishes one itself.
-  artifacts:
+  # Package the release candidate a staging deployer pulls by hand. Runs only
+  # after both verification jobs pass.
+  release-candidate:
     needs: [verify, verify-policy]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     env:
       SECRET_KEY: ci-dummy-secret-key-not-for-production
     steps:
@@ -116,7 +101,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements/development.txt
 
-      - name: Regenerate registry artifacts from the tagged commit
+      - name: Regenerate registry artifacts from the integrated commit
         run: |
           python backend/manage.py export_policy_registry --format registry \
             --output backend/core/policy_engine/docs/registry_export.json --settings=core.settings.testing
@@ -126,23 +111,28 @@ jobs:
       - name: Committed artifacts match the regenerated ones
         run: |
           if ! git diff --quiet -- backend/core/policy_engine/docs/; then
-            echo "::error::Committed policy artifacts differ from those regenerated at the tag."
+            echo "::error::Committed policy artifacts differ from those regenerated on dev."
             git diff --stat -- backend/core/policy_engine/docs/
             exit 1
           fi
 
-      - name: Attach artifacts to the published release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Write the release-candidate manifest
         run: |
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "::notice::Release $GITHUB_REF_NAME is not published yet; skipping attachment."
-            echo "::notice::Publish it, then re-run this job to attach the artifacts."
-            exit 0
-          fi
-          gh release upload "$GITHUB_REF_NAME" --clobber \
-            backend/core/policy_engine/docs/registry_export.json \
-            backend/core/policy_engine/docs/openapi.json \
-            backend/core/policy_engine/docs/registry_schema.json \
-            GUIDE.txt \
+          printf 'version=%s\ncommit=%s\nbranch=dev\nbuilt_utc=%s\n' \
+            "$(cat VERSION)" "$GITHUB_SHA" "$(date -u +%FT%TZ)" > rc_manifest.txt
+          cat rc_manifest.txt
+
+      - name: Upload the release-candidate bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ github.sha }}
+          retention-days: 14
+          path: |
+            deploy.md
             deploy/env.production.example
+            backend/core/policy_engine/docs/registry_export.json
+            backend/core/policy_engine/docs/openapi.json
+            backend/core/policy_engine/docs/registry_schema.json
+            VERSION
+            CHANGELOG.md
+            rc_manifest.txt
