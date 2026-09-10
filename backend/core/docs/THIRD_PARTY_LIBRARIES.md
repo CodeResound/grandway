@@ -221,6 +221,23 @@
 
 ---
 
+## redis (redis-py)
+
+| Field | Value |
+|-------|-------|
+| **Name** | redis (redis-py) |
+| **Purpose** | Client library behind Django's built-in `django.core.cache.backends.redis.RedisCache`, which production and staging require as the shared DRF throttle store (`CACHE_BACKEND` is mandatory there, and `LocMemCache` is refused unless `THROTTLE_SINGLE_WORKER=true`). Django imports `redis` lazily on the first cache access, so without this package the process boots, `/health/` and `/ready/` pass, and the first throttled request fails with `ModuleNotFoundError: No module named 'redis'`. |
+| **Package** | `redis==8.1.0` |
+| **Docs** | https://redis.readthedocs.io/ |
+| **Files used** | None directly — consumed by Django's `RedisCache` backend selected through `CACHE_BACKEND`/`CACHE_LOCATION` (`core/settings/base.py`, `core/settings/production.py`, `core/settings/staging.py`) |
+| **Alternatives considered** | `django-redis` (rejected: a second cache backend duplicating what Django ≥4.0 ships natively); `django.core.cache.backends.db.DatabaseCache` (viable with no new dependency, but two extra queries per throttled request and a `createcachetable` deploy step; the production env template already standardises on Redis); `hiredis` parser (not needed at this request volume) |
+| **Redundancy check** | None — no other Redis client or cache library is installed; Django's own backend is the consumer |
+| **Security concerns** | Connects to a loopback-only Redis with no auth by default (`redis://127.0.0.1:6379/1`); `deploy.md §4 (Runtime requirements)` requires `bind 127.0.0.1` and `maxmemory-policy noeviction`. Throttle counters only — no PII is cached. |
+| **Maintenance status** | Active (Redis Ltd., the official Python client) |
+| **Final decision** | Approved — human-approved 2026-09-10 to fix the missing production dependency found during the deploy.md rewrite. Pinned in `requirements/production.txt` (production/staging servers only; development and the test suite use `LocMemCache`). |
+
+---
+
 ## indic-transliteration (REMOVED 2026-07-25)
 
 Removed when the project moved to English-only names (see `CLAUDE.md` §39). It
