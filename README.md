@@ -12,6 +12,7 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-08-19 | AI (Claude Opus 5) | Initial operator README, created during v1.0.0 production preparation |
+| 1.1.0 | 2026-09-10 | AI (Claude Fable 5.1) | Adopt the main/dev PR-based git cycle; `GUIDE.txt` becomes `deploy.md`; endpoint count 180 |
 
 ---
 
@@ -28,17 +29,17 @@ It is an API-only Django service. There is no server-rendered UI beyond the Djan
 | Version | 1.0.0 |
 | Runtime | Python 3.12 |
 | Framework | Django 5.2 LTS · Django REST Framework 3.16 |
-| Database | PostgreSQL 16 (required — see `GUIDE.txt` §2) |
+| Database | PostgreSQL 16 (required — see `deploy.md` §4 (Runtime requirements)) |
 | Auth | JWT (SimpleJWT), Argon2id hashing, django-axes lockout, TOTP-gated admin |
 | Apps | 18 business apps + `core` |
-| Endpoints | 179, all registered in the policy engine |
+| Endpoints | 180, all registered in the policy engine |
 | Tests | 1521 |
 
 ## 3. Where to go next
 
 | You are… | Read | Why |
 |---|---|---|
-| **Deploying this** | **`GUIDE.txt`** | The complete deployment contract: runtime requirements, every environment variable, filesystem and reverse-proxy contracts, the ordered deploy sequence, first-boot bootstrap, backup, and rollback. Written so you never need to read source. |
+| **Deploying this** | **`deploy.md`** | The complete deployment contract for an operator or an autonomous deployer agent: deployer inputs, host provisioning, obtaining a release, every environment variable, filesystem and reverse-proxy contracts, the ordered deploy and upgrade sequences, first-boot bootstrap, verification checklist, backup, rollback, operations runbook, and agent decision rules. Written so you never need to read source. |
 | Configuring an environment | `deploy/env.production.example` (production) · `deploy/env.development.example` (local) | Every variable, annotated, with the mandatory ones flagged. The templates live under `deploy/` rather than as dotted `.env.*` files precisely so they reach a fresh clone. |
 | Building a client against the API | `backend/core/docs/INTEGRATION.md` | The project-level consumer contract: global conventions, app inventory, cross-app dependency graph. Then each app's own `docs/INTEGRATION.md`. |
 | Building the frontend | `FRONTEND_README.md` | How to read the concept files, flow maps, and integration contracts together. |
@@ -55,7 +56,7 @@ Requires Python 3.12 and a reachable PostgreSQL.
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements/development.txt
 
-git config core.hooksPath .githooks     # once per clone — enables the pre-push CI gate
+git config core.hooksPath .githooks     # once per clone — refuses direct pushes to main/dev, gates release/hotfix pushes
 
 cp deploy/env.development.example .env.development   # then edit the DB credentials
 echo "ENVIRONMENT=development" > .env                # selects the settings module
@@ -69,7 +70,7 @@ python backend/manage.py seed_document_templates --activate
 python backend/manage.py runserver
 ```
 
-`git config core.hooksPath .githooks` is not carried by a clone and must be run in every working copy — without it, pushes to `main` skip the local CI gate entirely.
+`git config core.hooksPath .githooks` is not carried by a clone and must be run in every working copy — without it, direct pushes to `main`/`dev` are not refused locally and `release/*`/`hotfix/*` pushes skip the local CI gate (GitHub branch protection still applies). `bash scripts/git_audit.sh` reports the repository's state against the branching model in §6.
 
 Full command inventory, including the ordered fresh-database sequence: `requirements/README.md`.
 
@@ -91,13 +92,21 @@ bash scripts/ci.sh lint migrations # a subset, in the order given
 | `test` | the full pytest suite (SQLite) | no |
 | `policy` | migrate → sync registry → validate registry | **yes** |
 
-## 6. Versioning and releases
+## 6. Branching, versioning, and releases
 
-Semantic versioning on the deployed application, distinct from the `/api/v1/` URL prefix — see `.claude/CLAUDE.md` §41 (governance is local to a maintainer's checkout and is not published).
+Work follows one fixed cycle (the maintainer's rulebook is `.claude/CLAUDE.md` §34/§41 — governance is local to a checkout and is not published; `scripts/git_audit.sh` checks a working copy against it):
 
-Releases are immutable: `v1.0.0` is an annotated tag plus a GitHub Release, and it never moves. A bug fixed in a deployed version becomes `v1.0.1`, developed on the `release/1.0.x` maintenance branch while `main` moves on. Tags are cut by a human maintainer only.
+| Branch | Base | Pull request into | Merge method | Who merges |
+|---|---|---|---|---|
+| `feature/*` `fix/*` `refactor/*` `chore/*` | `dev` | `dev` | squash | human |
+| `release/<N.M.P>` | `dev` | `main` | merge commit | human |
+| `hotfix/<name>_<ts>` | `main` | `main` | merge commit | human |
+| merge-back `main → dev` (after every release or hotfix) | — | `dev` | merge commit | human |
+| `main`, `dev` | — | protected, PR-only | — | — |
 
-`main` always represents the latest code.
+Task branches are named `<type>/<change_name>_<YYYYMMDD_HHMM>` and are deleted by GitHub when their PR merges. `main` always represents the latest release; `dev` the latest integrated code. Branch protection and merge settings are the checked-in `.github/branch-protection/*.json` and `.github/repo-settings.json`.
+
+Semantic versioning applies to the deployed application, distinct from the `/api/v1/` URL prefix. Releases are immutable: `v1.0.0` is an annotated tag on `main` plus a GitHub Release, and it never moves. A bug fixed in a deployed version becomes `v1.0.1`, developed on a `hotfix/*` branch from `main` and merged back into `dev`. Tags are cut by a human maintainer only; `.github/workflows/production.yml` verifies every tag (version chain, annotated, on `main`, changelog heading) and attaches the release artifacts, and `staging.yml` packages a release candidate from every push to `dev`.
 
 ## 7. Ownership
 

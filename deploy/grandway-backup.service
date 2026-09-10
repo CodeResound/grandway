@@ -1,0 +1,20 @@
+# Grandway nightly backup — the unit the grandway-backup.timer fires.
+#
+# Install both files, then enable the TIMER (not this service):
+#   install -m 0644 /opt/grandway/deploy/grandway-backup.{service,timer} /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now grandway-backup.timer
+# Run by hand:  systemctl start grandway-backup.service
+# Output goes to journald:  journalctl -u grandway-backup
+#
+# Runs as root: backup.sh switches to the postgres user for pg_dump and must
+# read MEDIA_ROOT (grandway:grandway 0750) and write /var/backups/grandway
+# (root 0700). See deploy.md §17 (Backup and restore).
+
+[Unit]
+Description=Grandway backup (PostgreSQL dump, then the media volume)
+Documentation=file:///opt/grandway/deploy.md
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/grandway/deploy/backup.sh scheduled

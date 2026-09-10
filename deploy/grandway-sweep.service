@@ -1,0 +1,31 @@
+# Grandway nightly notification sweep — the unit the grandway-sweep.timer fires.
+#
+# Install both files, then enable the TIMER (not this service):
+#   install -m 0644 /opt/grandway/deploy/grandway-sweep.{service,timer} /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now grandway-sweep.timer
+# Run by hand:  systemctl start grandway-sweep.service
+# Output goes to journald:  journalctl -u grandway-sweep
+#
+# Runs as the grandway user with the same environment file as the application,
+# so it never leaves a root-owned app.log behind (deploy.md §8, Filesystem
+# contract). See deploy.md §13 (Scheduled jobs).
+
+[Unit]
+Description=Grandway notification sweep (raise and resolve deadline alerts)
+Documentation=file:///opt/grandway/deploy.md
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=grandway
+Group=grandway
+WorkingDirectory=/opt/grandway
+EnvironmentFile=/etc/grandway/grandway.env
+Environment=ENVIRONMENT=production
+ExecStart=/opt/grandway/.venv/bin/python backend/manage.py sweep_notifications
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/grandway /var/log/grandway

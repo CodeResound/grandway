@@ -50,7 +50,7 @@ max_requests_jitter = 100
 # NOTE: Django's own LOGGING additionally writes a RotatingFileHandler under
 # LOG_DIR. That handler is NOT multiprocess-safe — with workers > 1, plus the
 # nightly cron writing to the same file, rollover races can lose a whole
-# segment. Known limitation for 1.0.0 (see GUIDE.txt §6); the stdout stream
+# segment. Known limitation for 1.0.0 (see deploy.md §10 (Process model)); the stdout stream
 # below is the reliable one.
 accesslog = "-"
 errorlog = "-"

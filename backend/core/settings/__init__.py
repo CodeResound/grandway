@@ -31,14 +31,14 @@ if _target in ("core.settings", ""):
             # host is meant to serve production, so a .env that says otherwise
             # is a misconfiguration, not a preference. Refuse rather than
             # quietly downgrade. (Found by the v1.0.0 production smoke boot,
-            # 2026-08-19; documented in GUIDE.txt §3.)
+            # 2026-08-19; documented in deploy.md §7 (Configuration contract).)
             if _env in ("development", "testing") and (_repo_root / ".env.production").exists():
                 raise ImproperlyConfigured(
                     f"Refusing to boot: ENVIRONMENT is unset, so the repo-root .env selected "
                     f"{_env!r} — but .env.production is also present, so this host is meant to "
                     "serve production. Booting would silently enable DEBUG and disable the "
                     "HTTPS redirect, HSTS, and secure cookies. Export ENVIRONMENT=production in "
-                    "the process environment, and remove the stray .env (see GUIDE.txt §3)."
+                    "the process environment, and remove the stray .env (see deploy.md §7 (Configuration contract))."
                 )
 
     # Fail closed: a process that never states its environment must not boot
