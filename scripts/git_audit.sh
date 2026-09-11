@@ -323,7 +323,17 @@ if [ "$QUICK" -eq 1 ]; then
 elif [ "$GH_AUTH" -eq 0 ] || [ -z "$OWNER_REPO" ]; then
   skip "branch protection checks (gh not authenticated or repo unknown)"
 else
-  for b in main dev; do
+  # GitHub only offers branch protection (and rulesets) on private repositories from the Pro plan
+  # upward. Probe once: a 403 "Upgrade to GitHub Pro" means the feature is unavailable, not
+  # misconfigured — report it as a plan limitation and skip the per-branch checks.
+  plan_probe="$(gh api "repos/$OWNER_REPO/branches/main/protection" 2>&1 >/dev/null || true)"
+  if printf '%s' "$plan_probe" | grep -qi "Upgrade to GitHub Pro"; then
+    warn "branch protection is unavailable on this plan (private repository on GitHub Free) — local hooks, .githooks/pre-push and this audit are the only enforcement of the PR-only rule for main/dev; upgrade to GitHub Pro to apply .github/branch-protection/*.json"
+    PROTECTION_BRANCHES=""
+  else
+    PROTECTION_BRANCHES="main dev"
+  fi
+  for b in $PROTECTION_BRANCHES; do
     expected_file=".github/branch-protection/$b.json"
     apply_hint="gh api -X PUT repos/$OWNER_REPO/branches/$b/protection --input $expected_file"
     prot_lines="$(gh api "repos/$OWNER_REPO/branches/$b/protection" \
