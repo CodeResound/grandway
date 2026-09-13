@@ -4,14 +4,20 @@ name: CI
 # interactive Claude Code session, so the same checks run on every push and PR
 # regardless of how the commit was produced. The .claude protocol guides the AI;
 # this pipeline enforces the project. See CLAUDE.md §1, §18, §35 and scripts/ci.sh.
+#
+# Job ids `lint`, `test`, `policy-engine` are the status-check names GitHub branch
+# protection references (where the plan allows it) — do not rename them.
 
 on:
   push:
-    # ci.yml owns branches; release.yml owns tags. Without this, pushing a
-    # release tag would run this entire suite a second time.
+    # ci.yml owns branches: the push trigger is deliberately unfiltered so that
+    # release/* and hotfix/* get CI before their PR into main is even opened.
+    # production.yml owns tags (v*); staging.yml owns the dev release candidate.
+    # Without tags-ignore, pushing a release tag would run this suite twice.
     tags-ignore:
       - "**"
   pull_request:
+    branches: [dev, main]
 
 jobs:
   # Ruff lint + format check, and the generated-artifact freshness check.
@@ -81,22 +87,22 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: grandway_ci
-          POSTGRES_USER: grandway_ci
-          POSTGRES_PASSWORD: grandway_ci
+          POSTGRES_DB: ci_db
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U grandway_ci"
+          --health-cmd "pg_isready -U ci"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     env:
       SECRET_KEY: ci-dummy-secret-key-not-for-production
       ENVIRONMENT: development
-      DB_NAME: grandway_ci
-      DB_USER: grandway_ci
-      DB_PASSWORD: grandway_ci
+      DB_NAME: ci_db
+      DB_USER: ci
+      DB_PASSWORD: ci
       DB_HOST: localhost
       DB_PORT: "5432"
     steps:

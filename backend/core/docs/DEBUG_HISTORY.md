@@ -1,5 +1,18 @@
 # Debug History — Core
 
+## 2026-09-13 — CI on GitHub had been red since July: settings and their tests depended on gitignored env files
+
+**Endpoint/module:** `core.settings.development`, `core/tests/test_settings_selection.py`
+**Problem:** Every `CI` workflow run on `main` since 2026-07-23 failed on `test` and `policy-engine`, while `scripts/ci.sh` passed on every developer machine. Nobody noticed because the local pre-push hook was the gate that actually ran; GitHub's result was never required for anything. Two causes: (1) `development.py` opened `<repo>/.env.development` unconditionally, so the `policy-engine` job (`ENVIRONMENT=development`, values in the process env) crashed at import with `FileNotFoundError`; (2) `test_unset_environment_falls_back_to_repo_root_dotenv` imported the real settings with `ENVIRONMENT` unset and expected the developer's repo-root `.env` to select development — a file that is gitignored and therefore absent on every runner.
+**Root cause:** Both artefacts assumed files that exist only on a configured developer checkout. `production.py` and `staging.py` already handled the missing-file case (`RepositoryEnv` when present, `RepositoryEmpty` otherwise); `development.py` never got the same rule. The test had a hermetic fixture available two classes down (`_fake_repo`) and did not use it.
+**Changed files:** `settings/development.py`; `tests/test_settings_selection.py` (fixture helpers moved to module level; the fallback test builds a fake repo; a new fail-closed case with no `.env` at all)
+**Fix summary:** `development.py` reads `.env.development` when it exists and otherwise the OS environment only, exactly like the other two modules — a missing file becomes a missing-variable error instead of an import crash. The fallback test now writes its own `.env` into a temporary repo copy, and a sibling test asserts that no process env and no `.env` refuses to boot.
+**Contract impact:** None for API consumers. For operators: development no longer requires `.env.development` to exist; the documented `cp deploy/env.development.example .env.development` remains the normal setup.
+**Tests added/updated:** `test_settings_selection.py::test_unset_environment_falls_back_to_repo_root_dotenv` (hermetic), `::test_unset_environment_without_dotenv_refuses_to_boot` (new). Verified with `.env` and `.env.development` temporarily removed: 6 passed.
+**Notes for future AI:** A test that passes locally and fails in CI usually reads something gitignored. `git ls-files` is the list of what CI can see. And a green local gate hides a red remote one — when the remote is the gate, make it green before trusting it.
+
+---
+
 ## 2026-08-01 — The standard error envelope discarded `WWW-Authenticate` and `Retry-After`
 
 **Endpoint/module:** `core.exceptions.global_exception_handler`

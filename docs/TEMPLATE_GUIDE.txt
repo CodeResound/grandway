@@ -1,5 +1,5 @@
 ===============================================================================
- HISTORICAL — superseded 2026-08-19 by README.md and GUIDE.txt
+ HISTORICAL — superseded 2026-08-19 by README.md and deploy.md (then GUIDE.txt, renamed 2026-09-10)
 ===============================================================================
 
  This document describes the empty PLATFORM TEMPLATE that this repository was
@@ -14,7 +14,7 @@
 
  For this repository:
    - Start here .................... README.md
-   - Deploying it .................. GUIDE.txt
+   - Deploying it .................. deploy.md
    - Calling the API ............... backend/core/docs/INTEGRATION.md
 
 ===============================================================================

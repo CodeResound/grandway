@@ -1,0 +1,52 @@
+# Grandway application server — systemd unit.
+#
+# Install:  install -m 0644 /opt/grandway/deploy/grandway.service /etc/systemd/system/
+#           systemctl daemon-reload && systemctl enable --now grandway
+#
+# Configuration is loaded from ONE file, /etc/grandway/grandway.env, via
+# EnvironmentFile=. Note the precedence: systemd applies EnvironmentFile= AFTER
+# Environment=, so a value in the file overrides the same key set inline here.
+# The Environment=ENVIRONMENT=production line below is therefore only a floor —
+# the file must also say ENVIRONMENT=production (deploy.md §7 verifies it with
+# grep). ENVIRONMENT must reach the PROCESS environment either way: the settings
+# selector reads it before any env file is opened.
+#
+# ExecReload sends SIGHUP: gunicorn re-reads deploy/gunicorn.conf.py and
+# gracefully replaces its workers, which (with preload_app=False) re-import the
+# application code — a zero-downtime code reload. HUP does NOT re-read this
+# unit or EnvironmentFile, and does not upgrade installed packages; for those
+# use `systemctl restart grandway`. See deploy.md §10 (Process model).
+
+[Unit]
+Description=Grandway application server (gunicorn)
+Documentation=file:///opt/grandway/deploy.md
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=grandway
+Group=grandway
+WorkingDirectory=/opt/grandway
+EnvironmentFile=/etc/grandway/grandway.env
+Environment=ENVIRONMENT=production
+ExecStart=/opt/grandway/.venv/bin/gunicorn --chdir backend --config deploy/gunicorn.conf.py core.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+# gunicorn.conf.py sets graceful_timeout=30; give the master time to finish
+# that before systemd escalates to SIGKILL.
+TimeoutStopSec=45
+Restart=on-failure
+RestartSec=5
+# New files (app.log rotations, uploads) are created 0640/0750: owner and the
+# grandway group only. www-data is deliberately NOT in that group.
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/grandway /var/log/grandway
+
+[Install]
+WantedBy=multi-user.target
