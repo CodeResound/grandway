@@ -3,10 +3,16 @@ from pathlib import Path
 
 import decouple
 
-# Point decouple at .env.development before base settings are loaded.
-# This must happen before `from .base import *` so config() reads the right file.
+# §10: development reads .env.development when the file exists. When it does not
+# (a CI runner, a fresh clone before `cp deploy/env.development.example`), fall back
+# to the OS environment only (RepositoryEmpty) — the same rule production.py and
+# staging.py apply, so a missing file is a missing-variable error, not a crash at
+# import. Must run before `from .base import *` so config() reads the right source.
 _env_file = Path(__file__).resolve().parents[3] / ".env.development"
-decouple.config = decouple.Config(decouple.RepositoryEnv(str(_env_file)))
+if _env_file.exists():
+    decouple.config = decouple.Config(decouple.RepositoryEnv(str(_env_file)))
+else:
+    decouple.config = decouple.Config(decouple.RepositoryEmpty())
 
 from .base import *  # noqa: F401, F403, E402
 
