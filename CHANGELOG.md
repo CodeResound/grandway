@@ -8,6 +8,17 @@ Release tags are immutable: a released version is never rewritten, only supersed
 
 ## [Unreleased]
 
+### Fixed
+
+- **The release workflow's annotated-tag check failed on correctly annotated tags** (PATCH) — it read
+  `git cat-file -t` in the runner's working copy, where `actions/checkout` leaves the tag ref pointing at
+  the peeled commit. It now asks GitHub's ref API, which reports the object the tag actually points at.
+- **`delete_branch_on_merge` deleted the permanent `dev` branch** (PATCH) — the repository-wide setting
+  removes the head branch of every merged pull request and cannot distinguish a disposable task branch
+  from a permanent one, so merging a `dev → main` pull request deleted `dev`. The setting is now `false`;
+  cleanup happens per-pull-request via `--delete-branch` on the merge command, which removes only the
+  branch being landed. `dev` was restored from `main` with no content lost.
+
 ### Deferred
 
 Findings recorded during release preparation that were triaged as not blocking. Each carries the version bump it would require. This registry is reviewed at every release: an item either ships, stays deferred, or is retired with a reason — it is never silently dropped.
@@ -22,6 +33,15 @@ Findings recorded during release preparation that were triaged as not blocking. 
 - **`requirements/README.md` documents two commands that do not exist** (PATCH) — `validate_organization_integrity` and `rebuild_organization_closure`, for an `organization` app that was removed. Also referenced in `core/management/commands/reset_dev_data.py`.
 
 ## [1.1.0] - 2026-09-13
+
+> **Verification note (added 2026-09-13).** The tag-triggered workflow for `v1.1.0` reports a
+> failure on its `Tag is annotated` step. The tag is annotated — GitHub's ref API reports object
+> type `tag` with a tagger and message — and the check itself is wrong: `actions/checkout` leaves
+> the runner's local tag ref pointing at the commit the tag peels to, so `git cat-file -t` answers
+> `commit`. Every other gate passed, including the policy-engine job on a fresh database. The check
+> is fixed in 1.1.1 and takes effect from the next tag; the workflow that runs for a tag is the one
+> committed at that tag, so this run cannot be made green. The release's artifacts, which the
+> skipped `artifacts` job would have attached, were uploaded to the release directly.
 
 ### Security
 
