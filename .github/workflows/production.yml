@@ -73,10 +73,17 @@ jobs:
           }
 
       - name: Tag is annotated
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ] || {
-            echo "::error::$GITHUB_REF_NAME is a lightweight tag; annotated tags only (CLAUDE.md §41.4)"
+          # Ask GitHub, not the working copy. actions/checkout leaves the runner's local
+          # refs/tags/<tag> pointing at the commit the tag peels to, so `git cat-file -t`
+          # reports "commit" for a genuinely annotated tag and this check fails every
+          # release. The ref API reports the object the tag actually points at.
+          type="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}" --jq .object.type)"
+          [ "$type" = tag ] || {
+            echo "::error::$GITHUB_REF_NAME is a lightweight tag (object type: $type); annotated tags only (CLAUDE.md §41.4)"
             exit 1
           }
 
