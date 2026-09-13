@@ -1,0 +1,180 @@
+name: Production
+
+# Fires when a v* tag is pushed. This workflow VERIFIES a release; it never
+# authors one (CLAUDE.md §41.3/§41.5). The human writes the release prose and
+# creates the release; this job re-runs every gate against the tagged commit,
+# proves the version chain agrees, proves the tag sits on main and is annotated,
+# and attaches the machine-readable artifacts. Two authors of one release body
+# is how release notes rot.
+#
+# production.yml owns tags; ci.yml owns branches (its push trigger ignores tags
+# and is deliberately unfiltered so release/* and hotfix/* get CI before their
+# PR); staging.yml owns the dev release candidate.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # Everything that needs no database, plus the checks that can only exist here:
+  # VERSION == tag == core.__version__ (CLAUDE.md §41.2), the tag is reachable
+  # from main (§41.5), CHANGELOG.md has its heading (§41.2), and the tag is
+  # annotated (§41.4).
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ci-dummy-secret-key-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags: needed to prove the tag is on main and annotated.
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/development.txt
+      - name: Install dependencies
+        run: pip install -r requirements/development.txt
+
+      - name: Version chain agrees with the tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          file="$(cat VERSION)"
+          pkg="$(python -c 'import sys; sys.path.insert(0, "backend"); import core; print(core.__version__)')"
+          echo "tag=$tag  VERSION=$file  core.__version__=$pkg"
+          if [ "$tag" != "$file" ] || [ "$tag" != "$pkg" ]; then
+            echo "::error::Version mismatch — tag '$tag', VERSION '$file', core.__version__ '$pkg'."
+            echo "::error::A tag was almost certainly cut without bumping VERSION (CLAUDE.md §41.2)."
+            exit 1
+          fi
+
+      - name: Tag commit is reachable from main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::tag $GITHUB_REF_NAME is not reachable from main (CLAUDE.md §41.5)"
+            exit 1
+          }
+
+      - name: CHANGELOG.md has a heading for this version
+        run: |
+          set -euo pipefail
+          grep -q "^## \[${GITHUB_REF_NAME#v}\] - " CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no heading for ${GITHUB_REF_NAME#v} (CLAUDE.md §41.2)"
+            exit 1
+          }
+
+      - name: Tag is annotated
+        run: |
+          set -euo pipefail
+          [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ] || {
+            echo "::error::$GITHUB_REF_NAME is a lightweight tag; annotated tags only (CLAUDE.md §41.4)"
+            exit 1
+          }
+
+      - name: Lint
+        run: bash scripts/ci.sh lint
+      - name: Check every model change has a migration
+        run: bash scripts/ci.sh migrations
+      - name: Check generated policy artifacts are fresh
+        run: bash scripts/ci.sh export
+      - name: Check consumer INTEGRATION.md contracts match the registry
+        run: bash scripts/ci.sh docs
+      - name: Test
+        run: bash scripts/ci.sh test
+
+  # The registry gate against a real PostgreSQL, as in ci.yml.
+  verify-policy:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ci_db
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SECRET_KEY: ci-dummy-secret-key-not-for-production
+      ENVIRONMENT: development
+      DB_NAME: ci_db
+      DB_USER: ci
+      DB_PASSWORD: ci
+      DB_HOST: localhost
+      DB_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/development.txt
+      - name: Install dependencies
+        run: pip install -r requirements/development.txt
+      - name: Validate policy engine
+        run: bash scripts/ci.sh policy
+
+  # Attach what a consumer cannot reconstruct without cloning. Runs only after
+  # both verification jobs pass, and only if the human has already published the
+  # release — it never publishes one itself.
+  artifacts:
+    needs: [verify, verify-policy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      SECRET_KEY: ci-dummy-secret-key-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/development.txt
+      - name: Install dependencies
+        run: pip install -r requirements/development.txt
+
+      - name: Regenerate registry artifacts from the tagged commit
+        run: |
+          python backend/manage.py export_policy_registry --format registry \
+            --output backend/core/policy_engine/docs/registry_export.json --settings=core.settings.testing
+          python backend/manage.py export_policy_registry --format openapi \
+            --output backend/core/policy_engine/docs/openapi.json --settings=core.settings.testing
+
+      - name: Committed artifacts match the regenerated ones
+        run: |
+          if ! git diff --quiet -- backend/core/policy_engine/docs/; then
+            echo "::error::Committed policy artifacts differ from those regenerated at the tag."
+            git diff --stat -- backend/core/policy_engine/docs/
+            exit 1
+          fi
+
+      - name: Attach artifacts to the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::notice::Release $GITHUB_REF_NAME is not published yet; skipping attachment."
+            echo "::notice::Publish it, then re-run this job to attach the artifacts."
+            exit 0
+          fi
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            backend/core/policy_engine/docs/registry_export.json \
+            backend/core/policy_engine/docs/openapi.json \
+            backend/core/policy_engine/docs/registry_schema.json \
+            deploy.md \
+            deploy/env.production.example

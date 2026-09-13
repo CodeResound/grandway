@@ -31,7 +31,7 @@ column and restores the five-way CHECK. Any file owned by a signatory would then
 have all five remaining owner columns NULL, fail the restored disjunction, and
 abort the reverse migration mid-transaction. The rollback path for a release
 containing signature files is a database snapshot restore, not
-``migrate uploaded_files 0001`` — see ``GUIDE.txt`` §13.
+``migrate uploaded_files 0001`` — see ``deploy.md`` §18 (Rollback).
 
 **Locking.** ``ALTER TABLE ... ADD CONSTRAINT ... CHECK`` takes ACCESS EXCLUSIVE
 and full-scans ``uploaded_files_uploadedfile`` to validate. Django does not emit

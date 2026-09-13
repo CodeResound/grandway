@@ -1,0 +1,30 @@
+# Grandway nightly notification sweep — timer. Preferred over cron; the cron
+# form in deploy/crontab.sample is a fallback only.
+#
+# Fires grandway-sweep.service nightly at 02:15 Nepal time (Asia/Kathmandu,
+# UTC+05:45 — that is 20:30 UTC). The application stores UTC, but deadlines are
+# Nepal business days, so the sweep runs on the Nepal clock regardless of the
+# host's timezone setting.
+#
+# The sweep raises alerts (checklist due/overdue, missing documents, offer
+# expiry and response deadlines, passport expiry, custom reminders) and resolves
+# alerts whose condition has cleared. Idempotent: every write is a get_or_create
+# on a (recipient, dedupe_key) unique constraint, so re-running is safe, and
+# Persistent=true may safely fire a missed run after the host was down.
+#
+# KNOWN LIMITATION (1.0.0): the command exits 0 even when individual generators
+# fail — it reports to stderr (journald) but does not signal failure, so a
+# failed unit status will not flag a partially failed night. Monitor with:
+#   journalctl -u grandway-sweep -p warning
+# See deploy.md §13 (Scheduled jobs).
+
+[Unit]
+Description=Nightly Grandway notification sweep at 02:15 Asia/Kathmandu
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Asia/Kathmandu
+Persistent=true
+Unit=grandway-sweep.service
+
+[Install]
+WantedBy=timers.target

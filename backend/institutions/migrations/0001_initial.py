@@ -11,7 +11,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies = []
+    dependencies = [
+        # Not a data relation — applicants.0001 is the earliest migration that creates the
+        # pg_trgm extension the gin_trgm_ops indexes below are built on. Without it a fresh
+        # database (CI, a new host) can run this migration first and fail with
+        # 'operator class "gin_trgm_ops" does not exist'. Same precedent as uploaded_files.0001.
+        ("applicants", "0001_initial"),
+    ]
 
     operations = [
         migrations.CreateModel(
