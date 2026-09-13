@@ -23,7 +23,7 @@
 |-------|-------|
 | **Name** | Django REST Framework |
 | **Purpose** | API layer — serializers, views, authentication, throttling |
-| **Package** | `djangorestframework==3.16.1` |
+| **Package** | `djangorestframework==3.17.2` |
 | **Docs** | https://www.django-rest-framework.org/ |
 | **Files used** | `core/exceptions.py`, `core/pagination.py`, `core/responses.py`, `core/views.py`, all app views/serializers |
 | **Alternatives considered** | None — standard Django API library |

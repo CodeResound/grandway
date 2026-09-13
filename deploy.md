@@ -1,4 +1,4 @@
-# Grandway — Deployment Guide (v1.0.0, 2026-09-10)
+# Grandway — Deployment Guide (v1.1.0, 2026-09-13)
 
 This is the deployer contract for Grandway, written for an autonomous deployer agent — or an engineer — who has **no access to the source** and must deploy the application and then operate it. The target is a **single Ubuntu 24.04 LTS VPS**: bare metal or a VM, systemd, no containers, no cloud services. It is refreshed at every release; a release whose `deploy.md` does not match the tagged code is incomplete. Companion files, all under `deploy/` in the release: `env.production.example` (every variable, annotated), `gunicorn.conf.py` (application server config), `nginx.sample.conf` (reverse proxy), `grandway.service` (application unit), `grandway-sweep.service` + `grandway-sweep.timer` (nightly notification sweep), `grandway-backup.service` + `grandway-backup.timer` (nightly backup), `backup.sh` (snapshot script), `manage.sh` (runs `manage.py` with the production environment, as the right user), and `crontab.sample` (cron fallback for the sweep). Conventions: commands are in fenced `bash` blocks and run **as root** from a fresh shell unless a `sudo -u grandway` prefix says otherwise; the shell variables exported once at the end of §1 (Deployer inputs) are reused by every later command, so re-export them in any new shell before continuing.
 
@@ -99,7 +99,7 @@ Exceeding one returns `RATE_LIMIT_EXCEEDED` (429). `/health/` and `/ready/` are 
 | Working directory | The Django project lives under `backend/`; `core` is importable only from there, so the server must `--chdir backend` (`deploy/gunicorn.conf.py` lines 3–7). |
 | Invocation | `gunicorn --chdir backend --config deploy/gunicorn.conf.py core.wsgi:application` |
 | Runtime | Python 3.12 (`ruff.toml` `target-version = "py312"`; the project's own virtualenv runs 3.12.3). |
-| Framework | `Django==5.2.17`, `djangorestframework==3.16.1`, `psycopg[binary]==3.2.13` (`requirements/base.txt`); `gunicorn==23.0.0` (`requirements/production.txt`). |
+| Framework | `Django==5.2.17`, `djangorestframework==3.17.2`, `psycopg[binary]==3.2.13` (`requirements/base.txt`); `gunicorn==23.0.0` (`requirements/production.txt`). |
 | API prefix | `/api/v1/` |
 | Version at runtime | `GET /health/` returns `{"status":"ok","version":"1.0.0"}` (`backend/core/views.py` line 20). The value is read from the repo-root `VERSION` file (`backend/core/__init__.py` lines 13–16) and always equals the release tag without its `v`. |
 

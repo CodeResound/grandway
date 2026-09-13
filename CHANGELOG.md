@@ -8,6 +8,25 @@ Release tags are immutable: a released version is never rewritten, only supersed
 
 ## [Unreleased]
 
+### Deferred
+
+Findings recorded during release preparation that were triaged as not blocking. Each carries the version bump it would require. This registry is reviewed at every release: an item either ships, stays deferred, or is retired with a reason — it is never silently dropped.
+
+- **Static files are not served by the application** (MINOR) — no whitenoise and no `STORAGES` configuration, so with `DEBUG=False` nothing serves `STATIC_ROOT`. The only consumer is the OTP-gated Django admin, which renders unstyled without a reverse proxy serving it. Deferred because adding whitenoise is a new dependency requiring approval, and because serving static is the deployment layer's job — `deploy/nginx.sample.conf` ships the block instead. Documented in `deploy.md` §9 (Reverse proxy contract) and §22 (Gaps).
+- **The rotating file log handler is not multiprocess-safe** (MINOR) — under multi-worker gunicorn, plus the nightly cron writing to the same file, a 10 MB rollover can race: renames overwrite one another and a whole segment can be lost. The stdout stream gunicorn captures is the reliable source. Documented in `deploy.md` §10 (Process model).
+- **No dependency lock file or hashes** (MINOR) — direct dependencies are pinned exactly, but transitive ones resolve fresh at install time, so a deploy-day install may not match what CI tested. Mitigation until fixed: build once and promote the same artifact. Documented in `deploy.md` §4 (Runtime requirements).
+- **`psycopg[binary]` is used in production** (MINOR) — psycopg's own documentation recommends `psycopg[c]` or a system build for production. Deferred because the change requires build tooling in whatever image is chosen, and the packaging target is not yet decided. Documented in `deploy.md` §4 (Runtime requirements).
+- **The test suite runs on SQLite, not PostgreSQL** (MINOR) — `select_for_update` is a no-op, failed statements do not abort transactions, and `pg_trgm` behaviour is untested. The `policy` CI stage is the only one touching real PostgreSQL. This gap has already masked real defects.
+- **`sweep_notifications` exits 0 on partial failure** (PATCH) — individual alert generators that raise are reported to stderr but do not change the exit status, so cron cannot detect a partially failed night. Documented in `deploy.md` §13 (Scheduled jobs).
+- **`/ready/` does not check the cache backend** (PATCH) — readiness opens a database connection only. In production the cache is the rate-limit store, so a failed Redis leaves throttling degraded without the readiness probe reporting it. Documented in `deploy.md` §14 (Health and observability).
+- **`requirements/README.md` documents two commands that do not exist** (PATCH) — `validate_organization_integrity` and `rebuild_organization_closure`, for an `organization` app that was removed. Also referenced in `core/management/commands/reset_dev_data.py`.
+
+## [1.1.0] - 2026-09-13
+
+### Security
+
+- **Django REST Framework raised to 3.17.2** (CVE-2026-73228, GHSA-2m8g-3cmr-wg3w, medium) — versions below 3.17.2 let an oversized JSON or urlencoded body bypass Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` when read through DRF's `request.data`, which every endpoint in this project does. `DATA_UPLOAD_MAX_MEMORY_SIZE` is unset here, so the effective ceiling was the reverse proxy's `client_max_body_size` (25 MB) rather than Django's 2.5 MB default. Found by the release readiness audit's CVE pass. The companion advisory GHSA-g47c-3xmw-q6m2 does not apply: `DEFAULT_RENDERER_CLASSES` is `JSONRenderer` only, so `AdminRenderer` is never used.
+
 ### Added
 
 - **Signature images can be uploaded and rendered** (MINOR) — `POST /api/v1/document-templates/signatories/<id>/signature/` stores a real image against a certificate signatory instead of relying on an external link. Multipart, PNG/JPG/WEBP only, 10 MB cap, with the leading bytes checked against the extension.
@@ -32,20 +51,15 @@ Release tags are immutable: a released version is never rewritten, only supersed
 - **nginx probe locations sent the upstream name as `Host`** (PATCH) — the `/health/` and `/ready/` blocks in `deploy/nginx.sample.conf` did not forward `Host`, so nginx sent `grandway` (the upstream name), Django's `ALLOWED_HOSTS` check rejected it, and every probe through the proxy returned 400 `DisallowedHost` while the same probe straight at gunicorn with a Host header returned 200. Both blocks now forward `Host` and `X-Forwarded-For`.
 - **`SUPERADMIN_*` and `GUNICORN_*` are process-environment-only, and the env template said otherwise** (PATCH) — `bootstrap_superadmin`, the two `reset_superadmin_*` commands, and `deploy/gunicorn.conf.py` read these with `os.environ` directly, never through python-decouple, so placing them in a `.env.production` file did nothing. `deploy/env.production.example` now states that it must be loaded into the process environment (systemd `EnvironmentFile=` / `deploy/manage.sh`) and documents the `GUNICORN_*` block.
 
-### Deferred
-
-Findings recorded during release preparation that were triaged as not blocking. Each carries the version bump it would require. This registry is reviewed at every release: an item either ships, stays deferred, or is retired with a reason — it is never silently dropped.
-
-- **Static files are not served by the application** (MINOR) — no whitenoise and no `STORAGES` configuration, so with `DEBUG=False` nothing serves `STATIC_ROOT`. The only consumer is the OTP-gated Django admin, which renders unstyled without a reverse proxy serving it. Deferred because adding whitenoise is a new dependency requiring approval, and because serving static is the deployment layer's job — `deploy/nginx.sample.conf` ships the block instead. Documented in `deploy.md` §9 (Reverse proxy contract) and §22 (Gaps).
-- **The rotating file log handler is not multiprocess-safe** (MINOR) — under multi-worker gunicorn, plus the nightly cron writing to the same file, a 10 MB rollover can race: renames overwrite one another and a whole segment can be lost. The stdout stream gunicorn captures is the reliable source. Documented in `deploy.md` §10 (Process model).
-- **No dependency lock file or hashes** (MINOR) — direct dependencies are pinned exactly, but transitive ones resolve fresh at install time, so a deploy-day install may not match what CI tested. Mitigation until fixed: build once and promote the same artifact. Documented in `deploy.md` §4 (Runtime requirements).
-- **`psycopg[binary]` is used in production** (MINOR) — psycopg's own documentation recommends `psycopg[c]` or a system build for production. Deferred because the change requires build tooling in whatever image is chosen, and the packaging target is not yet decided. Documented in `deploy.md` §4 (Runtime requirements).
-- **The test suite runs on SQLite, not PostgreSQL** (MINOR) — `select_for_update` is a no-op, failed statements do not abort transactions, and `pg_trgm` behaviour is untested. The `policy` CI stage is the only one touching real PostgreSQL. This gap has already masked real defects.
-- **`sweep_notifications` exits 0 on partial failure** (PATCH) — individual alert generators that raise are reported to stderr but do not change the exit status, so cron cannot detect a partially failed night. Documented in `deploy.md` §13 (Scheduled jobs).
-- **`/ready/` does not check the cache backend** (PATCH) — readiness opens a database connection only. In production the cache is the rate-limit store, so a failed Redis leaves throttling degraded without the readiness probe reporting it. Documented in `deploy.md` §14 (Health and observability).
-- **`requirements/README.md` documents two commands that do not exist** (PATCH) — `validate_organization_integrity` and `rebuild_organization_closure`, for an `organization` app that was removed. Also referenced in `core/management/commands/reset_dev_data.py`.
-
 ## [1.0.0] - 2026-09-06
+
+> **Verification note (added 2026-09-13).** The tag-triggered workflow for `v1.0.0` fails.
+> Both failures are CI-environment defects in the code at that commit — `development.py` opened the
+> gitignored `.env.development` unconditionally, and one settings test read the developer's gitignored
+> repo-root `.env` — and both are fixed in 1.1.0. Neither affects a production deployment: production
+> and staging settings already fell back to the OS environment, and a production smoke boot of this code
+> passes. `v1.1.0` is the first release whose verification workflow passes, and is what a new deployment
+> should use. The tag is immutable and stays as published (§41.4).
 
 First production release. The application has been in development since 2026-07; this release marks the point at which it is deployable by someone who did not build it.
 
@@ -87,5 +101,6 @@ Carried from the 2026-08-17 security audit and its remediation:
 - Trigram indexes on four fields substring search could not otherwise reach.
 - N+1 queries eliminated in checklists and across core; `decided_at` indexed on offers.
 
-[Unreleased]: https://github.com/CodeResound/grandway/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/CodeResound/grandway/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/CodeResound/grandway/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/CodeResound/grandway/releases/tag/v1.0.0

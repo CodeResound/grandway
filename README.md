@@ -29,7 +29,7 @@ It is an API-only Django service. There is no server-rendered UI beyond the Djan
 |---|---|
 | Version | 1.0.0 |
 | Runtime | Python 3.12 |
-| Framework | Django 5.2 LTS · Django REST Framework 3.16 |
+| Framework | Django 5.2 LTS · Django REST Framework 3.17 |
 | Database | PostgreSQL 16 (required — see `deploy.md` §4 (Runtime requirements)) |
 | Auth | JWT (SimpleJWT), Argon2id hashing, django-axes lockout, TOTP-gated admin |
 | Apps | 18 business apps + `core` |
