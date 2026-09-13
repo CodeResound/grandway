@@ -56,7 +56,6 @@ Requires Python 3.12 and a reachable PostgreSQL.
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements/development.txt
 
-git config core.hooksPath .githooks     # once per clone — refuses direct pushes to main/dev, gates release/hotfix pushes
 
 cp deploy/env.development.example .env.development   # then edit the DB credentials
 echo "ENVIRONMENT=development" > .env                # selects the settings module
@@ -70,13 +69,13 @@ python backend/manage.py seed_document_templates --activate
 python backend/manage.py runserver
 ```
 
-`git config core.hooksPath .githooks` is not carried by a clone and must be run in every working copy — without it, direct pushes to `main`/`dev` are not refused locally and `release/*`/`hotfix/*` pushes skip the local CI gate (GitHub branch protection still applies). `bash scripts/git_audit.sh` reports the repository's state against the branching model in §6.
+Work always happens on a typed branch and lands in `dev` through a pull request (§6); CI runs on GitHub for every pull request.
 
 Full command inventory, including the ordered fresh-database sequence: `requirements/README.md`.
 
 ## 5. Checks
 
-`scripts/ci.sh` is the single source of truth for every mechanical gate, run identically by the pre-push hook, GitHub Actions, and by hand:
+`scripts/ci.sh` is the single source of truth for every mechanical gate, run identically by GitHub Actions and by hand:
 
 ```bash
 bash scripts/ci.sh                 # all stages
@@ -94,17 +93,17 @@ bash scripts/ci.sh lint migrations # a subset, in the order given
 
 ## 6. Branching, versioning, and releases
 
-Work follows one fixed cycle (the maintainer's rulebook is `.claude/CLAUDE.md` §34/§41 — governance is local to a checkout and is not published; `scripts/git_audit.sh` checks a working copy against it):
+Work follows one fixed cycle (the maintainer's rulebook is `.claude/CLAUDE.md` §34/§41 — governance is local to a checkout and is not published):
 
 | Branch | Base | Pull request into | Merge method | Who merges |
 |---|---|---|---|---|
-| `feature/*` `fix/*` `refactor/*` `chore/*` | `dev` | `dev` | squash | human |
+| `feature/*` `fix/*` `refactor/*` `chore/*` | `dev` | `dev` | squash | the author (Claude runs it end to end) |
 | `release/<N.M.P>` | `dev` | `main` | merge commit | human |
 | `hotfix/<name>_<ts>` | `main` | `main` | merge commit | human |
-| merge-back `main → dev` (after every release or hotfix) | — | `dev` | merge commit | human |
+| merge-back `main → dev` (after every release or hotfix) | — | `dev` | merge commit | the author, once the tag exists |
 | `main`, `dev` | — | protected, PR-only | — | — |
 
-Task branches are named `<type>/<change_name>_<YYYYMMDD_HHMM>` and are deleted by GitHub when their PR merges. `main` always represents the latest release; `dev` the latest integrated code. Branch protection and merge settings are the checked-in `.github/branch-protection/*.json` and `.github/repo-settings.json`.
+Task branches are named `<type>/<change_name>_<YYYYMMDD_HHMM>` and are deleted by GitHub when their PR merges. `main` always represents the latest release; `dev` the latest integrated code. Local clones stay in sync with GitHub: fetch with prune, fast-forward `main`/`dev`, and drop local branches whose remote is gone at the start and end of every task.
 
 Semantic versioning applies to the deployed application, distinct from the `/api/v1/` URL prefix. Releases are immutable: `v1.0.0` is an annotated tag on `main` plus a GitHub Release, and it never moves. A bug fixed in a deployed version becomes `v1.0.1`, developed on a `hotfix/*` branch from `main` and merged back into `dev`. Tags are cut by a human maintainer only; `.github/workflows/production.yml` verifies every tag (version chain, annotated, on `main`, changelog heading) and attaches the release artifacts, and `staging.yml` packages a release candidate from every push to `dev`.
 

@@ -5,8 +5,8 @@ name: CI
 # regardless of how the commit was produced. The .claude protocol guides the AI;
 # this pipeline enforces the project. See CLAUDE.md §1, §18, §35 and scripts/ci.sh.
 #
-# Job ids `lint`, `test`, `policy-engine` are referenced by
-# .github/branch-protection/*.json as required status checks — do not rename them.
+# Job ids `lint`, `test`, `policy-engine` are the status-check names GitHub branch
+# protection references (where the plan allows it) — do not rename them.
 
 on:
   push:
