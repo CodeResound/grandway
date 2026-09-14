@@ -1,5 +1,18 @@
 # Debug History — Core
 
+## 2026-09-14 — `collectstatic` wrote static files nginx could not read
+
+**Endpoint/module:** `core.settings.base` (`FILE_UPLOAD_PERMISSIONS`, `STORAGES`)
+**Problem:** With `DEBUG=False`, nginx serves `STATIC_ROOT` off the disk as `www-data`. `collectstatic` wrote all 154 assets `0640` inside `0750` directories, owned `grandway:grandway`. `www-data` is deliberately kept out of the `grandway` group (`deploy.md` §5) so that a mistaken `alias` can never reach `MEDIA_ROOT` — which leaves it with only the world bits, and there were none. Every `/static/` request would have returned 403: the admin rendering unstyled with dead JavaScript, while the API, whose renderers are JSON-only, looked perfectly healthy.
+**Root cause:** `FILE_UPLOAD_PERMISSIONS` and `FILE_UPLOAD_DIRECTORY_PERMISSIONS` read as upload-only, but `FileSystemStorage` consults them on *every* write it makes, and `django.contrib.staticfiles.storage.StaticFilesStorage` is a subclass. The `0640`/`0750` chosen to protect applicant passports therefore also governed the one directory in the project that must be world-readable. Two things hid it: development never reads `STATIC_ROOT` (`runserver` serves static straight from the application directories), and `deploy.md` §5 asserted that the `0755` on `/var/www/grandway/static` was sufficient — true of that one directory, and false of every subdirectory `collectstatic` creates beneath it.
+**Changed files:** `settings/base.py` (new `STORAGES` block; expanded comment on the two upload settings); `deploy.md` §5, §8, §9, §15, §16, §21; `deploy/nginx.sample.conf`
+**Fix summary:** `STORAGES` gives the staticfiles backend explicit `file_permissions_mode=0o644` / `directory_permissions_mode=0o755`. The `default` entry is restated unchanged (declaring `STORAGES` replaces Django's default dict wholesale), so uploads still fall back to `FILE_UPLOAD_PERMISSIONS` and `MEDIA_ROOT` is untouched. `deploy.md` gains a one-time `chmod -R a+rX` in the upgrade sequence for hosts deployed before `v1.1.1`, and §15 now checks readability as `www-data` so a 403 is distinguishable from a wrong `alias`.
+**Contract impact:** None for API consumers. Deployment-affecting: an existing host is **not** repaired by upgrading — `collectstatic` skips files it considers unmodified, and `--clear` fixes the files but leaves already-created directories at `0750`, so the `chmod` is the only reliable repair.
+**Tests added/updated:** `core/tests/test_static_files_are_web_readable.py` — runs `collectstatic` into a temporary `STATIC_ROOT` and asserts every file and directory carries the world bits, plus that the default storage still writes `0640`/`0750`. Confirmed to fail on the pre-fix settings (`0o750`, `0 != 5`) and pass after.
+**Notes for future AI:** A setting named for one subsystem may be read by another — `FILE_UPLOAD_*` is a `FileSystemStorage` setting, not an upload setting. And when two volumes have opposite requirements (one secret, one public), a single global pair of modes will silently serve one of them wrong; give each backend its own `OPTIONS`. Asserting on the setting value would not have caught this — the test runs the command and stats the result.
+
+---
+
 ## 2026-09-13 — CI on GitHub had been red since July: settings and their tests depended on gitignored env files
 
 **Endpoint/module:** `core.settings.development`, `core/tests/test_settings_selection.py`

@@ -276,8 +276,54 @@ MEDIA_ROOT = Path(config("MEDIA_ROOT", default=str(BASE_DIR / "mediafiles")))
 # Files land on disk readable by the owner and the group only. Django's default
 # (0o644) would make every applicant document world-readable to any account on
 # the host.
+#
+# These two settings are NOT upload-only, despite their names: FileSystemStorage
+# reads them for every write it makes, and StaticFilesStorage is a subclass. Left
+# to apply globally they also govern `collectstatic` output, which is the exact
+# opposite of what STATIC_ROOT needs — see STORAGES below.
 FILE_UPLOAD_PERMISSIONS = 0o640
 FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o750
+
+# ---------------------------------------------------------------------------
+# Storage backends.
+#
+# The only reason this block exists is to keep the upload permissions above OFF
+# the static files. Both backends are otherwise Django's defaults.
+#
+# MEDIA_ROOT and STATIC_ROOT have opposite requirements, and one pair of global
+# settings cannot serve both:
+#
+#   MEDIA_ROOT  — applicant passports, transcripts, bank statements. Owner and
+#                 group only (0640/0750), never web-served, and nginx's user is
+#                 deliberately not in the group (deploy.md §5).
+#   STATIC_ROOT — admin CSS and JS. Public by design, and read off the disk by
+#                 nginx running as www-data, which is in neither the owner nor
+#                 the group. It must therefore be world-readable.
+#
+# Without the OPTIONS below, `collectstatic` inherits FILE_UPLOAD_PERMISSIONS
+# and writes every asset 0640 inside 0750 directories. nginx then gets EACCES on
+# the whole tree and returns 403 for every /static/ request — the admin renders
+# unstyled with dead JavaScript, while the API (JSON-only renderers) looks fine.
+# The 0755 that deploy.md §5 puts on STATIC_ROOT itself does not help: it covers
+# only that one directory, and collectstatic creates every subdirectory beneath
+# it. Guarded by core/tests/test_static_files_are_web_readable.py.
+#
+# Declaring STORAGES replaces Django's default dict wholesale, so the "default"
+# entry must be restated even though it is unchanged; omitting it would leave
+# uploads with no backend.
+# ---------------------------------------------------------------------------
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        "OPTIONS": {
+            "file_permissions_mode": 0o644,
+            "directory_permissions_mode": 0o755,
+        },
+    },
+}
 
 # One file per request — every upload endpoint in this project accepts exactly
 # one. A request carrying more is rejected by Django before any view runs.
