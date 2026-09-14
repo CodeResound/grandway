@@ -12,7 +12,12 @@ Release tags are immutable: a released version is never rewritten, only supersed
 
 Findings recorded during release preparation that were triaged as not blocking. Each carries the version bump it would require. This registry is reviewed at every release: an item either ships, stays deferred, or is retired with a reason — it is never silently dropped.
 
-- **Static files are not served by the application** (MINOR) — no whitenoise and no `STORAGES` configuration, so with `DEBUG=False` nothing serves `STATIC_ROOT`. The only consumer is the OTP-gated Django admin, which renders unstyled without a reverse proxy serving it. Deferred because adding whitenoise is a new dependency requiring approval, and because serving static is the deployment layer's job — `deploy/nginx.sample.conf` ships the block instead. Documented in `deploy.md` §9 (Reverse proxy contract) and §22 (Gaps).
+- **Static files are not served by the application** (MINOR) — no whitenoise, so with `DEBUG=False` nothing in the application serves `STATIC_ROOT`. (The `STORAGES` block added in 1.1.1 governs the permissions `collectstatic` writes; it does not serve anything.) The only consumer is the OTP-gated Django admin, which renders unstyled without a reverse proxy serving it. Deferred because adding whitenoise is a new dependency requiring approval, and because serving static is the deployment layer's job — `deploy/nginx.sample.conf` ships the block instead. Documented in `deploy.md` §9 (Reverse proxy contract) and §22 (Gaps).
+- **No CVE scanner in the toolchain** (PATCH) — the release audit requires a vulnerability pass over every
+  pinned runtime dependency, and nothing in `requirements/` can perform one, so the check is currently a
+  manual version comparison. Deferred because adding `pip-audit` is a new dependency requiring approval
+  (§28 item 1). Mitigation until then: Django is held at the newest patch of its LTS line (5.2.17) and the
+  pins are reviewed at every release.
 - **The rotating file log handler is not multiprocess-safe** (MINOR) — under multi-worker gunicorn, plus the nightly cron writing to the same file, a 10 MB rollover can race: renames overwrite one another and a whole segment can be lost. The stdout stream gunicorn captures is the reliable source. Documented in `deploy.md` §10 (Process model).
 - **No dependency lock file or hashes** (MINOR) — direct dependencies are pinned exactly, but transitive ones resolve fresh at install time, so a deploy-day install may not match what CI tested. Mitigation until fixed: build once and promote the same artifact. Documented in `deploy.md` §4 (Runtime requirements).
 - **`psycopg[binary]` is used in production** (MINOR) — psycopg's own documentation recommends `psycopg[c]` or a system build for production. Deferred because the change requires build tooling in whatever image is chosen, and the packaging target is not yet decided. Documented in `deploy.md` §4 (Runtime requirements).
@@ -21,7 +26,40 @@ Findings recorded during release preparation that were triaged as not blocking. 
 - **`/ready/` does not check the cache backend** (PATCH) — readiness opens a database connection only. In production the cache is the rate-limit store, so a failed Redis leaves throttling degraded without the readiness probe reporting it. Documented in `deploy.md` §14 (Health and observability).
 - **`requirements/README.md` documents two commands that do not exist** (PATCH) — `validate_organization_integrity` and `rebuild_organization_closure`, for an `organization` app that was removed. Also referenced in `core/management/commands/reset_dev_data.py`.
 
+## [1.1.1] - 2026-09-14
+
+### Fixed
+
+- **`collectstatic` wrote static files the web server could not read** (PATCH) — `FILE_UPLOAD_PERMISSIONS`
+  and `FILE_UPLOAD_DIRECTORY_PERMISSIONS` (`0640`/`0750`, which exist to keep applicant passports off
+  every account on the host) are read by `FileSystemStorage` for *every* write, and `StaticFilesStorage`
+  subclasses it — so `collectstatic` landed all 154 assets owner-and-group-only, inside `0750`
+  directories. nginx runs as `www-data`, which is deliberately not in the `grandway` group, so every
+  `/static/` request returned 403: the admin rendered unstyled with dead JavaScript while the JSON API
+  looked healthy. A `STORAGES` setting now gives the staticfiles backend its own `0644`/`0755` modes and
+  leaves uploads untouched. **Hosts first deployed before this release need a one-time
+  `chmod -R a+rX /var/www/grandway/static`** — upgrading does not repair an existing tree, because
+  `collectstatic` skips unmodified files and even `--clear` leaves the already-created directories at
+  `0750` (`deploy.md` §16).
+- **The release workflow's annotated-tag check failed on correctly annotated tags** (PATCH) — it read
+  `git cat-file -t` in the runner's working copy, where `actions/checkout` leaves the tag ref pointing at
+  the peeled commit. It now asks GitHub's ref API, which reports the object the tag actually points at.
+- **`delete_branch_on_merge` deleted the permanent `dev` branch** (PATCH) — the repository-wide setting
+  removes the head branch of every merged pull request and cannot distinguish a disposable task branch
+  from a permanent one, so merging a `dev → main` pull request deleted `dev`. The setting is now `false`;
+  cleanup happens per-pull-request via `--delete-branch` on the merge command, which removes only the
+  branch being landed. `dev` was restored from `main` with no content lost.
+
 ## [1.1.0] - 2026-09-13
+
+> **Verification note (added 2026-09-13).** The tag-triggered workflow for `v1.1.0` reports a
+> failure on its `Tag is annotated` step. The tag is annotated — GitHub's ref API reports object
+> type `tag` with a tagger and message — and the check itself is wrong: `actions/checkout` leaves
+> the runner's local tag ref pointing at the commit the tag peels to, so `git cat-file -t` answers
+> `commit`. Every other gate passed, including the policy-engine job on a fresh database. The check
+> is fixed in 1.1.1 and takes effect from the next tag; the workflow that runs for a tag is the one
+> committed at that tag, so this run cannot be made green. The release's artifacts, which the
+> skipped `artifacts` job would have attached, were uploaded to the release directly.
 
 ### Security
 
@@ -101,6 +139,7 @@ Carried from the 2026-08-17 security audit and its remediation:
 - Trigram indexes on four fields substring search could not otherwise reach.
 - N+1 queries eliminated in checklists and across core; `decided_at` indexed on offers.
 
-[Unreleased]: https://github.com/CodeResound/grandway/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/CodeResound/grandway/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/CodeResound/grandway/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/CodeResound/grandway/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/CodeResound/grandway/releases/tag/v1.0.0
