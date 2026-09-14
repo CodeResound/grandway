@@ -10,6 +10,17 @@ Release tags are immutable: a released version is never rewritten, only supersed
 
 ### Fixed
 
+- **`collectstatic` wrote static files the web server could not read** (PATCH) — `FILE_UPLOAD_PERMISSIONS`
+  and `FILE_UPLOAD_DIRECTORY_PERMISSIONS` (`0640`/`0750`, which exist to keep applicant passports off
+  every account on the host) are read by `FileSystemStorage` for *every* write, and `StaticFilesStorage`
+  subclasses it — so `collectstatic` landed all 154 assets owner-and-group-only, inside `0750`
+  directories. nginx runs as `www-data`, which is deliberately not in the `grandway` group, so every
+  `/static/` request returned 403: the admin rendered unstyled with dead JavaScript while the JSON API
+  looked healthy. A `STORAGES` setting now gives the staticfiles backend its own `0644`/`0755` modes and
+  leaves uploads untouched. **Hosts first deployed before this release need a one-time
+  `chmod -R a+rX /var/www/grandway/static`** — upgrading does not repair an existing tree, because
+  `collectstatic` skips unmodified files and even `--clear` leaves the already-created directories at
+  `0750` (`deploy.md` §16).
 - **The release workflow's annotated-tag check failed on correctly annotated tags** (PATCH) — it read
   `git cat-file -t` in the runner's working copy, where `actions/checkout` leaves the tag ref pointing at
   the peeled commit. It now asks GitHub's ref API, which reports the object the tag actually points at.

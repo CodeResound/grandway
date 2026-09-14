@@ -159,7 +159,7 @@ install -d -o www-data -g www-data -m 0755 /var/www/certbot
 install -d -o root     -g root     -m 0700 /var/backups/grandway
 ```
 
-**`www-data` must NOT be in group `grandway`.** Media files are written `0640` inside `0750` directories (`base.py` lines 279–280), so group membership is read access to every applicant passport. nginx reads static files through the world-readable `0755` on `/var/www/grandway/static` and needs nothing else. Keeping nginx out of the group means that even a mistaken `alias /var/lib/grandway/media/` in a future nginx edit serves permission-denied, not documents. Verify: `id www-data` must not list `grandway`.
+**`www-data` must NOT be in group `grandway`.** Media files are written `0640` inside `0750` directories (`base.py` lines 279–280), so group membership is read access to every applicant passport. nginx reads static files through the world bits, which is why `collectstatic` writes them `0644` inside `0755` directories and not with the upload modes above (`STORAGES` in `base.py`; the `0755` on `/var/www/grandway/static` itself covers only that one directory, not the tree `collectstatic` creates beneath it). Keeping nginx out of the group means that even a mistaken `alias /var/lib/grandway/media/` in a future nginx edit serves permission-denied, not documents. Verify: `id www-data` must not list `grandway`.
 
 **PostgreSQL.** Generate the password now and keep it for §7.
 
@@ -330,13 +330,13 @@ Every path, who owns it, and what happens when it is wrong.
 | `/opt/grandway` | — | `grandway` | `0755` | §5 + `git clone` | checkout/upgrade fails |
 | `/opt/grandway/.venv` | — | `grandway` | `0755` | §6 `python3.12 -m venv` | `pip install` fails |
 | `/etc/grandway/grandway.env` | — | `root:grandway` | `0640` | §7 | units fail to start: `Failed to load environment files` |
-| `/var/www/grandway/static` | `STATIC_ROOT` | `grandway` | `0755` | §5; filled by `collectstatic` | `collectstatic` fails; if empty, `/admin/` renders unstyled |
+| `/var/www/grandway/static` | `STATIC_ROOT` | `grandway` | `0755`, and `0644`/`0755` within | §5; filled by `collectstatic` | `collectstatic` fails; if empty, `/admin/` renders unstyled; if not world-readable, nginx 403s every asset |
 | `/var/lib/grandway/media` | `MEDIA_ROOT` | `grandway` | `0750` | §5 | every upload returns 500; nothing else degrades |
 | `/var/log/grandway` | `LOG_DIR` | `grandway` | `0750` | §5 (settings import also tries `mkdir -p`) | **every process exits at import** with `ImproperlyConfigured: LOG_DIR (/var/log/grandway) could not be created: …` (`base.py` lines 23–33) |
 | `/var/log/grandway/app.log` | — | `grandway` | `0640` | the first process that imports settings | see the root-ownership trap below |
 | `/var/backups/grandway` | — | `root` | `0700` | §5 | `backup.sh` fails |
 
-**STATIC_ROOT** is public by design — nginx serves it at `/static/` (§9). Nothing in Django serves it with `DEBUG=False`; its only consumer is the admin.
+**STATIC_ROOT** is public by design — nginx serves it at `/static/` (§9). Nothing in Django serves it with `DEBUG=False`; its only consumer is the admin. Its contents must be **world-readable** (`0644` files in `0755` directories): nginx runs as `www-data`, which is in neither the owner nor the group (§5), so the world bits are the only ones it has. `collectstatic` sets these itself — the modes come from `STORAGES` in the settings, deliberately separate from the `0640`/`0750` that protect `MEDIA_ROOT` — so no `chmod` is needed on a fresh host. If the tree is ever left owner-and-group-only, every `/static/` request returns 403 and `/admin/` renders unstyled while the JSON API looks perfectly healthy; repair with `chmod -R a+rX /var/www/grandway/static`.
 
 **MEDIA_ROOT — deliberately outside any web root.** It is `/var/lib/…`, not `/var/www/…`, and that is not stylistic. Django guarantees no URL maps to this volume — the only path from these bytes to a client is the authenticated endpoint `GET /api/v1/files/<id>/download/`, and a test enforces that no route exists. But no test can police an nginx config. Keeping the directory outside the web root means a careless `root /var/www/grandway;` cannot reach it even by accident, and §5's group rule means nginx could not read it even if pointed there. Do not relocate it, and do not add a media `location` (§9). One temptation is worth naming: `uploaded_files/signatory/` holds signature images that a certificate renders, and those look like ordinary web assets in a way a passport scan does not. Serving "just the signatures" is one location block that would publish every applicant passport beside them, because they share this volume. The application already renders signatures correctly without it — the frontend fetches them through the authenticated download endpoint. There is no supported configuration in which any part of this volume is web-served.
 
@@ -451,6 +451,11 @@ server {
     #
     # Must match STATIC_ROOT in the environment. Nothing in Django serves these
     # with DEBUG=False, so without this block the admin renders unstyled.
+    #
+    # nginx reads these off the disk as www-data, which is in neither the owner
+    # nor the group (§5) — so the tree must be world-readable. collectstatic
+    # writes 0644 in 0755 directories; a 403 on every asset here means the
+    # modes, not this alias (§8, §21).
     # -------------------------------------------------------------------------
     location /static/ {
         alias /var/www/grandway/static/;
@@ -817,6 +822,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "https://$DOMAIN/api/v1/auth/l
 redis-cli -n 1 --scan --pattern ':1:throttle_*' | head -3                    # expected: at least one key, e.g. :1:throttle_auth_login_ip_...
 # 8. static served by nginx
 curl -fsS -o /dev/null -w '%{http_code}\n' "https://$DOMAIN/static/admin/css/base.css"               # expected: 200
+sudo -u www-data test -r /var/www/grandway/static/admin/css/base.css && echo "static readable by nginx"   # expected: static readable by nginx (a 403 above means this line, not the alias)
 # 9. media is NOT served and NOT readable by nginx
 grep -E '^\s*location.*media' /etc/nginx/sites-enabled/grandway && echo "FAIL: media location present" || echo "no media location"   # expected: no media location
 sudo -u www-data test ! -r /var/lib/grandway/media && echo "media unreadable by www-data"           # expected: media unreadable by www-data
@@ -886,6 +892,13 @@ sudo -u grandway -H /opt/grandway/.venv/bin/pip install --quiet -r /opt/grandway
 /opt/grandway/deploy/manage.sh showmigrations --plan | grep -q '^\[ \]' && { echo "ABORT: migrations still unapplied"; exit 1; }
 /opt/grandway/deploy/manage.sh sync_policy_registry --by system --identifier "deployer:$NEW_TAG"
 /opt/grandway/deploy/manage.sh validate_policy_engine --strict || { echo "ABORT: registry inconsistent — see §18"; exit 1; }
+```
+
+**One-time, and only on a host first deployed before `v1.1.1`:** repair the static tree's permissions. Releases before `v1.1.1` collected static with the upload modes (`0640` in `0750` directories), which `www-data` cannot read — every `/static/` request 403s and `/admin/` renders unstyled (§21). Upgrading alone does **not** fix an existing tree: `collectstatic` skips files it considers unmodified, and even `--clear` leaves the already-created directories at `0750`. One `chmod` settles it, and it is harmless to run on a correct tree:
+
+```bash
+chmod -R a+rX /var/www/grandway/static
+sudo -u www-data test -r /var/www/grandway/static/admin/css/base.css && echo "static readable by nginx"   # expected: static readable by nginx
 ```
 
 **5. Reload or restart** (§10): code only → `systemctl reload grandway` (zero downtime); env file, `requirements/`, or a unit changed → `systemctl restart grandway`. Then poll:
@@ -1022,7 +1035,7 @@ certbot certificates                             # expiry of the live certificat
 | `Invalid HTTP_HOST header: 'grandway'. You may need to add 'grandway' to ALLOWED_HOSTS.` / 400 `DisallowedHost` | `journalctl -u grandway`; probes through nginx return 400 | nginx not forwarding `Host` (old probe blocks), or `ALLOWED_HOSTS` ≠ `$DOMAIN` | reinstall `deploy/nginx.sample.conf` (§9); fix `ALLOWED_HOSTS`; probes on the loopback need `-H "Host: $DOMAIN"` |
 | Browser `ERR_TOO_MANY_REDIRECTS`; `curl` loops on 301 to the same URL | any HTTPS page | nginx not sending `X-Forwarded-Proto https` | restore `proxy_set_header X-Forwarded-Proto $scheme;` in `location /` (§9) |
 | Every user gets 429 `RATE_LIMIT_EXCEEDED`, or one user's failures lock everyone out | API | `NUM_PROXIES=0` behind nginx, so every client is 127.0.0.1 | `NUM_PROXIES=1` (2 behind a CDN); restart (§7, §9) |
-| `/admin/` renders with no CSS | browser | `collectstatic` not run, or nginx `/static/` alias ≠ `STATIC_ROOT` | `manage.sh collectstatic --noinput`; check `alias /var/www/grandway/static/;` (§8, §9) |
+| `/admin/` renders with no CSS | browser; nginx `error.log` shows `Permission denied` on a `/static/` path | `collectstatic` not run; nginx `/static/` alias ≠ `STATIC_ROOT`; or the tree is not world-readable (host first deployed before v1.1.1) | `manage.sh collectstatic --noinput`; check `alias /var/www/grandway/static/;` (§8, §9); `chmod -R a+rX /var/www/grandway/static`, then `sudo -u www-data test -r /var/www/grandway/static/admin/css/base.css` |
 | `/admin/` refuses a correct password ("Please enter the correct username and password") | admin login page | the account has no confirmed TOTP device — the admin is OTP-gated | enrol MFA via the API (§12); the admin form needs the OTP token too |
 | `role "grandway" already exists` / `database "grandway" already exists` / `Superadmin 'superadmin' already exists; no changes made (idempotent).` | provisioning / bootstrap | re-run of an idempotent step | benign; continue |
 | `validate_policy_engine --strict` exits 1 | deploy step 5 / §16 | shipped code and registry disagree, or `sync_policy_registry` was skipped | re-run `sync_policy_registry`; if still failing, **abort the deploy** and escalate — do not start the service on an inconsistent registry |
