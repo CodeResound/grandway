@@ -37,5 +37,6 @@ REST_FRAMEWORK = {
         "auth_login_ip": None,
         "auth_login_user": None,
         "auth_refresh": None,
+        "auth_refresh_token": None,
     },
 }

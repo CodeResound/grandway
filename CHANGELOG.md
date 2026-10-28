@@ -8,6 +8,40 @@ Release tags are immutable: a released version is never rewritten, only supersed
 
 ## [Unreleased]
 
+### Fixed
+
+- **Users were signed out every 15–20 minutes** (PATCH) — when the access token expired, concurrent
+  refreshes (two tabs, or several requests that all got 401) presented the same refresh token; the
+  loser of the row lock found it already rotated and reuse detection revoked the whole session. A
+  token rotated less than `AUTH_REFRESH_REUSE_GRACE_SECONDS` (default 30) ago is now answered with an
+  access token for the current session instead. Replay after the window still revokes the family.
+- **"Log out other devices" signed out the caller too** (PATCH) — `POST /auth/sessions/revoke/` with
+  `others_only` cleared the caller's own refresh cookie; it is now cleared only when the caller's
+  session is among those revoked.
+- **Expired sessions stayed active** (PATCH) — the revoke of an expired session was rolled back by the
+  error raised inside the same transaction; it now persists, with the new `expired` revocation reason
+  (previously mislabelled `admin_revoked`).
+- **The documented refresh trigger was wrong** (PATCH) — an expired access token returns
+  `AUTHENTICATION_FAILED`, not `AUTHENTICATION_REQUIRED`; `authenticate` `INTEGRATION.md` now says to
+  refresh on any 401.
+
+### Added
+
+- `access_expires_at` on `POST /auth/login/` and `POST /auth/refresh/`, so clients refresh ahead of expiry.
+- `error.details.reason` on `AUTH_REFRESH_INVALID` (`missing`, `not_found`, `expired`,
+  `replaced_same_device`, `logout`, …) so a client can say why the user was signed out.
+- A per-refresh-token throttle (`auth_refresh_token`, 10/min); the per-IP refresh limit is now a
+  ceiling, raised from 60/min to 300/min and configurable as `AUTH_REFRESH_RATE`.
+- `refresh_rejected` auth events, and the read-only `auth_session_report` command that summarises one
+  account's refresh and revocation history.
+- New optional environment variables: `AUTH_REFRESH_REUSE_GRACE_SECONDS`, `AUTH_REFRESH_RATE`,
+  `AUTH_REFRESH_COOKIE_SAMESITE`, `AUTH_REFRESH_COOKIE_DOMAIN` (see `deploy.md` §7).
+
+### Changed
+
+- The refresh cookie now expires with the session's absolute lifetime (7 days) instead of at browser
+  close; the 12-hour idle timeout is still enforced server-side.
+
 ### Deferred
 
 Findings recorded during release preparation that were triaged as not blocking. Each carries the version bump it would require. This registry is reviewed at every release: an item either ships, stays deferred, or is retired with a reason — it is never silently dropped.

@@ -707,7 +707,7 @@
       "route_pattern": "/api/v1/auth/login/",
       "operation_type": "custom",
       "risk_level": "high",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "authentication",
       "is_dependency_root": true,
       "dependencies": []
@@ -747,7 +747,7 @@
       "route_pattern": "/api/v1/auth/refresh/",
       "operation_type": "custom",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "authentication",
       "is_dependency_root": false,
       "dependencies": [
@@ -771,7 +771,7 @@
       "route_pattern": "/api/v1/auth/sessions/revoke/",
       "operation_type": "custom",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "category_key": "session_management",
       "is_dependency_root": false,
       "dependencies": [

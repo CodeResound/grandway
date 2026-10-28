@@ -25,6 +25,20 @@ class SessionRevocationReason(models.TextChoices):
     BLOCKED = "blocked", "Account blocked"
     ADMIN_REVOKED = "admin_revoked", "Revoked by administrator"
     MFA_CHANGE = "mfa_change", "MFA changed (enabled/disabled/reset)"
+    EXPIRED = "expired", "Expired (idle or absolute lifetime)"
+
+
+class RefreshRejectReason(models.TextChoices):
+    """``error.details.reason`` values of ``AUTH_REFRESH_INVALID`` that are not a revocation.
+
+    A refresh token whose session was revoked reports that session's
+    ``SessionRevocationReason`` instead, so a client can tell "signed out because
+    this device logged in again" (``replaced_same_device``) from "the session ran
+    out" (``expired``) without a new error code.
+    """
+
+    MISSING = "missing", "No refresh credential supplied"
+    NOT_FOUND = "not_found", "Unknown refresh credential"
 
 
 class AuthEventType(models.TextChoices):
@@ -45,6 +59,7 @@ class AuthEventType(models.TextChoices):
     MFA_DISABLED = "mfa_disabled", "MFA Disabled"
     MFA_VERIFICATION_FAILURE = "mfa_verification_failure", "MFA Verification Failure"
     MFA_RESET = "mfa_reset", "MFA Reset (recovery)"
+    REFRESH_REJECTED = "refresh_rejected", "Refresh Rejected"
 
 
 class ErrorCode:
@@ -79,6 +94,11 @@ CLAIM_MUST_CHANGE_PASSWORD = "must_change_password"
 THROTTLE_SCOPE_LOGIN_IP = "auth_login_ip"
 THROTTLE_SCOPE_LOGIN_USER = "auth_login_user"
 THROTTLE_SCOPE_REFRESH = "auth_refresh"
+THROTTLE_SCOPE_REFRESH_TOKEN = "auth_refresh_token"
+
+# ``AuthEvent.reason`` on a ``session_refreshed`` event answered from the reuse
+# grace window (a concurrent refresh with the token just rotated away).
+REFRESH_GRACE_EVENT_REASON = "grace_window"
 
 # Length of the opaque refresh token in URL-safe bytes before encoding.
 REFRESH_TOKEN_BYTES = 48

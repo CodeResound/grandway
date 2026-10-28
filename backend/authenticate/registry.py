@@ -69,8 +69,14 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "risk_level": "high",
         "is_dependency_root": True,
         "dependencies": [],
-        "change_summary": "Initial registration of the login endpoint.",
-        "change_reason": "authenticate app Phase 1 foundation.",
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Added access_expires_at; the refresh cookie now persists for the session's absolute lifetime.",
+        "change_reason": (
+            "Clients could not schedule a refresh ahead of access-token expiry, and a session cookie "
+            "ended the session whenever the browser closed. Additive response field (§22 non-breaking); "
+            "the cookie lifetime change is an approved auth behaviour change (§28 item 4)."
+        ),
     },
     # 2. Refresh — rotate the session; requires an existing session (login).
     {
@@ -87,8 +93,17 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "authenticate.views.RefreshView",
         "risk_level": "medium",
         "dependencies": _REQUIRES_LOGIN,
-        "change_summary": "Initial registration of the refresh endpoint.",
-        "change_reason": "authenticate app Phase 1 foundation.",
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Reuse grace window, access_expires_at, error.details.reason, per-token throttle, persistent cookie.",
+        "change_reason": (
+            "Users were signed out every 15-20 minutes: a concurrent refresh presenting the token just "
+            "rotated away was treated as reuse and revoked the session. Within "
+            "AUTH_REFRESH_REUSE_GRACE_SECONDS it now returns an access token for the family's current "
+            "session without rotating. AUTH_REFRESH_INVALID gains details.reason; access_expires_at is "
+            "added; throttling is per token as well as per IP. Backward compatible: same codes, "
+            "additive fields (§22, §29)."
+        ),
     },
     # 3. Logout — revoke the current session.
     {
@@ -425,7 +440,12 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "dependencies": [
             _dep("authenticate.session.list", "Revoking own sessions requires the ability to list them.")
         ],
-        "change_summary": "Initial registration of the own-session revoke endpoint.",
-        "change_reason": "authenticate app Phase 3 (session management).",
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.0.1",
+        "change_summary": "Stopped clearing the caller's refresh cookie when only other sessions are revoked.",
+        "change_reason": (
+            "\"Log out other devices\" (others_only, or another session's id) cleared the caller's own "
+            "refresh cookie, signing them out at their next refresh. Bug fix; no contract change."
+        ),
     },
 ]
