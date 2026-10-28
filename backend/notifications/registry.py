@@ -109,8 +109,9 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "notifications.views.NotificationListView",
         "risk_level": "medium",
         "dependencies": [_LOGIN],
-        "change_summary": "Initial registration of the notification feed endpoint.",
-        "change_reason": _PHASE,
+        "version": "1.1.0",
+        "change_summary": "Rows add category, applicant_id, and payload; new filters ?category=a,b and ?applicant_id=<uuid>. New notification types for leads, applicant status and assignment, visit notes, documents, and language-test expiry.",
+        "change_reason": "Phase 5 notifications (frontend updates.md §4, 2026-10-29). Additive.",
     },
     # 2. The bell badge. Counts only — no titles, no names, no ids.
     {
@@ -120,7 +121,8 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "operation_type": "custom",
         "display_name": "Read Own Notification Summary",
         "description": (
-            "Unread count plus active totals by priority and by due bucket, for the calling user. "
+            "Unread count plus active totals by priority and by due bucket, and unread counts by category, "
+            "for the calling user. "
             "Exists so a client rendering a bell badge is not forced to page the whole feed."
         ),
         "http_method": "GET",
@@ -128,8 +130,9 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "notifications.views.NotificationSummaryView",
         "risk_level": "low",
         "dependencies": [_LOGIN],
-        "change_summary": "Initial registration of the notification summary endpoint.",
-        "change_reason": _PHASE,
+        "version": "1.1.0",
+        "change_summary": "Adds by_category: unread counts per notification category.",
+        "change_reason": "Phase 5 notifications — per-category badges (frontend updates.md §4, 2026-10-29). Additive.",
     },
     # 3. One notification.
     {
@@ -147,8 +150,9 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "notifications.views.NotificationDetailView",
         "risk_level": "low",
         "dependencies": [_LOGIN, _REQUIRES_LIST],
-        "change_summary": "Initial registration of the notification detail endpoint.",
-        "change_reason": _PHASE,
+        "version": "1.1.0",
+        "change_summary": "Adds category, applicant_id, and payload.",
+        "change_reason": "Phase 5 notifications (frontend updates.md §4, 2026-10-29). Additive.",
     },
     # -----------------------------------------------------------------------
     # Read state — reversible, and never a decision about the work
@@ -211,8 +215,9 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "notifications.views.NotificationReadAllView",
         "risk_level": "low",
         "dependencies": [_LOGIN, _REQUIRES_LIST],
-        "change_summary": "Initial registration of the bulk mark-all-read endpoint.",
-        "change_reason": _PHASE,
+        "version": "1.1.0",
+        "change_summary": "Accepts an optional {category} body to clear one category only.",
+        "change_reason": "Phase 5 notifications — per-category clear (frontend updates.md §4, 2026-10-29). Additive.",
     },
     # -----------------------------------------------------------------------
     # The one decision this app records
@@ -237,5 +242,50 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "dependencies": [_LOGIN, _REQUIRES_LIST, _REQUIRES_READ],
         "change_summary": "Initial registration of the notification dismiss endpoint.",
         "change_reason": _PHASE,
+    },
+    # -----------------------------------------------------------------------
+    # Preferences (2026-10-29) — always the caller's own
+    # -----------------------------------------------------------------------
+    # 8. Read what the caller has chosen to be told.
+    {
+        **_APP,
+        "model_key": "preference",
+        "model_display_name": "Notification Preference",
+        "endpoint_key": "notification-preference-read",
+        "permission_key": "notifications.preference.read",
+        "operation_type": "read",
+        "display_name": "Read Own Notification Preferences",
+        "description": (
+            "The caller's per-category in-app switches and the assigned-only setting. "
+            "Defaults (everything on) when nothing has been saved."
+        ),
+        "http_method": "GET",
+        "route_pattern": "/api/v1/notifications/preferences/",
+        "view_import_path": "notifications.views.NotificationPreferenceView",
+        "risk_level": "low",
+        "dependencies": [_LOGIN],
+        "change_summary": "Initial registration of the notification preference read endpoint.",
+        "change_reason": "Phase 5 notifications — preferences (frontend updates.md §4, 2026-10-29).",
+    },
+    # 9. Change them. Affects alerts raised from now on only.
+    {
+        **_APP,
+        "model_key": "preference",
+        "model_display_name": "Notification Preference",
+        "endpoint_key": "notification-preference-update",
+        "permission_key": "notifications.preference.update",
+        "operation_type": "update",
+        "display_name": "Update Own Notification Preferences",
+        "description": (
+            "Mute or unmute notification categories and switch assigned-only on or off for the caller. "
+            "Only what is sent changes; nothing already in the feed is hidden."
+        ),
+        "http_method": "PATCH",
+        "route_pattern": "/api/v1/notifications/preferences/",
+        "view_import_path": "notifications.views.NotificationPreferenceView",
+        "risk_level": "low",
+        "dependencies": [_LOGIN, _dep("notifications.preference.read", "A client edits the preferences it has read.")],
+        "change_summary": "Initial registration of the notification preference update endpoint.",
+        "change_reason": "Phase 5 notifications — preferences (frontend updates.md §4, 2026-10-29).",
     },
 ]

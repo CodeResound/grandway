@@ -17,6 +17,7 @@ It owns:
 * Access and refresh sessions
 * Session revocation
 * Authentication-related audit events
+* Each account's personal clipboard (added 2026-10-29)
 
 The app does not decide which applicants, leads, branches, documents, or journeys
 a user may access. Those rules remain with the relevant operational domains.
@@ -438,6 +439,54 @@ To:
 The current API documentation still describes email login and forgot-password
 support, so it should be aligned with these decisions.
 
+## Personal clipboard
+
+Added 2026-10-29 (frontend updates.md §5, product-owner decisions of that date).
+
+Staff type the same values into document forms again and again: a ward
+chairman's name, a bank branch address, a father's citizenship number. The
+personal clipboard lets each person save those snippets once and copy them back
+into a form field.
+
+Every account has its own clipboard: Superadmin, Admin, and Lead Manager alike.
+That is unusual. Every operational feature in Grandway is either Admin-only or
+shared between Admins and Lead Managers, and a Superadmin uses none of them. The
+clipboard is different because it belongs to the person rather than to the
+consultancy's records. That is also why it lives in authenticate: it hangs off
+the account and holds no consultancy record.
+
+What a person can do:
+
+* Save a snippet: a label (what they see in the list) and the text to copy
+* Optionally tag a snippet with a field key naming the document-form field it
+  fills, such as father.name or ward.spokesperson.name. The key is a frontend
+  convention; the backend only checks that it is lowercase dotted words
+* Optionally file snippets into their own named categories, for example
+  "Ward office" or "Bank"
+* Search their snippets, filter by category or by field key
+* Edit and delete snippets; rename and delete categories. Deleting a category
+  keeps its snippets, which become uncategorized
+* Mark a snippet as used when they copy it, so the most-used snippets rise to
+  the top of the list
+
+Locked rules:
+
+* Strictly owner-only. Nobody else can see, use, or change a person's clipboard,
+  whatever their authority. Another person's snippet answers "not found", the
+  same as one that never existed
+* No sharing between accounts and no team clipboard
+* No snippets attached to an applicant
+* No "fill a whole form" sets; one snippet fills one field
+* At most 200 snippets of up to 2000 characters, and 50 categories, per account.
+  Category names are unique per account, ignoring case
+* Snippets may contain personal data, so their label, text, and category names
+  never enter the audit log or any log. Saving, editing, and deleting are
+  audited by id only; copying is not audited at all
+* The clipboard is not shown in the Django admin
+
+Not planned for now: import or export, choosing a sort order, and separate
+encryption of snippets beyond the database's own protection.
+
 ## Locked V1 decisions
 
 * Username is the permanent login identifier
@@ -462,6 +511,7 @@ support, so it should be aligned with these decisions.
 * One active session per device; at most three active devices per user
 * A login exceeding the device limit is rejected, not silently evicted
 * Brute-force lockout uses django-axes, keyed on username and IP
+* Every account, Superadmin included, has a personal owner-only clipboard
 
 ## Out of scope for V1
 

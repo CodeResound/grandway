@@ -52,7 +52,6 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "risk_level": "low",
         # The route and method are unchanged; the contract behind them is not.
         # A version bump appends a record — it never edits the 1.0.0 one (§35 item 10).
-        "version": "1.1.0",
         "dependencies": [
             _dep(
                 "authenticate.session.login", "A session must be established by login before this endpoint is usable."
@@ -63,17 +62,9 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
                 "and the response projects each journey's destination.",
             ),
         ],
-        "change_summary": (
-            "Widened search to email, contact number, and passport number; added relevance ordering; "
-            "added the country, country_code, and journey_stage filters; added the destinations "
-            "response field."
-        ),
-        "change_reason": (
-            "Staff could not find an applicant by destination country at all — the destination lives on "
-            "the journey, not the applicant — and search matched names only. Backward compatible: "
-            "every previous filter behaves unchanged, no field was removed or renamed, and the new "
-            "response field is additive (§22, §29)."
-        ),
+        "version": "1.2.0",
+        "change_summary": "Rows add assigned_to (UserBrief or null); new filter ?assigned_to=me|none|<user id>.",
+        "change_reason": "Optional applicant assignment for personalised notifications (frontend updates.md §4, 2026-10-29). Additive.",
     },
     # 2. Create an applicant directly, with no preceding lead. Admin only.
     {
@@ -88,8 +79,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "applicants.views.ApplicantListCreateView",
         "risk_level": "high",
         "dependencies": [_dep("applicants.applicant.list", "Creating applicants requires the ability to list them.")],
-        "change_summary": "Initial registration of the direct applicant-create endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.2.0",
+        "change_summary": "Detail shape adds assigned_to. Conversion assigns the lead's owner.",
+        "change_reason": "Optional applicant assignment for personalised notifications (frontend updates.md §4, 2026-10-29). Additive.",
     },
     # 3. Read one applicant — the dependency root for the per-applicant actions.
     {
@@ -104,8 +97,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "applicants.views.ApplicantDetailView",
         "risk_level": "low",
         "dependencies": [_dep("applicants.applicant.list", "Reading an applicant requires list access.")],
-        "change_summary": "Initial registration of the applicant read endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.2.0",
+        "change_summary": "Detail shape adds assigned_to (UserBrief or null).",
+        "change_reason": "Optional applicant assignment for personalised notifications (frontend updates.md §4, 2026-10-29). Additive.",
     },
     # 4. Correct an applicant's information. Status is not editable here.
     {
@@ -120,8 +115,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "applicants.views.ApplicantDetailView",
         "risk_level": "medium",
         "dependencies": _REQUIRES_READ,
-        "change_summary": "Initial registration of the applicant update endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.2.0",
+        "change_summary": "Detail shape adds assigned_to; assignment itself is not writable here (POST /assign/).",
+        "change_reason": "Optional applicant assignment for personalised notifications (frontend updates.md §4, 2026-10-29). Additive.",
     },
     # 5. Set the applicant's standing. Never changed automatically by a journey.
     {
@@ -136,8 +133,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "applicants.views.ApplicantStatusView",
         "risk_level": "medium",
         "dependencies": _REQUIRES_READ,
-        "change_summary": "Initial registration of the applicant status endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.2.0",
+        "change_summary": "Detail shape adds assigned_to; a status change now raises an applicant_status_changed notification.",
+        "change_reason": "Notifications for applicant status (frontend updates.md §4, 2026-10-29). Additive side effect.",
     },
     # 6. The applicant's history, projected from the central audit log.
     {
@@ -154,5 +153,123 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "dependencies": _REQUIRES_READ,
         "change_summary": "Initial registration of the applicant history endpoint.",
         "change_reason": _PHASE,
+    },
+    # --- 2026-10-29: restore and notes ----------------------------------------
+    # 7. Restore an archived applicant to the status held before. Admin only.
+    {
+        **_BASE,
+        "endpoint_key": "applicant-restore",
+        "permission_key": "applicants.applicant.restore",
+        "operation_type": "custom",
+        "display_name": "Restore Applicant",
+        "description": "Un-archive an applicant back to the status held before archiving. Admin only.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/applicants/<applicant_id>/restore/",
+        "view_import_path": "applicants.views.ApplicantRestoreView",
+        "risk_level": "medium",
+        "dependencies": [
+            _dep("applicants.applicant.read", "The applicant must be readable before it can be restored."),
+            _dep(
+                "applicants.applicant.change_status", "Restoring only applies to an applicant archived through status."
+            ),
+        ],
+        "version": "1.1.0",
+        "change_summary": "Detail shape adds assigned_to; a restore now raises an applicant_restored notification.",
+        "change_reason": "Notifications for applicant status (frontend updates.md §4, 2026-10-29). Additive side effect.",
+    },
+    # --- 2026-10-29: optional assignment (Phase 5) ----------------------------
+    # 7a. Set or clear who is notified about an applicant. Routing only.
+    {
+        **_BASE,
+        "endpoint_key": "applicant-assign",
+        "permission_key": "applicants.applicant.assign",
+        "operation_type": "custom",
+        "display_name": "Assign Applicant",
+        "description": (
+            "Set or clear the staff member notified about an applicant. Admins assign anyone; a Lead Manager "
+            "may only take an unassigned applicant or release their own. Never changes who can see the file."
+        ),
+        "http_method": "POST",
+        "route_pattern": "/api/v1/applicants/<applicant_id>/assign/",
+        "view_import_path": "applicants.views.ApplicantAssignView",
+        "risk_level": "medium",
+        "dependencies": [
+            _dep("applicants.applicant.read", "The applicant must be readable before it can be assigned."),
+        ],
+        "change_summary": "Initial registration of the applicant assign endpoint.",
+        "change_reason": "Optional applicant assignment for personalised notifications (frontend updates.md §4, 2026-10-29).",
+    },
+    # 8. List an applicant's notes.
+    {
+        **_BASE,
+        "model_key": "applicant_note",
+        "model_display_name": "Applicant Note",
+        "endpoint_key": "applicant-note-list",
+        "permission_key": "applicants.note.list",
+        "operation_type": "list",
+        "display_name": "List Applicant Notes",
+        "description": "List an applicant's live notes, most recent noted_at first, with per-category counts.",
+        "http_method": "GET",
+        "route_pattern": "/api/v1/applicants/<applicant_id>/notes/",
+        "view_import_path": "applicants.views.ApplicantNoteListCreateView",
+        "risk_level": "low",
+        "dependencies": _REQUIRES_READ,
+        "change_summary": "Initial registration of the applicant-note list endpoint.",
+        "change_reason": "Applicant notes (frontend updates.md §2, 2026-10-29).",
+    },
+    # 9. Write a note (categorised, backdatable).
+    {
+        **_BASE,
+        "model_key": "applicant_note",
+        "model_display_name": "Applicant Note",
+        "endpoint_key": "applicant-note-create",
+        "permission_key": "applicants.note.create",
+        "operation_type": "create",
+        "display_name": "Add Applicant Note",
+        "description": "Write a general or visit note on an applicant, optionally backdated.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/applicants/<applicant_id>/notes/",
+        "view_import_path": "applicants.views.ApplicantNoteListCreateView",
+        "risk_level": "low",
+        "dependencies": [_dep("applicants.note.list", "Adding a note requires the ability to read the notes.")],
+        "version": "1.1.0",
+        "change_summary": "A visit note now raises a visit_note_added notification.",
+        "change_reason": "Visit-note notifications (frontend updates.md §4, 2026-10-29). Additive side effect.",
+    },
+    # 10. Correct a note. Author or Admin.
+    {
+        **_BASE,
+        "model_key": "applicant_note",
+        "model_display_name": "Applicant Note",
+        "endpoint_key": "applicant-note-update",
+        "permission_key": "applicants.note.update",
+        "operation_type": "update",
+        "display_name": "Edit Applicant Note",
+        "description": "Correct a note's category, text, or noted_at. The author or an Admin only; audited.",
+        "http_method": "PATCH",
+        "route_pattern": "/api/v1/applicants/<applicant_id>/notes/<note_id>/",
+        "view_import_path": "applicants.views.ApplicantNoteDetailView",
+        "risk_level": "medium",
+        "dependencies": [_dep("applicants.note.list", "A note must be listed before it can be edited.")],
+        "change_summary": "Initial registration of the applicant-note update endpoint.",
+        "change_reason": "Applicant notes (frontend updates.md §2, 2026-10-29).",
+    },
+    # 11. Remove a note (soft). Author or Admin.
+    {
+        **_BASE,
+        "model_key": "applicant_note",
+        "model_display_name": "Applicant Note",
+        "endpoint_key": "applicant-note-delete",
+        "permission_key": "applicants.note.delete",
+        "operation_type": "delete",
+        "display_name": "Delete Applicant Note",
+        "description": "Soft-delete a note: it leaves the feed, the row and its audit trail stay. Author or Admin.",
+        "http_method": "DELETE",
+        "route_pattern": "/api/v1/applicants/<applicant_id>/notes/<note_id>/",
+        "view_import_path": "applicants.views.ApplicantNoteDetailView",
+        "risk_level": "medium",
+        "dependencies": [_dep("applicants.note.list", "A note must be listed before it can be deleted.")],
+        "change_summary": "Initial registration of the applicant-note delete endpoint.",
+        "change_reason": "Applicant notes (frontend updates.md §2, 2026-10-29).",
     },
 ]

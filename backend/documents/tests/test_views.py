@@ -386,13 +386,38 @@ class LifecycleEndpointTests(DocumentAPITestCase):
         self.assertEqual(response.status_code, 409)
         self.assert_error_envelope(response, ErrorCode.DOCUMENT_NOT_ARCHIVED)
 
-    def test_an_archived_document_is_still_listed(self) -> None:
+    def test_an_archived_document_is_hidden_unless_asked_for(self) -> None:
+        """Removed documents no longer come back in the default list (``updates.md`` §6.1).
+
+        Replaces the earlier always-listed behaviour, changed on 2026-10-29. The
+        archived document is still reachable: by status, or alongside the rest.
+        """
         self.auth(self.admin)
         self.client.post(f"{self.url}archive/", {"reason": "Superseded."}, format="json")
 
-        self.assertEqual(len(self.client.get(DOCS_URL).json()["data"]), 1)
+        self.assertEqual(len(self.client.get(DOCS_URL).json()["data"]), 0)
+        applicant_list = self.client.get(DOCS_URL, {"applicant": str(self.applicant.id)}).json()["data"]
+        self.assertEqual(len(applicant_list), 0)
         self.assertEqual(len(self.client.get(DOCS_URL, {"status": "archived"}).json()["data"]), 1)
+        self.assertEqual(len(self.client.get(DOCS_URL, {"include_archived": "true"}).json()["data"]), 1)
         self.assertEqual(len(self.client.get(DOCS_URL, {"status": "draft"}).json()["data"]), 0)
+
+    def test_restore_returns_a_ready_document_to_ready(self) -> None:
+        self.auth(self.admin)
+        self.client.post(f"{self.url}status/", {"status": "ready"}, format="json")
+        self.client.post(f"{self.url}archive/", {"reason": "Removed."}, format="json")
+        response = self.client.post(f"{self.url}restore/", {"reason": "Removed by mistake."}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.assert_success_envelope(response)["data"]["status"], DocumentStatus.READY)
+
+    def test_restore_rejects_an_oversized_reason(self) -> None:
+        self.auth(self.admin)
+        self.client.post(f"{self.url}archive/", {"reason": "Removed."}, format="json")
+        response = self.client.post(f"{self.url}restore/", {"reason": "x" * 2001}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_error_envelope(response, "VALIDATION_ERROR")
 
     def test_history_returns_the_full_trail(self) -> None:
         self.auth(self.admin)

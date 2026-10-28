@@ -23,9 +23,12 @@ __all__ = [
     "AUDIT_ENTITY_NOTIFICATION",
     "DEFAULT_DUE_WITHIN_DAYS",
     "DEFAULT_PASSPORT_HORIZON_DAYS",
+    "DEFAULT_RETENTION_DAYS",
+    "DEFAULT_TEST_SCORE_HORIZON_DAYS",
     "SIGNAL_TYPES",
     "SWEEP_TYPES",
     "TERMINAL_STATUSES",
+    "TYPE_CATEGORY",
     "TYPE_PRIORITY",
     "UNGENERATED_TYPES",
     "DeliveryChannel",
@@ -33,6 +36,7 @@ __all__ = [
     "DueBucket",
     "ErrorCode",
     "GenerationSource",
+    "NotificationCategory",
     "NotificationAuditAction",
     "NotificationStatus",
     "NotificationType",
@@ -52,12 +56,17 @@ class NotificationType(models.TextChoices):
     dedupe keys — which is what lets an item escalate from one to the other
     without either re-nagging or going quiet.
 
-    ``MISSING_INFORMATION``, ``APPOINTMENT_REMINDER``, and ``TEST_SCORE_EXPIRING``
-    are declared with **no generator**. The first has no source — no app in this
-    project defines what "required information" is — and the other two belong to
-    ``appointments`` and ``test_scores``, which do not exist. They are here so the
-    frontend receives the whole vocabulary in one contract and so writing the
-    generator later is not a schema change.
+    ``MISSING_INFORMATION`` and ``APPOINTMENT_REMINDER`` are declared with **no
+    generator**. The first has no source — no app in this project defines what
+    "required information" is — and the second belongs to an ``appointments`` app
+    that does not exist. They are here so the frontend receives the whole
+    vocabulary in one contract and so writing the generator later is not a
+    schema change. ``TEST_SCORE_EXPIRING`` was in that group until applicants
+    gained language tests (2026-10-29); the sweep raises it now.
+
+    The lead, applicant, note, and document types (2026-10-29) are raised from
+    domain events (``core.events``) rather than ``post_save``, because each one
+    needs to know *who* acted.
     """
 
     # --- Deadline-driven (raised by the sweep) --------------------------------
@@ -75,11 +84,45 @@ class NotificationType(models.TextChoices):
     JOURNEY_STAGE_CHANGED = "journey_stage_changed", "Journey Stage Changed"
     JOURNEY_CLOSED = "journey_closed", "Journey Closed"
     OFFER_DECIDED = "offer_decided", "Offer Decided"
+    LEAD_CREATED = "lead_created", "Lead Created"
+    LEAD_CONVERTED = "lead_converted", "Lead Converted"
+    LEAD_DELETED = "lead_deleted", "Lead Deleted"
+    LEAD_RESTORED = "lead_restored", "Lead Restored"
+    APPLICANT_STATUS_CHANGED = "applicant_status_changed", "Applicant Status Changed"
+    APPLICANT_RESTORED = "applicant_restored", "Applicant Restored"
+    APPLICANT_ASSIGNED = "applicant_assigned", "Applicant Assigned"
+    APPLICANT_UNASSIGNED = "applicant_unassigned", "Applicant Unassigned"
+    VISIT_NOTE_ADDED = "visit_note_added", "Visit Note Added"
+    DOCUMENT_READY = "document_ready", "Document Ready"
+
+    # --- Deadline-driven, added 2026-10-29 -------------------------------------
+    TEST_SCORE_EXPIRING = "test_score_expiring", "Test Score Expiring"
 
     # --- Declared, not yet generated ------------------------------------------
     MISSING_INFORMATION = "missing_information", "Missing Information"
     APPOINTMENT_REMINDER = "appointment_reminder", "Appointment Reminder"
-    TEST_SCORE_EXPIRING = "test_score_expiring", "Test Score Expiring"
+
+
+class NotificationCategory(models.TextChoices):
+    """The grouping a person filters, counts, and mutes by (2026-10-29).
+
+    Coarser than ``NotificationType`` on purpose: "stop telling me about leads"
+    is one decision, not four. **Derived, never stored** — ``TYPE_CATEGORY`` maps
+    each type to exactly one category, so the feed filter resolves a category to
+    its types and no row ever has to be rewritten if a type is regrouped.
+    """
+
+    LEAD = "lead", "Leads"
+    APPLICANT_STATUS = "applicant_status", "Applicant status"
+    JOURNEY = "journey", "Journeys"
+    ASSIGNMENT = "assignment", "Assignments"
+    NOTES = "notes", "Visit notes"
+    FOLLOW_UP = "follow_up", "Follow-ups"
+    DOCUMENTS = "documents", "Documents"
+    CHECKLIST = "checklist", "Checklists"
+    OFFER = "offer", "Offers"
+    FILE = "file", "Files"
+    EXPIRY = "expiry", "Expiry"
 
 
 class Priority(models.TextChoices):
@@ -202,9 +245,13 @@ class SourceEntityType:
     UPLOADED_FILE = "uploaded_file"
     APPLICANT_JOURNEY = "applicant_journey"
     REMINDER = "reminder"
+    LEAD = "lead"
+    APPLICANT = "applicant"
+    DOCUMENT = "document"
+    LANGUAGE_TEST = "language_test"
 
 
-#: Priority for each type, applied once at creation by ``services.create_notification``.
+#: Priority for each type, applied once at creation by ``services.dispatch``.
 #:
 #: Stored on the row rather than looked up at read time. Re-rating a type later
 #: is a legitimate thing to want to do; silently rewriting what every past alert
@@ -239,7 +286,53 @@ TYPE_PRIORITY: dict[str, str] = {
     NotificationType.JOURNEY_STAGE_CHANGED: Priority.LOW,
     NotificationType.JOURNEY_CLOSED: Priority.NORMAL,
     NotificationType.OFFER_DECIDED: Priority.NORMAL,
+    NotificationType.LEAD_CREATED: Priority.NORMAL,
+    NotificationType.LEAD_CONVERTED: Priority.NORMAL,
+    NotificationType.LEAD_DELETED: Priority.NORMAL,
+    NotificationType.LEAD_RESTORED: Priority.LOW,
+    NotificationType.APPLICANT_STATUS_CHANGED: Priority.NORMAL,
+    NotificationType.APPLICANT_RESTORED: Priority.NORMAL,
+    NotificationType.APPLICANT_ASSIGNED: Priority.NORMAL,
+    NotificationType.APPLICANT_UNASSIGNED: Priority.LOW,
+    NotificationType.VISIT_NOTE_ADDED: Priority.LOW,
+    NotificationType.DOCUMENT_READY: Priority.NORMAL,
 }
+
+#: The one category each type belongs to. Every type is mapped — a test asserts it.
+TYPE_CATEGORY: dict[str, str] = {
+    NotificationType.CHECKLIST_ITEM_DUE: NotificationCategory.CHECKLIST,
+    NotificationType.CHECKLIST_ITEM_OVERDUE: NotificationCategory.CHECKLIST,
+    NotificationType.MISSING_DOCUMENTS: NotificationCategory.CHECKLIST,
+    NotificationType.MISSING_INFORMATION: NotificationCategory.CHECKLIST,
+    NotificationType.OFFER_RESPONSE_DUE: NotificationCategory.OFFER,
+    NotificationType.OFFER_EXPIRED: NotificationCategory.OFFER,
+    NotificationType.OFFER_DECIDED: NotificationCategory.OFFER,
+    NotificationType.PASSPORT_EXPIRING: NotificationCategory.EXPIRY,
+    NotificationType.TEST_SCORE_EXPIRING: NotificationCategory.EXPIRY,
+    NotificationType.CUSTOM_REMINDER: NotificationCategory.FOLLOW_UP,
+    NotificationType.APPOINTMENT_REMINDER: NotificationCategory.FOLLOW_UP,
+    NotificationType.ASSIGNMENT_RECEIVED: NotificationCategory.ASSIGNMENT,
+    NotificationType.APPLICANT_ASSIGNED: NotificationCategory.ASSIGNMENT,
+    NotificationType.APPLICANT_UNASSIGNED: NotificationCategory.ASSIGNMENT,
+    NotificationType.FILE_REJECTED: NotificationCategory.FILE,
+    NotificationType.JOURNEY_STAGE_CHANGED: NotificationCategory.JOURNEY,
+    NotificationType.JOURNEY_CLOSED: NotificationCategory.JOURNEY,
+    NotificationType.LEAD_CREATED: NotificationCategory.LEAD,
+    NotificationType.LEAD_CONVERTED: NotificationCategory.LEAD,
+    NotificationType.LEAD_DELETED: NotificationCategory.LEAD,
+    NotificationType.LEAD_RESTORED: NotificationCategory.LEAD,
+    NotificationType.APPLICANT_STATUS_CHANGED: NotificationCategory.APPLICANT_STATUS,
+    NotificationType.APPLICANT_RESTORED: NotificationCategory.APPLICANT_STATUS,
+    NotificationType.VISIT_NOTE_ADDED: NotificationCategory.NOTES,
+    NotificationType.DOCUMENT_READY: NotificationCategory.DOCUMENTS,
+}
+
+
+def types_in_categories(categories: list[str]) -> list[str]:
+    """Every type belonging to any of ``categories`` — the feed filter's ``__in`` list."""
+    wanted = set(categories)
+    return [t for t, c in TYPE_CATEGORY.items() if c in wanted]
+
 
 #: Types the sweep raises and may therefore auto-resolve.
 #:
@@ -254,6 +347,7 @@ SWEEP_TYPES: tuple[str, ...] = (
     NotificationType.OFFER_EXPIRED,
     NotificationType.PASSPORT_EXPIRING,
     NotificationType.CUSTOM_REMINDER,
+    NotificationType.TEST_SCORE_EXPIRING,
 )
 
 #: Types a signal receiver raises. Never auto-resolved — see ``GenerationSource``.
@@ -263,6 +357,16 @@ SIGNAL_TYPES: tuple[str, ...] = (
     NotificationType.JOURNEY_STAGE_CHANGED,
     NotificationType.JOURNEY_CLOSED,
     NotificationType.OFFER_DECIDED,
+    NotificationType.LEAD_CREATED,
+    NotificationType.LEAD_CONVERTED,
+    NotificationType.LEAD_DELETED,
+    NotificationType.LEAD_RESTORED,
+    NotificationType.APPLICANT_STATUS_CHANGED,
+    NotificationType.APPLICANT_RESTORED,
+    NotificationType.APPLICANT_ASSIGNED,
+    NotificationType.APPLICANT_UNASSIGNED,
+    NotificationType.VISIT_NOTE_ADDED,
+    NotificationType.DOCUMENT_READY,
 )
 
 #: Declared in the vocabulary, produced by nothing. Kept as a named tuple rather
@@ -271,7 +375,6 @@ SIGNAL_TYPES: tuple[str, ...] = (
 UNGENERATED_TYPES: tuple[str, ...] = (
     NotificationType.MISSING_INFORMATION,
     NotificationType.APPOINTMENT_REMINDER,
-    NotificationType.TEST_SCORE_EXPIRING,
 )
 
 #: Statuses in which an alert is no longer active work.
@@ -290,6 +393,14 @@ DEFAULT_DUE_WITHIN_DAYS: int = 7
 #: ``applicants.get_expiring_passports`` already defaults to. Renewing a Nepali
 #: passport is not a same-week errand.
 DEFAULT_PASSPORT_HORIZON_DAYS: int = 180
+
+#: Default horizon for language-test expiry. A test is usually valid two years,
+#: and booking and sitting a retake takes weeks — three months is enough warning.
+DEFAULT_TEST_SCORE_HORIZON_DAYS: int = 90
+
+#: Default age after which the sweep purges notifications it can safely forget
+#: (frontend updates.md §4, 2026-10-29) — see ``services.purge_expired``.
+DEFAULT_RETENTION_DAYS: int = 90
 
 
 class NotificationAuditAction:

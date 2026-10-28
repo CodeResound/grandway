@@ -18,22 +18,33 @@ from django.conf import settings
 from django.contrib.auth import authenticate as django_authenticate
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from authenticate.constants import (
+    AUDIT_APP_LABEL,
+    AUDIT_ENTITY_CLIPBOARD_CATEGORY,
+    AUDIT_ENTITY_CLIPBOARD_ENTRY,
     CLAIM_AUTHORITY_TYPE,
     CLAIM_MUST_CHANGE_PASSWORD,
     CLAIM_SESSION_ID,
+    MAX_CLIPBOARD_CATEGORIES,
+    MAX_CLIPBOARD_ENTRIES,
     REFRESH_GRACE_EVENT_REASON,
     REFRESH_TOKEN_BYTES,
     AuthEventType,
     AuthorityType,
+    ClipboardAuditAction,
     ProvisionedVia,
     RefreshRejectReason,
     SessionRevocationReason,
 )
 from authenticate.exceptions import (
+    ClipboardCategoryInvalidError,
+    ClipboardCategoryLimitError,
+    ClipboardCategoryNameTakenError,
+    ClipboardLimitError,
     DeviceLimitError,
     InvalidAuthorityError,
     InvalidCredentialsError,
@@ -50,9 +61,11 @@ from authenticate.exceptions import (
     UsernameTakenError,
 )
 from authenticate.managers import UserManager
-from authenticate.models import AuthEvent, AuthSession, User, UserSecurityState
+from authenticate.models import AuthEvent, AuthSession, ClipboardCategory, ClipboardEntry, User, UserSecurityState
 from authenticate.selectors import (
     TOTP_DEVICE_NAME,
+    count_own_clipboard_categories,
+    count_own_clipboard_entries,
     get_active_session_by_refresh_hash_for_update,
     get_active_session_in_family,
     get_active_sessions_for_user,
@@ -64,6 +77,7 @@ from authenticate.selectors import (
     get_user_session_by_id,
     has_confirmed_mfa,
     managed_tier_for,
+    own_clipboard_category_name_exists,
 )
 from authenticate.validators import validate_password_strength
 
@@ -1190,3 +1204,205 @@ def _get_or_create_security_state(user: User) -> UserSecurityState:
         defaults={"provisioned_via": ProvisionedVia.ADMIN_CREATED},
     )
     return state
+
+
+# ---------------------------------------------------------------------------
+# Personal clipboard (2026-10-29, frontend updates.md §5)
+# ---------------------------------------------------------------------------
+#
+# Owner-only by construction: every function takes the owning user and every
+# lookup in ``selectors`` starts from it. The text and the label may hold an
+# identity number, so neither ever reaches the audit trail — events carry ids,
+# the field key, and nothing a person typed.
+
+
+def _record_clipboard_event(*, user: User, action: str, entity_type: str, entity_id: Any, **kw: Any) -> None:
+    from audit.services import record_event
+
+    record_event(
+        app_label=AUDIT_APP_LABEL,
+        action=action,
+        actor_type=user.authority_type,
+        actor_id=str(user.id),
+        actor_label=user.username,
+        entity_type=entity_type,
+        entity_id=str(entity_id),
+        source="authenticate",
+        **kw,
+    )
+
+
+def _clean_clipboard_text(value: str) -> str:
+    return normalize_unicode(value or "").strip()
+
+
+def _assert_own_category(user: User, category: Any) -> None:
+    if category is not None and category.user_id != user.id:
+        raise ClipboardCategoryInvalidError("That category is not one of yours.")
+
+
+@transaction.atomic
+def create_clipboard_entry(
+    *,
+    user: User,
+    label: str,
+    text: str,
+    field_key: str = "",
+    category: Any = None,
+    ip_address: str | None = None,
+) -> Any:
+    """Save a snippet to the caller's clipboard. Refused once they hold ``MAX_CLIPBOARD_ENTRIES``."""
+
+    _assert_own_category(user, category)
+    # Lock the owner row so two concurrent saves cannot both slip under the cap.
+    User.objects.select_for_update().filter(pk=user.pk).first()
+    if count_own_clipboard_entries(user) >= MAX_CLIPBOARD_ENTRIES:
+        raise ClipboardLimitError(f"A clipboard holds at most {MAX_CLIPBOARD_ENTRIES} entries.")
+
+    entry = ClipboardEntry.objects.create(
+        user=user,
+        label=_clean_clipboard_text(label),
+        text=_clean_clipboard_text(text),
+        field_key=field_key or "",
+        category=category,
+    )
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.ENTRY_CREATED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_ENTRY,
+        entity_id=entry.id,
+        ip_address=ip_address,
+        summary="Clipboard entry saved.",
+        metadata={"field_key": entry.field_key},
+    )
+    return entry
+
+
+@transaction.atomic
+def update_clipboard_entry(
+    *,
+    user: User,
+    entry: Any,
+    fields: dict[str, Any],
+    ip_address: str | None = None,
+) -> Any:
+    """Change any of ``label``, ``text``, ``field_key``, ``category`` (``None`` uncategorizes)."""
+
+    if "category" in fields:
+        _assert_own_category(user, fields["category"])
+    changed: list[str] = []
+    for name in ("label", "text", "field_key", "category"):
+        if name not in fields:
+            continue
+        value = fields[name]
+        if name in ("label", "text"):
+            value = _clean_clipboard_text(value)
+        elif name == "field_key":
+            value = value or ""
+        if getattr(entry, name) != value:
+            setattr(entry, name, value)
+            changed.append(name)
+    if not changed:
+        return entry
+
+    entry.save(update_fields=[*changed, "updated_at"])
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.ENTRY_UPDATED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_ENTRY,
+        entity_id=entry.id,
+        ip_address=ip_address,
+        summary="Clipboard entry changed.",
+        # Which fields moved, never their values.
+        metadata={"fields": changed, "field_key": entry.field_key},
+    )
+    return entry
+
+
+@transaction.atomic
+def delete_clipboard_entry(*, user: User, entry: Any, ip_address: str | None = None) -> None:
+    """Remove a snippet for good. Nothing else refers to it."""
+
+    entry_id, field_key = entry.id, entry.field_key
+    entry.delete()
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.ENTRY_DELETED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_ENTRY,
+        entity_id=entry_id,
+        ip_address=ip_address,
+        summary="Clipboard entry deleted.",
+        metadata={"field_key": field_key},
+    )
+
+
+def use_clipboard_entry(entry: Any) -> Any:
+    """Count one copy of this entry. One ``UPDATE``; not audited — it is a ranking signal, not an act."""
+
+    ClipboardEntry.objects.filter(pk=entry.pk).update(
+        usage_count=F("usage_count") + 1, last_used_at=timezone.now(), updated_at=timezone.now()
+    )
+    entry.refresh_from_db()
+    return entry
+
+
+@transaction.atomic
+def create_clipboard_category(*, user: User, name: str, ip_address: str | None = None) -> Any:
+    """Make a new group for the caller's entries. Names are unique per account, ignoring case."""
+
+    cleaned = _clean_clipboard_text(name)
+    User.objects.select_for_update().filter(pk=user.pk).first()
+    if own_clipboard_category_name_exists(user, cleaned):
+        raise ClipboardCategoryNameTakenError("You already have a category with that name.")
+    if count_own_clipboard_categories(user) >= MAX_CLIPBOARD_CATEGORIES:
+        raise ClipboardCategoryLimitError(f"A clipboard holds at most {MAX_CLIPBOARD_CATEGORIES} categories.")
+
+    category = ClipboardCategory.objects.create(user=user, name=cleaned)
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.CATEGORY_CREATED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_CATEGORY,
+        entity_id=category.id,
+        ip_address=ip_address,
+        summary="Clipboard category created.",
+    )
+    return category
+
+
+@transaction.atomic
+def rename_clipboard_category(*, user: User, category: Any, name: str, ip_address: str | None = None) -> Any:
+    cleaned = _clean_clipboard_text(name)
+    if cleaned == category.name:
+        return category
+    if own_clipboard_category_name_exists(user, cleaned, exclude_id=category.id):
+        raise ClipboardCategoryNameTakenError("You already have a category with that name.")
+    category.name = cleaned
+    category.save(update_fields=["name", "updated_at"])
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.CATEGORY_UPDATED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_CATEGORY,
+        entity_id=category.id,
+        ip_address=ip_address,
+        summary="Clipboard category renamed.",
+    )
+    return category
+
+
+@transaction.atomic
+def delete_clipboard_category(*, user: User, category: Any, ip_address: str | None = None) -> int:
+    """Delete a group. Its entries stay, uncategorized. Returns how many entries that was."""
+
+    category_id = category.id
+    moved = category.entries.count()
+    category.delete()  # entries: SET_NULL
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.CATEGORY_DELETED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_CATEGORY,
+        entity_id=category_id,
+        ip_address=ip_address,
+        summary="Clipboard category deleted.",
+        metadata={"entries_uncategorized": moved},
+    )
+    return moved

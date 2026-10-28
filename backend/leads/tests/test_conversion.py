@@ -219,7 +219,12 @@ class TestStudyInterestMapping(ConversionTestCase):
         self.assertIn("Australia", journey.notes)
         self.assertIn("Canada", journey.notes)
 
-    def test_fields_owned_by_unbuilt_modules_are_carried_in_notes(self) -> None:
+    def test_fields_with_no_applicant_record_are_carried_in_notes(self) -> None:
+        """A level-less (free-text only) qualification, the test *status*, and the
+        interest notes have no applicant record to become, so they stay as text.
+        A qualification **with** a level becomes an education record instead —
+        ``test_qualification_and_certificates.ConversionCopiesQualificationTests``.
+        """
         self.set_interest(
             highest_qualification="BSc CSIT",
             language_test_status="preparing",

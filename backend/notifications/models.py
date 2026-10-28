@@ -22,9 +22,12 @@ One table, and four conventions run through it — every one of them deliberate:
   have seen this" indistinguishable from "this is handled", which is the
   distinction the concept file draws when it lists "unread and read state" and
   "resolved or dismissed state" as two separate requirements.
-* **Nothing is ever deleted.** ``dismissed`` and ``resolved`` are terminal
+* **Nothing is deleted by a user.** ``dismissed`` and ``resolved`` are terminal
   states and the row stays — ``concepts/notifications.txt`` requires it in as
   many words: "preserve the alert history even after the source issue is fixed."
+  Since 2026-10-29 the nightly sweep purges what is safe to forget after the
+  retention window (``services.purge_expired``) — never a dismissed or active
+  deadline alert, whose row is what stops it being raised again.
 """
 
 from __future__ import annotations
@@ -52,7 +55,7 @@ from notifications.constants import (
 class Notification(BaseModel):
     """One alert, for one person, about one source record.
 
-    Created only by ``services.create_notification`` — called by the sweep
+    Created only by ``services.dispatch`` — called by the sweep
     command and by this app's signal receivers. There is no create endpoint and
     no other app imports this module, which is what keeps a failure to alert from
     ever becoming a failure to save the thing being alerted about.
@@ -81,7 +84,7 @@ class Notification(BaseModel):
 
     # Stored, not derived. Re-rating a type later is a legitimate thing to want;
     # silently rewriting what every past alert claimed about its own urgency is
-    # not. ``services.create_notification`` maps this from the type and no caller
+    # not. ``services.dispatch`` maps this from the type and no caller
     # may supply it.
     priority = models.CharField(
         max_length=10,
@@ -112,6 +115,14 @@ class Notification(BaseModel):
         blank=True,
         help_text="Canonical API path of the source, so a client is not guessing routes.",
     )
+    # The applicant the alert is about, when there is one (2026-10-29). A bare
+    # UUID like ``source_entity_id``: it powers ``?applicant_id=`` and the
+    # ``assigned_only`` preference, and must survive the applicant's app changing.
+    applicant_id = models.UUIDField(null=True, blank=True, db_index=True)
+    # Structured, non-sensitive facts for the client to render (``from``/``to``
+    # status, the originating lead). Never identity numbers, scores, or note
+    # text — the feed is the one place a record's details are copied out.
+    payload = models.JSONField(default=dict, blank=True)
 
     due_at = models.DateTimeField(
         null=True,
@@ -276,3 +287,32 @@ class Notification(BaseModel):
         if self.due_at <= moment + timedelta(days=due_within_days):
             return DueBucket.DUE_SOON
         return DueBucket.LATER
+
+
+class NotificationPreference(BaseModel):
+    """What one person has chosen not to be told (2026-10-29).
+
+    At most one row per user, created on first ``PATCH``; a user with no row has
+    the defaults (everything on, ``assigned_only`` off). Applied in
+    ``services.dispatch`` — a muted alert is never written, rather than written
+    and hidden, so the badge and the feed always agree.
+    """
+
+    user = models.OneToOneField(
+        "authenticate.User",
+        on_delete=models.PROTECT,
+        related_name="notification_preference",
+    )
+    #: ``NotificationCategory`` values this user does not want in-app.
+    muted_categories = models.JSONField(default=list, blank=True)
+    #: Only hear about applicants assigned to *me*; alerts about anyone else's or
+    #: unassigned applicants are skipped. Alerts with no applicant are unaffected.
+    assigned_only = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "notifications_preference"
+        verbose_name = "Notification preference"
+        verbose_name_plural = "Notification preferences"
+
+    def __str__(self) -> str:
+        return f"Notification preferences for {self.user_id}"

@@ -25,6 +25,10 @@ from rest_framework.views import APIView
 from authenticate import services
 from authenticate.constants import ErrorCode, RefreshRejectReason
 from authenticate.exceptions import (
+    ClipboardCategoryInvalidError,
+    ClipboardCategoryLimitError,
+    ClipboardCategoryNameTakenError,
+    ClipboardLimitError,
     DeviceLimitError,
     InvalidAuthorityError,
     InvalidCredentialsError,
@@ -44,6 +48,10 @@ from authenticate.selectors import (
     get_active_sessions_for_user,
     get_events_for_user,
     get_manageable_users,
+    get_own_clipboard,
+    get_own_clipboard_categories,
+    get_own_clipboard_category,
+    get_own_clipboard_entry,
     managed_tier_for,
 )
 from authenticate.serializers import (
@@ -52,6 +60,11 @@ from authenticate.serializers import (
     AdminResetPasswordSerializer,
     AuthEventSerializer,
     BlockAccountSerializer,
+    ClipboardCategorySerializer,
+    ClipboardCategoryWriteSerializer,
+    ClipboardEntrySerializer,
+    ClipboardEntryWriteSerializer,
+    ClipboardFilterSerializer,
     CurrentUserSerializer,
     LoginSerializer,
     MfaDisableSerializer,
@@ -715,3 +728,195 @@ class OwnSessionRevokeView(APIView):
         if revoked_current:
             _clear_refresh_cookie(response)
         return response
+
+
+# ---------------------------------------------------------------------------
+# Personal clipboard (2026-10-29) — every authority, own entries only
+# ---------------------------------------------------------------------------
+
+
+def _clipboard_not_found(code: str, what: str) -> Response:
+    """Another account's id and a made-up id answer identically."""
+    return error_response(code, f"No such {what} on your clipboard.", http_status=status.HTTP_404_NOT_FOUND)
+
+
+def _resolve_category(request: Request, category_id: Any) -> Any:
+    """The caller's own category for an entry write, or ``None``; anything else is invalid."""
+    if category_id is None:
+        return None
+    category = get_own_clipboard_category(request.user, category_id)
+    if category is None:
+        raise ClipboardCategoryInvalidError("That category is not one of yours.")
+    return category
+
+
+def _category_invalid(exc: Exception) -> Response:
+    return error_response(
+        ErrorCode.CLIPBOARD_CATEGORY_INVALID,
+        str(exc),
+        details={"category": [str(exc)]},
+        http_status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+class ClipboardListView(APIView):
+    """GET/POST /api/v1/auth/me/clipboard/ — the caller's own snippets, most used first."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        filters = ClipboardFilterSerializer(data=request.query_params)
+        filters.is_valid(raise_exception=True)
+        data = filters.validated_data
+        queryset = get_own_clipboard(
+            request.user,
+            field_keys=data.get("field_key") or None,
+            category=data.get("category") or None,
+            search=(data.get("search") or "").strip() or None,
+        )
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        return paginator.get_paginated_response(ClipboardEntrySerializer(page, many=True).data)
+
+    def post(self, request: Request) -> Response:
+        serializer = ClipboardEntryWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            entry = services.create_clipboard_entry(
+                user=request.user,
+                label=data["label"],
+                text=data["text"],
+                field_key=data.get("field_key", ""),
+                category=_resolve_category(request, data.get("category")),
+                ip_address=_client_ip(request),
+            )
+        except ClipboardCategoryInvalidError as exc:
+            return _category_invalid(exc)
+        except ClipboardLimitError as exc:
+            return error_response(ErrorCode.CLIPBOARD_LIMIT_REACHED, str(exc), http_status=status.HTTP_400_BAD_REQUEST)
+        return success_response(
+            data=ClipboardEntrySerializer(entry).data,
+            message="Clipboard entry saved.",
+            http_status=status.HTTP_201_CREATED,
+        )
+
+
+class ClipboardDetailView(APIView):
+    """PATCH/DELETE /api/v1/auth/me/clipboard/<id>/ — change or remove one of the caller's entries."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request: Request, entry_id: str) -> Response:
+        entry = get_own_clipboard_entry(request.user, entry_id)
+        if entry is None:
+            return _clipboard_not_found(ErrorCode.CLIPBOARD_ENTRY_NOT_FOUND, "entry")
+        serializer = ClipboardEntryWriteSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        fields = dict(serializer.validated_data)
+        try:
+            if "category" in fields:
+                fields["category"] = _resolve_category(request, fields["category"])
+            entry = services.update_clipboard_entry(
+                user=request.user, entry=entry, fields=fields, ip_address=_client_ip(request)
+            )
+        except ClipboardCategoryInvalidError as exc:
+            return _category_invalid(exc)
+        return success_response(data=ClipboardEntrySerializer(entry).data, message="Clipboard entry updated.")
+
+    def delete(self, request: Request, entry_id: str) -> Response:
+        entry = get_own_clipboard_entry(request.user, entry_id)
+        if entry is None:
+            return _clipboard_not_found(ErrorCode.CLIPBOARD_ENTRY_NOT_FOUND, "entry")
+        services.delete_clipboard_entry(user=request.user, entry=entry, ip_address=_client_ip(request))
+        return success_response(data={"deleted": True}, message="Clipboard entry deleted.")
+
+
+class ClipboardUseView(APIView):
+    """POST /api/v1/auth/me/clipboard/<id>/use/ — count one copy, for ranking."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request, entry_id: str) -> Response:
+        entry = get_own_clipboard_entry(request.user, entry_id)
+        if entry is None:
+            return _clipboard_not_found(ErrorCode.CLIPBOARD_ENTRY_NOT_FOUND, "entry")
+        entry = services.use_clipboard_entry(entry)
+        return success_response(data=ClipboardEntrySerializer(entry).data, message="Clipboard entry used.")
+
+
+class ClipboardCategoryListView(APIView):
+    """GET/POST /api/v1/auth/me/clipboard/categories/ — the caller's own groups."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        categories = get_own_clipboard_categories(request.user)
+        return success_response(
+            data=ClipboardCategorySerializer(categories, many=True).data,
+            message="Clipboard categories retrieved.",
+        )
+
+    def post(self, request: Request) -> Response:
+        serializer = ClipboardCategoryWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            category = services.create_clipboard_category(
+                user=request.user, name=serializer.validated_data["name"], ip_address=_client_ip(request)
+            )
+        except ClipboardCategoryNameTakenError as exc:
+            return error_response(
+                ErrorCode.CLIPBOARD_CATEGORY_NAME_TAKEN,
+                str(exc),
+                details={"name": [str(exc)]},
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ClipboardCategoryLimitError as exc:
+            return error_response(
+                ErrorCode.CLIPBOARD_CATEGORY_LIMIT_REACHED, str(exc), http_status=status.HTTP_400_BAD_REQUEST
+            )
+        return success_response(
+            data=ClipboardCategorySerializer(category).data,
+            message="Clipboard category created.",
+            http_status=status.HTTP_201_CREATED,
+        )
+
+
+class ClipboardCategoryDetailView(APIView):
+    """PATCH/DELETE /api/v1/auth/me/clipboard/categories/<id>/ — rename, or delete keeping the entries."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request: Request, category_id: str) -> Response:
+        category = get_own_clipboard_category(request.user, category_id)
+        if category is None:
+            return _clipboard_not_found(ErrorCode.CLIPBOARD_CATEGORY_NOT_FOUND, "category")
+        serializer = ClipboardCategoryWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            category = services.rename_clipboard_category(
+                user=request.user,
+                category=category,
+                name=serializer.validated_data["name"],
+                ip_address=_client_ip(request),
+            )
+        except ClipboardCategoryNameTakenError as exc:
+            return error_response(
+                ErrorCode.CLIPBOARD_CATEGORY_NAME_TAKEN,
+                str(exc),
+                details={"name": [str(exc)]},
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        return success_response(data=ClipboardCategorySerializer(category).data, message="Clipboard category renamed.")
+
+    def delete(self, request: Request, category_id: str) -> Response:
+        category = get_own_clipboard_category(request.user, category_id)
+        if category is None:
+            return _clipboard_not_found(ErrorCode.CLIPBOARD_CATEGORY_NOT_FOUND, "category")
+        moved = services.delete_clipboard_category(
+            user=request.user, category=category, ip_address=_client_ip(request)
+        )
+        return success_response(
+            data={"deleted": True, "entries_uncategorized": moved},
+            message="Clipboard category deleted.",
+        )

@@ -11,8 +11,9 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 from audit.selectors import get_events_for_entity
+from core.constants import NoteCategory
 from core.querying import narrow_to_window
-from django.db.models import Case, Count, IntegerField, Q, QuerySet, When
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, QuerySet, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
     # queryset, this app never touches the model.
     from audit.models import AuditEvent
 from leads.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_LEAD, LeadStage
-from leads.models import Lead, LeadNote, LeadSource, LossReason
+from leads.models import Lead, LeadLanguageCertificate, LeadNote, LeadSource, LossReason
 
 # ---------------------------------------------------------------------------
 # Reference configuration
@@ -60,13 +61,19 @@ def get_loss_reason_by_id(reason_id: str) -> LossReason | None:
 # ---------------------------------------------------------------------------
 
 
-def get_leads_for_actor(actor: Any) -> QuerySet[Lead]:
+def get_leads_for_actor(actor: Any, *, deleted: bool = False) -> QuerySet[Lead]:
     """Every lead the actor may see: all of them for an Admin, own for a Lead Manager.
+
+    Soft-deleted leads are excluded unless ``deleted=True``, which returns
+    *only* deleted leads (the Admin's "deleted" view — the view refuses it to a
+    Lead Manager). Because search and the dashboard figures read leads through
+    this selector, a deleted lead drops out of both with no change there.
 
     ``select_related``/``prefetch_related`` are applied here so list rendering
     never issues a query per row (§6, N+1 prevention).
     """
     queryset = Lead.objects.select_related("source", "created_by").prefetch_related("contact_numbers")
+    queryset = queryset.filter(deleted_at__isnull=not deleted)
     if is_admin(actor):
         return queryset
     return queryset.filter(created_by=actor)
@@ -76,11 +83,19 @@ def get_lead_for_actor(actor: Any, lead_id: str) -> Lead | None:
     """One in-scope lead with its detail relations, or None.
 
     Returning None for both "missing" and "not yours" is deliberate — the view
-    turns either into 404, so ownership is never disclosed.
+    turns either into 404, so ownership is never disclosed. A deleted lead is in
+    scope for an Admin only (so it can be read and restored); for a Lead
+    Manager it is simply not found.
     """
+    queryset = Lead.objects.select_related("source", "created_by").prefetch_related(
+        "contact_numbers", "language_certificates"
+    )
+    if not is_admin(actor):
+        queryset = queryset.filter(created_by=actor, deleted_at__isnull=True)
     return (
-        get_leads_for_actor(actor)
-        .select_related("study_interest", "lost_reason", "last_followed_up_by", "lost_by", "converted_by")
+        queryset.select_related(
+            "study_interest", "lost_reason", "last_followed_up_by", "lost_by", "converted_by", "deleted_by"
+        )
         .filter(pk=lead_id)
         .first()
     )
@@ -161,10 +176,28 @@ def rank_leads(queryset: QuerySet[Lead], query: str) -> QuerySet[Lead]:
 def filter_leads(queryset: QuerySet[Lead], filters: dict[str, Any] | None = None) -> QuerySet[Lead]:
     """Apply the documented list filters.
 
-    Recognised keys: ``stage``, ``source`` (id), ``search``, and ``fiscal_year``
-    (``YYYY/YY``, Nepali fiscal year — §39.4).
+    Recognised keys: ``stage``, ``source`` (id), ``search``, ``fiscal_year``
+    (``YYYY/YY``, Nepali fiscal year — §39.4), ``highest_qualification_level``
+    and ``language_test_status`` (on the study interest), and
+    ``language_test_type`` (leads holding at least one certificate of that type).
     """
     filters = filters or {}
+
+    level = filters.get("highest_qualification_level")
+    if level:
+        queryset = queryset.filter(study_interest__highest_qualification_level=level)
+
+    test_status = filters.get("language_test_status")
+    if test_status:
+        queryset = queryset.filter(study_interest__language_test_status=test_status)
+
+    test_type = filters.get("language_test_type")
+    if test_type:
+        # ``Exists`` rather than a join + ``distinct()``: a lead with two IELTS
+        # results must still appear once, and ``rank_leads`` annotates later.
+        queryset = queryset.filter(
+            Exists(LeadLanguageCertificate.objects.filter(lead=OuterRef("pk"), test_type=test_type))
+        )
 
     stage = filters.get("stage")
     if stage:
@@ -358,9 +391,82 @@ def get_lead_workload_by_owner(
 # ---------------------------------------------------------------------------
 
 
-def get_notes_for_lead(lead: Lead) -> QuerySet[LeadNote]:
-    """A lead's notes, newest first, with authors joined."""
-    return LeadNote.objects.filter(lead=lead).select_related("author")
+def get_notes_for_lead(
+    lead: Lead,
+    *,
+    category: str | None = None,
+    ordering: str | None = None,
+) -> QuerySet[LeadNote]:
+    """A lead's live notes, most recent ``noted_at`` first, with authors joined.
+
+    Soft-deleted notes are excluded. ``ordering`` is one of
+    ``core.constants.NOTE_ORDERINGS``; the serializer validates it first.
+    """
+    queryset = LeadNote.objects.filter(lead=lead, deleted_at__isnull=True).select_related("author", "updated_by")
+    if category:
+        queryset = queryset.filter(category=category)
+    if ordering:
+        queryset = queryset.order_by(ordering, "-created_at")
+    return queryset
+
+
+def get_note_for_lead(lead: Lead, note_id: str) -> LeadNote | None:
+    """One live note of this lead, or None (a deleted note is not found)."""
+    return (
+        LeadNote.objects.filter(lead=lead, pk=note_id, deleted_at__isnull=True)
+        .select_related("author", "updated_by")
+        .first()
+    )
+
+
+def get_note_category_counts(lead: Lead) -> dict[str, int]:
+    """Live note count per category — the notes panel's tab badges."""
+    counts = dict(
+        LeadNote.objects.filter(lead=lead, deleted_at__isnull=True)
+        .values("category")
+        .annotate(total=Count("id"))
+        .values_list("category", "total")
+    )
+    return {category: counts.get(category, 0) for category in NoteCategory.values}
+
+
+def get_lead_note_exports(lead: Lead) -> list[dict[str, Any]]:
+    """The lead's live notes as plain dicts, oldest first — copied at conversion.
+
+    Returned as data rather than model instances so ``applicants`` receives
+    values, never a ``leads`` model (§4).
+    """
+    return [
+        {
+            "category": note.category,
+            "body": note.body,
+            "noted_at": note.noted_at,
+            "author": note.author,
+            "created_at": note.created_at,
+        }
+        for note in LeadNote.objects.filter(lead=lead, deleted_at__isnull=True)
+        .select_related("author")
+        .order_by("noted_at", "created_at")
+    ]
+
+
+#: The certificate fields copied onto an applicant language test at conversion.
+_CERTIFICATE_EXPORT_FIELDS = (
+    "test_type",
+    "overall_score",
+    "listening_score",
+    "reading_score",
+    "writing_score",
+    "speaking_score",
+    "test_date",
+    "certificate_number",
+    "expiry_date",
+)
+
+
+def get_lead_certificate_exports(lead: Lead) -> list[dict[str, Any]]:
+    """The lead's language certificates as plain dicts — copied 1:1 at conversion (§4: values, not models)."""
+    return list(LeadLanguageCertificate.objects.filter(lead=lead).values(*_CERTIFICATE_EXPORT_FIELDS))
 
 
 def get_history_for_lead(lead: Lead) -> QuerySet[AuditEvent]:

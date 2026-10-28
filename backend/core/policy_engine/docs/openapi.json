@@ -200,6 +200,58 @@
         ]
       }
     },
+    "/api/v1/applicants/{applicant_id}/assign/": {
+      "post": {
+        "operationId": "applicants.applicant.assign",
+        "summary": "Assign Applicant",
+        "description": "Set or clear the staff member notified about an applicant. Admins assign anyone; a Lead Manager may only take an unassigned applicant or release their own. Never changes who can see the file.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "applicants"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "applicants.applicant.assign",
+        "x-risk-level": "medium",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "applicant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/applicants/{applicant_id}/history/": {
       "get": {
         "operationId": "applicants.applicant.list_history",
@@ -216,6 +268,278 @@
         "x-permission-key": "applicants.applicant.list_history",
         "x-risk-level": "low",
         "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "applicant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/applicants/{applicant_id}/notes/": {
+      "get": {
+        "operationId": "applicants.note.list",
+        "summary": "List Applicant Notes",
+        "description": "List an applicant's live notes, most recent noted_at first, with per-category counts.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "applicants"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "applicants.note.list",
+        "x-risk-level": "low",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "applicant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "applicants.note.create",
+        "summary": "Add Applicant Note",
+        "description": "Write a general or visit note on an applicant, optionally backdated.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "applicants"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "applicants.note.create",
+        "x-risk-level": "low",
+        "x-operation-type": "create",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "applicant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/applicants/{applicant_id}/notes/{note_id}/": {
+      "delete": {
+        "operationId": "applicants.note.delete",
+        "summary": "Delete Applicant Note",
+        "description": "Soft-delete a note: it leaves the feed, the row and its audit trail stay. Author or Admin.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "applicants"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "applicants.note.delete",
+        "x-risk-level": "medium",
+        "x-operation-type": "delete",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "applicant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "applicants.note.update",
+        "summary": "Edit Applicant Note",
+        "description": "Correct a note's category, text, or noted_at. The author or an Admin only; audited.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "applicants"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "applicants.note.update",
+        "x-risk-level": "medium",
+        "x-operation-type": "update",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "applicant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/applicants/{applicant_id}/restore/": {
+      "post": {
+        "operationId": "applicants.applicant.restore",
+        "summary": "Restore Applicant",
+        "description": "Un-archive an applicant back to the status held before archiving. Admin only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "applicants"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "applicants.applicant.restore",
+        "x-risk-level": "medium",
+        "x-operation-type": "custom",
         "responses": {
           "200": {
             "description": "Success",
@@ -564,6 +888,426 @@
             "$ref": "#/components/responses/Error"
           }
         }
+      }
+    },
+    "/api/v1/auth/me/clipboard/": {
+      "get": {
+        "operationId": "authenticate.clipboard_entry.list",
+        "summary": "List Own Clipboard",
+        "description": "The caller's own clipboard entries, most used first; filter by field key, category, or search.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_entry.list",
+        "x-risk-level": "low",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "authenticate.clipboard_entry.create",
+        "summary": "Save Clipboard Entry",
+        "description": "Save a snippet (label, text, optional field key and category) to the caller's own clipboard.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_entry.create",
+        "x-risk-level": "low",
+        "x-operation-type": "create",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me/clipboard/categories/": {
+      "get": {
+        "operationId": "authenticate.clipboard_category.list",
+        "summary": "List Own Clipboard Categories",
+        "description": "The caller's own clipboard categories by name, each with its entry count.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_category.list",
+        "x-risk-level": "low",
+        "x-operation-type": "list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "authenticate.clipboard_category.create",
+        "summary": "Create Clipboard Category",
+        "description": "Create a category on the caller's own clipboard. Names are unique per account, ignoring case.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_category.create",
+        "x-risk-level": "low",
+        "x-operation-type": "create",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me/clipboard/categories/{category_id}/": {
+      "delete": {
+        "operationId": "authenticate.clipboard_category.delete",
+        "summary": "Delete Clipboard Category",
+        "description": "Delete one of the caller's own clipboard categories; its entries are kept, uncategorized.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_category.delete",
+        "x-risk-level": "low",
+        "x-operation-type": "delete",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "category_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "authenticate.clipboard_category.update",
+        "summary": "Rename Clipboard Category",
+        "description": "Rename one of the caller's own clipboard categories.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_category.update",
+        "x-risk-level": "low",
+        "x-operation-type": "update",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "category_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/me/clipboard/{entry_id}/": {
+      "delete": {
+        "operationId": "authenticate.clipboard_entry.delete",
+        "summary": "Delete Clipboard Entry",
+        "description": "Permanently delete one of the caller's own clipboard entries.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_entry.delete",
+        "x-risk-level": "low",
+        "x-operation-type": "delete",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "authenticate.clipboard_entry.update",
+        "summary": "Update Clipboard Entry",
+        "description": "Change the label, text, field key, or category of one of the caller's own entries.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_entry.update",
+        "x-risk-level": "low",
+        "x-operation-type": "update",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/me/clipboard/{entry_id}/use/": {
+      "post": {
+        "operationId": "authenticate.clipboard_entry.use",
+        "summary": "Use Clipboard Entry",
+        "description": "Record that the caller copied one of their entries, so the list ranks it higher.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "authenticate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "authenticate.clipboard_entry.use",
+        "x-risk-level": "low",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/auth/mfa/disable/": {
@@ -4774,7 +5518,7 @@
       "get": {
         "operationId": "documents.document.list",
         "summary": "List Documents",
-        "description": "List document working records across applicants and standalone documents. Admin only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "List document working records across applicants and standalone documents; archived ones only on request. Admin only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "documents"
         ],
@@ -4852,11 +5596,63 @@
         }
       }
     },
+    "/api/v1/documents/prefill/{applicant_id}/": {
+      "get": {
+        "operationId": "documents.prefill.read",
+        "summary": "Read Document Prefill",
+        "description": "The applicant's names, identity numbers, addresses, parents and grandparents, education, language tests, and current photo, shaped for document forms. Admin only; read-only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "documents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "documents.prefill.read",
+        "x-risk-level": "high",
+        "x-operation-type": "read",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "applicant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/documents/workspaces/": {
       "get": {
         "operationId": "documents.document.list_workspaces",
         "summary": "List Document Workspaces",
-        "description": "List applicants with live documents, each with a count and the most recent edit.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "List applicants with documents, each with live and archived counts and the most recent edit.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "documents"
         ],
@@ -4948,7 +5744,7 @@
       "patch": {
         "operationId": "documents.document.update",
         "summary": "Edit Document",
-        "description": "Save the workspace — label, body, notes. Owner, family, template, and status are unaffected.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "Save the workspace — label, body, notes, layout version. Owner, family, template, and status are unaffected.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "documents"
         ],
@@ -5104,7 +5900,7 @@
       "post": {
         "operationId": "documents.document.restore",
         "summary": "Restore Document",
-        "description": "Return an archived document to draft so it can be edited again.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "Return an archived document to the status it held before archiving (draft if unknown).\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "documents"
         ],
@@ -6495,6 +7291,56 @@
       }
     },
     "/api/v1/leads/{lead_id}/": {
+      "delete": {
+        "operationId": "leads.lead.delete",
+        "summary": "Delete Lead",
+        "description": "Soft-delete a lead with a reason: hidden from lists, search, and dashboards; restorable. Admin only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "leads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "leads.lead.delete",
+        "x-risk-level": "high",
+        "x-operation-type": "delete",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "lead_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
       "get": {
         "operationId": "leads.lead.read",
         "summary": "View Lead",
@@ -6808,7 +7654,7 @@
       "get": {
         "operationId": "leads.note.list",
         "summary": "List Lead Notes",
-        "description": "List the notes recorded against a lead, newest first.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "List a lead's live notes, most recent noted_at first, with per-category counts.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "leads"
         ],
@@ -6858,7 +7704,7 @@
       "post": {
         "operationId": "leads.note.create",
         "summary": "Add Lead Note",
-        "description": "Append a note to a lead. Notes are append-only — there is no edit or delete.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "Write a general or visit note on a lead, optionally backdated.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "leads"
         ],
@@ -6906,6 +7752,124 @@
         ]
       }
     },
+    "/api/v1/leads/{lead_id}/notes/{note_id}/": {
+      "delete": {
+        "operationId": "leads.note.delete",
+        "summary": "Delete Lead Note",
+        "description": "Soft-delete a note: it leaves the feed, the row and its audit trail stay. Author or Admin.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "leads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "leads.note.delete",
+        "x-risk-level": "medium",
+        "x-operation-type": "delete",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "lead_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "leads.note.update",
+        "summary": "Edit Lead Note",
+        "description": "Correct a note's category, text, or noted_at. The author or an Admin only; audited.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "leads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "leads.note.update",
+        "x-risk-level": "medium",
+        "x-operation-type": "update",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "lead_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/leads/{lead_id}/reopen/": {
       "post": {
         "operationId": "leads.lead.reopen",
@@ -6920,6 +7884,58 @@
           }
         ],
         "x-permission-key": "leads.lead.reopen",
+        "x-risk-level": "high",
+        "x-operation-type": "custom",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "lead_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/leads/{lead_id}/restore/": {
+      "post": {
+        "operationId": "leads.lead.restore",
+        "summary": "Restore Lead",
+        "description": "Bring a soft-deleted lead back exactly as it was. Admin only.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "leads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "leads.lead.restore",
         "x-risk-level": "high",
         "x-operation-type": "custom",
         "responses": {
@@ -7052,6 +8068,88 @@
         }
       }
     },
+    "/api/v1/notifications/preferences/": {
+      "get": {
+        "operationId": "notifications.preference.read",
+        "summary": "Read Own Notification Preferences",
+        "description": "The caller's per-category in-app switches and the assigned-only setting. Defaults (everything on) when nothing has been saved.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "notifications.preference.read",
+        "x-risk-level": "low",
+        "x-operation-type": "read",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "notifications.preference.update",
+        "summary": "Update Own Notification Preferences",
+        "description": "Mute or unmute notification categories and switch assigned-only on or off for the caller. Only what is sent changes; nothing already in the feed is hidden.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-permission-key": "notifications.preference.update",
+        "x-risk-level": "low",
+        "x-operation-type": "update",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/v1/notifications/read-all/": {
       "post": {
         "operationId": "notifications.notification.mark_all_read",
@@ -7098,7 +8196,7 @@
       "get": {
         "operationId": "notifications.notification.summary",
         "summary": "Read Own Notification Summary",
-        "description": "Unread count plus active totals by priority and by due bucket, for the calling user. Exists so a client rendering a bell badge is not forced to page the whole feed.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
+        "description": "Unread count plus active totals by priority and by due bucket, and unread counts by category, for the calling user. Exists so a client rendering a bell badge is not forced to page the whole feed.\n\nRequest/response field schemas: see the owning app's `docs/DATA_CONTRACT.md`.",
         "tags": [
           "notifications"
         ],

@@ -7,6 +7,7 @@ from documents.views import (
     DocumentDetailView,
     DocumentHistoryView,
     DocumentListCreateView,
+    DocumentPrefillView,
     DocumentRestoreView,
     DocumentStatusView,
     WorkspaceListView,
@@ -19,6 +20,7 @@ urlpatterns = [
     # Declared before the ``<uuid:document_id>/`` routes so the literal segment
     # is never shadowed by the id pattern.
     path("workspaces/", WorkspaceListView.as_view(), name="workspace-list"),
+    path("prefill/<uuid:applicant_id>/", DocumentPrefillView.as_view(), name="document-prefill"),
     path("<uuid:document_id>/", DocumentDetailView.as_view(), name="document-detail"),
     path("<uuid:document_id>/status/", DocumentStatusView.as_view(), name="document-status"),
     path("<uuid:document_id>/archive/", DocumentArchiveView.as_view(), name="document-archive"),

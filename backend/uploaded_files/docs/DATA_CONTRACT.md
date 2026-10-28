@@ -1,7 +1,7 @@
 # Data Contract — Uploaded Files
 
 **Owner app:** `uploaded_files`
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the platform's file ledger — the stored bytes plus their category, ownership, verification state, replacement chain, and archival history. It does **not** own the editable document record (`documents`), the immutable print snapshot (`document_history`), the template catalogue or its signatories (`document_templates`), or the person (`applicants`). It renders nothing and computes nothing about a file's contents.
@@ -14,6 +14,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial contract — one model, `UploadedFile` |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No schema change. Recorded the owner-visibility access rule (`document`- and `snapshot`-owned files are Admin-only, closing a leak found by the §19.5 review), the `UPLOADED_FILES_FILE_EMPTY` split, the `superseded_by_username` response field, and the deliberate absence of upload idempotency |
+| 1.0.2 | 2026-10-29 | AI (Claude Opus 5.5) | No schema change. Recorded `documents` as a second reverse reader: its `student-certificate` photo check calls `selectors.get_file_by_id` (function-local import), and the import invariant that keeps the pair acyclic |
 
 ---
 
@@ -220,9 +221,11 @@ That module additionally enforces a rule this app does not: **an evidence file m
 
 **Two apps reference this one, both the same way.** `checklists.ChecklistItem.evidence_file` cites the file proving a requirement was met, and `document_templates.Signatory.signature_file` names the signature image that renders on a certificate. Both are nullable `PROTECT` foreign keys resolved through a function-local selector import.
 
-**`document_templates` is the project's only bidirectional app pair.** This app imports its `selectors` at module level for the owner lookup; it imports this app's `services` function-locally. The invariant keeping that acyclic is written at both import sites: **neither app's `selectors.py` may import its own `services.py`.** Break it and Django fails at startup with a "partially initialized module" traceback naming neither app's real problem.
+**`document_templates` was the first bidirectional app pair; `documents` is now the second (below).** This app imports its `selectors` at module level for the owner lookup; it imports this app's `services` function-locally. The invariant keeping that acyclic is written at both import sites: **neither app's `selectors.py` may import its own `services.py`.** Break it and Django fails at startup with a "partially initialized module" traceback naming neither app's real problem.
 
-**Everywhere else the direction is still one-way.** `applicants` has no photograph field, `offers` has no attachment field, `documents` has no attachment field, `document_history` has no generated-file field, and `clients.logo_url` is still a plain URL. A file knows its owner; an owner learns about its files only through this app's list endpoint filtered by that record's id. A reverse pointer is what an app adds when *which* file is the answer to a question rather than merely *some* file among several — which is what `document_templates` needed and `applicants` still lacks.
+**`documents` reads this app since 2026-10-29 — a runtime read, not a field.** A `student-certificate`'s `content.photo_media_id` is checked through `uploaded_files.selectors.get_file_by_id`: the file must exist, be a `photograph`, be owned by the certificate's own applicant, and not be archived. This app already depends on `documents` (the `document` owner FK and its owner-lookup selector), so `documents` imports this app's `constants` and `selectors` **inside the checking function** (`documents.validators._check_photo`), never at module level. The same invariant as with `document_templates` keeps it acyclic: **this app's `selectors.py` must not import `documents.validators` or `documents.services`.** The id lives inside a JSON body, so it is not a foreign key: archiving or replacing the photograph later does not touch the certificate, and the check runs again only on the certificate's next save.
+
+**Everywhere else the direction is still one-way.** `applicants` has no photograph field, `offers` has no attachment field, `documents` has no attachment field (the certificate photo is an id inside `content`, above), `document_history` has no generated-file field, and `clients.logo_url` is still a plain URL. A file knows its owner; an owner learns about its files only through this app's list endpoint filtered by that record's id. A reverse pointer is what an app adds when *which* file is the answer to a question rather than merely *some* file among several — which is what `document_templates` needed and `applicants` still lacks.
 
 The practical consequence for a client: **there is no "attach" call on any other app's endpoint.** To attach a passport to an applicant you `POST /api/v1/files/` with `applicant=<id>`; to show that applicant's files you `GET /api/v1/files/?applicant=<id>`.
 

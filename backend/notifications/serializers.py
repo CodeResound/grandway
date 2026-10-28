@@ -28,7 +28,9 @@ from rest_framework import serializers
 
 from notifications.constants import (
     DEFAULT_DUE_WITHIN_DAYS,
+    TYPE_CATEGORY,
     DueBucket,
+    NotificationCategory,
     NotificationStatus,
     NotificationType,
     Priority,
@@ -71,6 +73,10 @@ class NotificationFilterSerializer(serializers.Serializer):
     # contract cold and flagged it as the one inconsistency in the set.
     notification_type = serializers.ChoiceField(choices=NotificationType.choices, required=False, allow_blank=True)
     priority = serializers.ChoiceField(choices=Priority.choices, required=False, allow_blank=True)
+    # Comma-separated ``NotificationCategory`` values (2026-10-29): ``?category=lead,notes``.
+    # ``applicant_id`` is named for its payload field, like every other filter here.
+    category = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    applicant_id = serializers.UUIDField(required=False, allow_null=True)
 
     source_app = serializers.CharField(required=False, allow_blank=True, max_length=50)
     source_entity_id = serializers.UUIDField(required=False, allow_null=True)
@@ -89,6 +95,16 @@ class NotificationFilterSerializer(serializers.Serializer):
     date_from = serializers.DateField(required=False, allow_null=True)
     date_to = serializers.DateField(required=False, allow_null=True)
     fiscal_year = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_category(self, value: str) -> list[str]:
+        """Split ``a,b`` into a list; any unknown category is a 400, not an empty page."""
+        categories = [part.strip() for part in (value or "").split(",") if part.strip()]
+        unknown = sorted(set(categories) - set(NotificationCategory.values))
+        if unknown:
+            raise serializers.ValidationError(
+                f"Unknown categor{'ies' if len(unknown) > 1 else 'y'}: {', '.join(unknown)}."
+            )
+        return categories
 
     def validate_fiscal_year(self, value: str) -> str:
         """Reject a malformed fiscal year here rather than deep in a selector.
@@ -128,6 +144,7 @@ class NotificationSerializer(serializers.ModelSerializer):
     """
 
     is_read = serializers.BooleanField(read_only=True)
+    category = serializers.SerializerMethodField()
     due_at_bs = serializers.SerializerMethodField()
     due_bucket = serializers.SerializerMethodField()
 
@@ -136,9 +153,12 @@ class NotificationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "notification_type",
+            "category",
             "priority",
             "title",
             "body",
+            "applicant_id",
+            "payload",
             "source_app",
             "source_entity_type",
             "source_entity_id",
@@ -170,6 +190,9 @@ class NotificationSerializer(serializers.ModelSerializer):
         self._now: datetime = (self.context or {}).get("now") or timezone.now()
         self._due_within_days: int = (self.context or {}).get("due_within_days") or DEFAULT_DUE_WITHIN_DAYS
 
+    def get_category(self, obj: Notification) -> str:
+        return TYPE_CATEGORY.get(obj.notification_type, "")
+
     def get_due_at_bs(self, obj: Notification) -> dict[str, Any] | None:
         return _bs(obj.due_at)
 
@@ -191,6 +214,7 @@ class FeedSummarySerializer(serializers.Serializer):
     active = serializers.IntegerField()
     by_priority = serializers.DictField(child=serializers.IntegerField())
     by_due_bucket = serializers.DictField(child=serializers.IntegerField())
+    by_category = serializers.DictField(child=serializers.IntegerField())
 
 
 class BulkReadResultSerializer(serializers.Serializer):
@@ -202,3 +226,32 @@ class BulkReadResultSerializer(serializers.Serializer):
     """
 
     marked_read = serializers.IntegerField()
+
+
+class ReadAllSerializer(serializers.Serializer):
+    """Optional body of ``POST /read-all/``: narrow the clear to one category."""
+
+    category = serializers.ChoiceField(choices=NotificationCategory.choices, required=False, allow_blank=True)
+
+
+class CategoryPreferenceSerializer(serializers.Serializer):
+    in_app = serializers.BooleanField()
+
+
+class NotificationPreferenceSerializer(serializers.Serializer):
+    """``GET``/``PATCH /preferences/`` (2026-10-29).
+
+    ``categories`` is keyed by every ``NotificationCategory`` on read. On write
+    any subset may be sent; an unknown key is a 400. Each value is
+    ``{ "in_app": bool }`` — one channel today, an object so a second channel is
+    additive.
+    """
+
+    categories = serializers.DictField(child=CategoryPreferenceSerializer(), required=False)
+    assigned_only = serializers.BooleanField(required=False)
+
+    def validate_categories(self, value: dict[str, Any]) -> dict[str, Any]:
+        unknown = sorted(set(value) - set(NotificationCategory.values))
+        if unknown:
+            raise serializers.ValidationError(f"Unknown categories: {', '.join(unknown)}.")
+        return value

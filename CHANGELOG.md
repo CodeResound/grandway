@@ -24,6 +24,14 @@ Release tags are immutable: a released version is never rewritten, only supersed
 - **The documented refresh trigger was wrong** (PATCH) — an expired access token returns
   `AUTHENTICATION_FAILED`, not `AUTHENTICATION_REQUIRED`; `authenticate` `INTEGRATION.md` now says to
   refresh on any 401.
+- **Removed documents kept coming back** (MINOR) — `GET /documents/` returned archived documents
+  unless a `status` filter was sent, so staff believed "remove" did not work. Archived documents
+  are now hidden by default; `status=archived` or `include_archived=true` lists them. An approved
+  in-place change to the list's default filtering on `/api/v1/`.
+- **Restoring a document demoted it to draft** (MINOR) — restore now returns the status the
+  document held before archiving. Documents archived before this release still restore to draft.
+- **Converted leads stranded their notes** (MINOR) — conversion now copies a lead's notes onto the new
+  applicant (same author, category, and dates; `source_lead_id` set). The lead keeps its notes, read-only.
 
 ### Added
 
@@ -36,11 +44,83 @@ Release tags are immutable: a released version is never rewritten, only supersed
   account's refresh and revocation history.
 - New optional environment variables: `AUTH_REFRESH_REUSE_GRACE_SECONDS`, `AUTH_REFRESH_RATE`,
   `AUTH_REFRESH_COOKIE_SAMESITE`, `AUTH_REFRESH_COOKIE_DOMAIN` (see `deploy.md` §7).
+- `template_version` on documents (create, PATCH, detail; default `"1"`) — the layout a document
+  was authored for. New Woda letters use `"2"`.
+- `student-certificate` content validation: dates, attendance hours, grades, course fields, and a
+  `photo_media_id` that must be the applicant's own photograph. Lenient — nothing required, unknown
+  and older camelCase keys kept. Failures return `DOCUMENTS_CONTENT_INVALID` with
+  `error.details.fields`.
+- `archived_count` on `GET /documents/workspaces/`; applicants whose documents are all archived
+  keep a row. Optional `reason` on `POST /documents/<id>/restore/`.
+- **Lead and applicant notes are categorised (`general`/`visit`), backdatable (`noted_at`), and
+  correctable** by their author or an Admin (`PATCH`/`DELETE …/notes/<id>/`, soft delete). Note lists
+  filter by `category`, order by `noted_at`, and report `meta.counts`. New applicant notes resource at
+  `/api/v1/applicants/<id>/notes/`.
+- **Lead soft delete** — Admin-only `DELETE /api/v1/leads/<id>/` (reason required) and
+  `POST /api/v1/leads/<id>/restore/`. Deleted leads leave every list, search, and dashboard; Admins list
+  them with `?deleted=true`; every write on one returns 409 `LEADS_LEAD_DELETED`.
+- **Applicant restore** — Admin-only `POST /api/v1/applicants/<id>/restore/` returns an archived
+  applicant to the status it held before archiving.
+- **Applicant education and language tests** — `educations` and `language_tests` lists on the
+  applicant (create and `PATCH`, replaced wholesale like family members). Education: level, programme,
+  institution, status, GPA/percentage, years in BS or AD. Language tests: IELTS, PTE, TOEFL, Duolingo,
+  Other, with per-test score ranges, test date, and expiry. Folded into `applicants` instead of separate
+  `education`/`test_scores` modules.
+- **Applicant identity data for ward-office letters** — `citizenship_no`, `citizenship_issue_district`,
+  `national_id_no`; family members' `citizenship_no`; `grandfather`/`grandmother` relationships.
+  The two identity numbers never enter the audit log — a change is recorded as `<changed>`.
+- **Lead qualification and certificates** — study interest gains `highest_qualification_level`,
+  `academic_score`/`_type`, `pass_year`/`_calendar`; leads gain `language_certificates` (≤10, validated);
+  list filters `highest_qualification_level`, `language_test_status`, `language_test_type`. Conversion
+  turns them into the applicant's education record and language tests.
+- **Document prefill** — Admin-only `GET /api/v1/documents/prefill/<applicant_id>/`: names, identity
+  numbers, addresses, parents and grandparents, education, language tests, and current photo, shaped
+  for document forms.
+- **Optional applicant assignment** — applicants gain `assigned_to` (UserBrief or `null`) on the list and
+  detail shapes, a list filter `?assigned_to=me|none|<user id>`, and
+  `POST /api/v1/applicants/<id>/assign/` (`applicants.applicant.assign`). An Admin assigns any active
+  Admin or Lead Manager, or clears it; a Lead Manager may only take an unassigned applicant or release
+  their own (`APPLICANTS_ASSIGNMENT_FORBIDDEN`); an ineligible assignee is `APPLICANTS_ASSIGNEE_INVALID`.
+  Routing only — every Admin and Lead Manager still reads and edits every applicant. Audited as
+  `applicant_assigned` / `applicant_unassigned`. Migration `applicants.0008` is additive; existing
+  applicants are unassigned.
+- **New notifications** — lead created / converted / deleted / restored, applicant status changed and
+  restored, applicant assigned and unassigned, visit notes on leads and applicants, document marked
+  ready, and expiring language-test results (`test_score_expiring`, raised by the nightly sweep). Never
+  sent to the person who acted.
+- **Notification categories and preferences** — every notification carries a `category`,
+  `applicant_id`, and `payload`; the feed filters by `?category=a,b` and `?applicant_id=`;
+  `GET /notifications/summary/` adds per-category unread counts; `POST /notifications/read-all/` accepts
+  an optional `category`; new `GET`/`PATCH /api/v1/notifications/preferences/` mutes categories and can
+  limit applicant alerts to the caller's own assigned applicants.
+- **Notification retention** — the nightly sweep now purges event alerts and resolved alerts older than
+  90 days (dismissed and still-active deadline alerts are kept). New `sweep_notifications` flags
+  `--retention-days` (default 90, `0` disables) and `--test-score-horizon-days` (default 90).
+- **Domain events** — `core.events` (`domain_event` signal and `emit()`), sent on transaction commit and
+  muted by `DISABLE_SIGNALS`. `leads`, `applicants`, and `documents` announce what happened, with the
+  actor; `notifications` is the only listener, and no producer imports it.
+- **Personal clipboard** — every account, Superadmin included, can save text snippets (label, text,
+  optional `field_key` naming a document-form field, optional category) under
+  `/api/v1/auth/me/clipboard/`: list (most-used first; `?field_key=a,b`, `?category=<id>|none`,
+  `?search=`), save, `PATCH`, `DELETE`, and `POST …/<id>/use/` to rank what gets copied; categories at
+  `/api/v1/auth/me/clipboard/categories/` (deleting one keeps its entries, uncategorized). Owner-only —
+  another account's id is 404. At most 200 entries and 50 categories per account. Writes are audited
+  without the text, label, or category name. Migration `authenticate.0007` is additive.
 
 ### Changed
 
 - The refresh cookie now expires with the session's absolute lifetime (7 days) instead of at browser
   close; the 12-hour idle timeout is still enforced server-side.
+- **Lead notes are no longer append-only**, and writes on a converted lead's notes return 409 (write on
+  the applicant). An offset-less `noted_at` is read as Nepal time.
+- **`POST /applicants/<id>/status/` can no longer move an applicant out of `archived`** (409
+  `APPLICANTS_APPLICANT_ARCHIVED`); un-archiving is the Admin-only restore. Lead Managers can still
+  archive. An approved access change.
+- The Django admin can no longer hard-delete a lead.
+- **Journey, passport-expiry, and applicant-reminder alerts also reach the applicant's assignee**, not
+  only the Admins. Unassigned applicants keep the Admin-only routing for these alerts.
+- **Lead conversion assigns the new applicant to the lead's owner**, unless that person is no longer an
+  active Admin or Lead Manager (then it is left unassigned).
 
 ### Deferred
 
@@ -58,6 +138,10 @@ Findings recorded during release preparation that were triaged as not blocking. 
 - **The test suite runs on SQLite, not PostgreSQL** (MINOR) — `select_for_update` is a no-op, failed statements do not abort transactions, and `pg_trgm` behaviour is untested. The `policy` CI stage is the only one touching real PostgreSQL. This gap has already masked real defects.
 - **`sweep_notifications` exits 0 on partial failure** (PATCH) — individual alert generators that raise are reported to stderr but do not change the exit status, so cron cannot detect a partially failed night. Documented in `deploy.md` §13 (Scheduled jobs).
 - **`/ready/` does not check the cache backend** (PATCH) — readiness opens a database connection only. In production the cache is the rate-limit store, so a failed Redis leaves throttling degraded without the readiness probe reporting it. Documented in `deploy.md` §14 (Health and observability).
+- **`deploy.md` §13 (Scheduled jobs) does not describe the new sweep behaviour** (MINOR) — it must list
+  `sweep_notifications`' new `--test-score-horizon-days` and `--retention-days` flags and state that the
+  nightly run now deletes event alerts and resolved alerts older than 90 days. Deferred to the next
+  `/release`, which refreshes `deploy.md`.
 - **`requirements/README.md` documents two commands that do not exist** (PATCH) — `validate_organization_integrity` and `rebuild_organization_closure`, for an `organization` app that was removed. Also referenced in `core/management/commands/reset_dev_data.py`.
 
 ## [1.1.1] - 2026-09-14

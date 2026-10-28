@@ -1,7 +1,7 @@
 # API — Document History
 
 **Owner app:** `document_history`
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/document-history/`
@@ -17,6 +17,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 6 endpoints across two resources |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Documented the `PrintEvent` ordering tiebreaker and the Bikram Sambat `fiscal_year` footgun |
+| 1.0.2 | 2026-10-29 | AI (Claude Opus 5.5) | Recovery skips `documents`' new `student-certificate` content check (`check_template_content=False`): a printed body is restored verbatim. No endpoint or contract change |
 
 ---
 
@@ -122,6 +123,7 @@ The frozen record. A snapshot belongs to exactly one document and is identified 
 - **Response:** `200` with the **updated `Document`** (`documents/docs/DATA_CONTRACT.md` §1), not the snapshot, so the client can drop it straight back into the workspace without a second request.
 - **Business rules:**
   - Restores `label` and `content` only. `notes`, `status`, `applicant`, `family`, and `template_key` are **not** recovered — see `DATA_CONTRACT.md` §3 for why each is excluded.
+  - **The frozen body goes back verbatim, unchecked.** Since 2026-10-29 `documents` validates `student-certificate` content on save; recovery calls `update_document(check_template_content=False)`, because a printed body may predate those rules or name a photograph archived since. So no `DOCUMENTS_CONTENT_INVALID` can arise here. The next ordinary save of that document is checked again.
   - **The snapshot is not altered**, and no new snapshot is created. The next capture does that, and it will carry the recovered body as a new version.
   - The write goes through `documents.services.update_document`, so that app's archive lock, size cap, and redacted audit event all apply.
   - Writes a `recovery` print event, plus one audit event in each app.

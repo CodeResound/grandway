@@ -1,11 +1,11 @@
 # API Documentation — Authenticate
 
 **App:** `authenticate`
-**Version:** 1.4.0
+**Version:** 1.5.0
 **Base prefix:** `/api/v1/auth/`
 **Auth:** Mixed. `login`/`refresh` are public; `logout`/`me`/`password/change` require a Bearer access token validated by `authenticate.authentication.SessionBoundJWTAuthentication` (see `SECURITY.md` §1). No `is_staff` gate — the three protected endpoints are self-service (any authenticated user acting on their own account).
 **Throttle:** Custom scopes — `login` uses `LoginIPThrottle` + `LoginUsernameThrottle` (`auth_login_ip` 20/min, `auth_login_user` 10/min); `refresh` uses `RefreshThrottle` (`auth_refresh`, per IP, `AUTH_REFRESH_RATE`, default 300/min) + `RefreshTokenThrottle` (`auth_refresh_token`, per presented refresh token, 10/min). Stateful account lockout is handled by django-axes (see `SECURITY.md` §3), not DRF.
-**Access level:** Public (`login`, `refresh`) + authenticated self-service (`logout`, `me`, `password/change`).
+**Access level:** Public (`login`, `refresh`) + authenticated self-service (`logout`, `me`, `password/change`, `mfa/*`, own `sessions/*`, and the personal clipboard `me/clipboard/*` — §6) + the one-tier account-management hierarchy (`users/*`, §4). The clipboard endpoints use the project default user throttle (1000/hour).
 
 ---
 
@@ -18,6 +18,7 @@
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account management (users CRUD + block/restore + admin password/MFA reset), session management, auth-activity review |
 | 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (User `full_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 | 1.4.0 | 2026-10-28 | AI (Claude Opus 5.5) | Refresh reuse grace window; `access_expires_at` on login/refresh; `error.details.reason` on `AUTH_REFRESH_INVALID`; per-token refresh throttle; persistent refresh cookie with configurable `SameSite`/`Domain`; own-session revoke no longer clears the caller's cookie when only other sessions go. Non-breaking |
+| 1.5.0 | 2026-10-29 | AI (Claude Opus 5.5) | §6 Personal clipboard — 9 endpoints under `/api/v1/auth/me/clipboard/` (entries: list/create/update/delete/use; categories: list/create/rename/delete). Every authority, Superadmin included; owner-only. Additive, non-breaking |
 
 ---
 
@@ -200,3 +201,72 @@ Cross-user account administration. Authorized by an inline authority hierarchy (
 **Response:** `{ revoked:int }`.
 **Error codes:** `AUTH_SESSION_NOT_FOUND` (404) — `session_id` not one of yours.
 **Business rules:** revokes selected sessions (`revoked_reason=logout`). The refresh cookie is cleared only when the caller's own session is among them (omit both fields, or `session_id` = the current session); `others_only=true` or another session's id leaves the caller signed in. Revoking the current session ends it (re-login required).
+
+## 6. Personal clipboard (own)
+
+A per-account store of saved text snippets (frequently typed names, addresses, ward details) that the user copies into document forms. **Every authority has one — Superadmin included** — which makes it the one feature outside account self-service that a Superadmin can use. Strictly owner-only: every lookup starts from `request.user`, so another account's entry or category id returns the same 404 as a made-up id (never 403). No sharing, no applicant-linked entries. Response shapes: `DATA_CONTRACT.md §6` (ClipboardCategory) and `§7` (ClipboardEntry).
+
+**Access (all of §6):** Authenticated (self), any `authority_type`. No `must_change_password` or MFA-enrollment gate — consistent with every other authenticated endpoint here. **Throttle:** project default `user` scope (1000/hour). Admin site: not registered (see `SECURITY.md` §12).
+
+### 6.1 List / save entries — `GET|POST /api/v1/auth/me/clipboard/`
+
+**Policy key(s):** `authenticate.clipboard_entry.list` (low), `authenticate.clipboard_entry.create` (low)
+**Request (list, query):** `?field_key=a,b` (comma list, exact match, each key must match `^[a-z0-9_]+(\.[a-z0-9_]+)*$`; whole param ≤500 chars), `?category=<uuid>|none` (`none` = uncategorized; another account's category id simply matches nothing), `?search=` (≤100; `icontains` on label, text, or category name, OR'd), `?page=`/`?page_size=` (standard pagination).
+**Request (create):**
+```json
+{ "label": "Ward 7 chairman", "text": "Ram Bahadur Thapa", "field_key": "ward.spokesperson.name", "category": "3c1f7e0a-5d2b-4b8e-9a61-0f2d4c6b8e11" }
+```
+**Response:** `list` → paginated list[ClipboardEntry] (`message` is `""`, as on every paginated list); `create` → `201` ClipboardEntry, message "Clipboard entry saved."
+**Validation rules:** `label` required, ≤120, Unicode-normalized, trimmed, blank rejected; `text` required, ≤2000 (`MAX_CLIPBOARD_TEXT`), normalized, trimmed, blank rejected; `field_key` optional, ≤100, blank allowed (stored as `""`), must match the regex above ("Use lowercase dotted words, e.g. 'father.name'."); `category` optional UUID or `null`.
+**Error codes:**
+- `AUTH_CLIPBOARD_LIMIT_REACHED` (400) — "A clipboard holds at most 200 entries."
+- `AUTH_CLIPBOARD_CATEGORY_INVALID` (400) — `category` is not one of the caller's categories (another account's, or non-existent); "That category is not one of yours.", repeated in `error.details.category`.
+- `VALIDATION_ERROR` (400) — field rules above, or a bad `field_key`/`category` filter value ("Expected a category id or 'none'.").
+- `AUTHENTICATION_REQUIRED` / `AUTHENTICATION_FAILED` (401).
+**Business rules:** create locks the owner's `User` row (`select_for_update`) inside `atomic()` before counting, so two concurrent saves cannot both pass the 200 cap. Writes a central `audit` event `clipboard_entry_created` (metadata `{field_key}` only). List ordering: `usage_count` desc, then `last_used_at` desc (never-used last), then `created_at` desc. There is no `ordering` parameter.
+**Query access pattern:** `ClipboardEntry.objects.select_related("category").filter(user=…)`; indexes `(user, -usage_count)` serve the ordering and `(user, field_key)` the form lookup. One query per page plus the count.
+
+### 6.2 Update / delete an entry — `PATCH|DELETE /api/v1/auth/me/clipboard/<entry_id>/`
+
+**Policy key(s):** `authenticate.clipboard_entry.update` (low), `authenticate.clipboard_entry.delete` (low)
+**Request (update):** any subset of `{ label, text, field_key, category }` — same rules as 6.1; `field_key: ""` clears it; `category: null` uncategorizes.
+**Response:** `update` → ClipboardEntry, "Clipboard entry updated."; `delete` → `{ "deleted": true }`, "Clipboard entry deleted."
+**Error codes:**
+- `AUTH_CLIPBOARD_ENTRY_NOT_FOUND` (404) — "No such entry on your clipboard." (checked before body validation).
+- `AUTH_CLIPBOARD_CATEGORY_INVALID` (400) — update names a category that is not the caller's.
+- `VALIDATION_ERROR` (400).
+**Business rules:** update writes `clipboard_entry_updated` only when a value actually changed (metadata `{fields: [names], field_key}` — never values); an unchanged PATCH returns 200 and writes nothing. Delete is a **hard delete** (nothing references an entry) and writes `clipboard_entry_deleted` (metadata `{field_key}`).
+
+### 6.3 Use an entry — `POST /api/v1/auth/me/clipboard/<entry_id>/use/`
+
+**Policy key(s):** `authenticate.clipboard_entry.use` (low)
+**Request:** none.
+**Response:** the ClipboardEntry with `usage_count` incremented and `last_used_at` (and `updated_at`) set to now; "Clipboard entry used."
+**Error codes:** `AUTH_CLIPBOARD_ENTRY_NOT_FOUND` (404).
+**Business rules:** one `UPDATE … SET usage_count = usage_count + 1` (race-safe). **Not audited** — a ranking signal, not an act. Call it when the user copies the entry.
+
+### 6.4 List / create categories — `GET|POST /api/v1/auth/me/clipboard/categories/`
+
+**Policy key(s):** `authenticate.clipboard_category.list` (low), `authenticate.clipboard_category.create` (low)
+**Request (create):** `{ "name": "Ward office" }`
+**Response:** `list` → **bare, unpaginated** list[ClipboardCategory] (≤50), ordered by name ignoring case, "Clipboard categories retrieved."; `create` → `201` ClipboardCategory, "Clipboard category created."
+**Validation rules:** `name` required, ≤60, normalized, trimmed, blank rejected; unique per account ignoring case.
+**Error codes:**
+- `AUTH_CLIPBOARD_CATEGORY_NAME_TAKEN` (400) — "You already have a category with that name.", repeated in `error.details.name`. Checked before the limit.
+- `AUTH_CLIPBOARD_CATEGORY_LIMIT_REACHED` (400) — "A clipboard holds at most 50 categories."
+- `VALIDATION_ERROR` (400).
+**Business rules:** create locks the owner row inside `atomic()` before the name and count checks; DB backstop `UniqueConstraint(Lower("name"), "user")`. Writes `clipboard_category_created` (no metadata — the name is never recorded).
+**Query access pattern:** one query — `filter(user=…).annotate(entry_count=Count("entries")).order_by(Lower("name"), "id")`.
+
+### 6.5 Rename / delete a category — `PATCH|DELETE /api/v1/auth/me/clipboard/categories/<category_id>/`
+
+**Policy key(s):** `authenticate.clipboard_category.update` (low), `authenticate.clipboard_category.delete` (low)
+**Request (rename):** `{ "name": "…" }` (required — not partial).
+**Response:** `rename` → ClipboardCategory, "Clipboard category renamed."; `delete` → `{ "deleted": true, "entries_uncategorized": 3 }`, "Clipboard category deleted."
+**Error codes:**
+- `AUTH_CLIPBOARD_CATEGORY_NOT_FOUND` (404) — "No such category on your clipboard."
+- `AUTH_CLIPBOARD_CATEGORY_NAME_TAKEN` (400) — rename to another of the caller's names (a case-only change of its own name is allowed).
+- `VALIDATION_ERROR` (400).
+**Business rules:** rename to the identical name is a no-op (no audit). Delete keeps the entries — FK `SET_NULL` makes them uncategorized — and writes `clipboard_category_deleted` with metadata `{entries_uncategorized}`.
+
+**AI debugging notes (§6):** a "missing" entry is almost always another account's id — the 404 is deliberate. Clipboard writes appear only in the central `audit` log (`app_label="authenticate"`, `entity_type` `authenticate.clipboard_entry`/`authenticate.clipboard_category`), never in `AuthEvent`. The audit write is a direct `audit.services.record_event` call, not the best-effort federation `record_auth_event` uses: a failure surfaces as a 500 and the write rolls back — every clipboard service is `@transaction.atomic`, so the change and its audit event commit together.

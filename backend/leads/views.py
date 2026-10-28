@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from audit.serializers import AuditEventHistorySerializer
+from core.constants import ErrorCode as CoreErrorCode
 from core.pagination import StandardPagination
 from core.responses import error_response, success_response
 from rest_framework import status
@@ -22,21 +23,30 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from leads import services
-from leads.access import require_admin, require_lead_actor
+from leads.access import is_admin, require_admin, require_lead_actor
 from leads.constants import ErrorCode
 from leads.exceptions import (
     ActorNotPermittedError,
+    CertificateInvalidError,
+    CertificateLimitError,
     ContactNumberRequiredError,
     ConversionNotReadyError,
+    DeleteReasonRequiredError,
     InvalidStageTransitionError,
     LeadAlreadyConvertedError,
+    LeadDeletedError,
+    LeadNotDeletedError,
     LeadNotLostError,
     LossDetailRequiredError,
     LossReasonRequiredError,
+    NoteBodyRequiredError,
+    NoteFutureDateError,
+    NoteNotPermittedError,
     ReferenceCodeTakenError,
     ReferenceInactiveError,
     SourceDetailRequiredError,
     StageNotEditableError,
+    StudyInterestInvalidError,
 )
 from leads.models import Lead
 from leads.selectors import (
@@ -48,17 +58,23 @@ from leads.selectors import (
     get_leads_for_actor,
     get_loss_reason_by_id,
     get_loss_reasons,
+    get_note_category_counts,
+    get_note_for_lead,
     get_notes_for_lead,
     rank_leads,
 )
 from leads.serializers import (
     FollowUpSerializer,
     LeadCreateSerializer,
+    LeadDeleteSerializer,
     LeadDetailSerializer,
     LeadListFilterSerializer,
     LeadListSerializer,
     LeadNoteCreateSerializer,
+    LeadNoteListFilterSerializer,
     LeadNoteSerializer,
+    LeadNoteUpdateSerializer,
+    LeadRestoreSerializer,
     LeadSourceSerializer,
     LeadUpdateSerializer,
     LossReasonSerializer,
@@ -87,6 +103,79 @@ def _lead_not_found() -> Response:
         ErrorCode.LEAD_NOT_FOUND,
         "Lead not found.",
         http_status=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def _lead_deleted() -> Response:
+    return error_response(
+        ErrorCode.LEAD_DELETED,
+        "This lead has been deleted; an Admin must restore it before it can change.",
+        http_status=status.HTTP_409_CONFLICT,
+    )
+
+
+def _note_not_found() -> Response:
+    return error_response(ErrorCode.NOTE_NOT_FOUND, "Note not found.", http_status=status.HTTP_404_NOT_FOUND)
+
+
+def _note_write_error(exc: Exception) -> Response:
+    """Translate the domain errors shared by every note write (``_NOTE_WRITE_ERRORS``)."""
+    if isinstance(exc, LeadDeletedError):
+        return _lead_deleted()
+    if isinstance(exc, LeadAlreadyConvertedError):
+        return error_response(
+            ErrorCode.LEAD_ALREADY_CONVERTED,
+            "This lead was converted; its notes are read-only here. Add notes on the applicant.",
+            http_status=status.HTTP_409_CONFLICT,
+        )
+    if isinstance(exc, NoteNotPermittedError):
+        return error_response(
+            ErrorCode.NOTE_FORBIDDEN,
+            "Only the note's author or an Admin may change it.",
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
+    if isinstance(exc, NoteFutureDateError):
+        return error_response(
+            ErrorCode.NOTE_FUTURE_DATE,
+            "A note cannot be dated in the future.",
+            details={"noted_at": ["Must not be later than now."]},
+            http_status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, NoteBodyRequiredError):
+        # Normally refused earlier by the serializer (DRF trims whitespace);
+        # reached only if normalization empties a body.
+        return error_response(
+            CoreErrorCode.VALIDATION_ERROR,
+            "A note needs some text.",
+            details={"body": ["This field may not be blank."]},
+            http_status=status.HTTP_400_BAD_REQUEST,
+        )
+    raise exc
+
+
+_NOTE_WRITE_ERRORS = (
+    LeadDeletedError,
+    LeadAlreadyConvertedError,
+    NoteNotPermittedError,
+    NoteFutureDateError,
+    NoteBodyRequiredError,
+)
+
+
+_QUALIFICATION_ERRORS = (StudyInterestInvalidError, CertificateInvalidError, CertificateLimitError)
+
+
+def _qualification_error(exc: Exception) -> Response:
+    """400 for a study-interest or certificate rule; ``details.fields`` names every failing path."""
+    if isinstance(exc, CertificateLimitError):
+        return error_response(ErrorCode.CERTIFICATE_LIMIT, str(exc), http_status=status.HTTP_400_BAD_REQUEST)
+    code = (
+        ErrorCode.STUDY_INTEREST_INVALID
+        if isinstance(exc, StudyInterestInvalidError)
+        else ErrorCode.CERTIFICATE_INVALID
+    )
+    return error_response(
+        code, str(exc), details={"fields": getattr(exc, "fields", {})}, http_status=status.HTTP_400_BAD_REQUEST
     )
 
 
@@ -284,8 +373,13 @@ class LeadListCreateView(APIView):
         filter_serializer = LeadListFilterSerializer(data=request.query_params)
         filter_serializer.is_valid(raise_exception=True)
         filters = dict(filter_serializer.validated_data)
+        deleted = filters.pop("deleted", False)
+        if deleted and not is_admin(request.user):
+            # Refused rather than ignored, so a UI showing a "deleted" tab to a
+            # Lead Manager fails loudly instead of rendering their live leads.
+            return _forbidden()
         search = filters.get("search")
-        queryset = filter_leads(get_leads_for_actor(request.user), filters)
+        queryset = filter_leads(get_leads_for_actor(request.user, deleted=deleted), filters)
         # Relevance ordering applies only when there is a query to be relevant
         # to; an unsearched list keeps the model's newest-first ordering.
         if search:
@@ -302,6 +396,7 @@ class LeadListCreateView(APIView):
         data = dict(serializer.validated_data)
         contact_numbers = data.pop("contact_numbers")
         study_interest = data.pop("study_interest", None)
+        language_certificates = data.pop("language_certificates", None)
 
         try:
             lead = services.create_lead(
@@ -309,6 +404,7 @@ class LeadListCreateView(APIView):
                 data=data,
                 contact_numbers=contact_numbers,
                 study_interest=study_interest,
+                language_certificates=language_certificates,
                 ip_address=_client_ip(request),
             )
         except ReferenceInactiveError:
@@ -330,6 +426,8 @@ class LeadListCreateView(APIView):
                 "A lead needs at least one contact number.",
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
+        except _QUALIFICATION_ERRORS as exc:
+            return _qualification_error(exc)
         return success_response(
             data=LeadDetailSerializer(lead).data,
             message="Lead created.",
@@ -338,7 +436,7 @@ class LeadListCreateView(APIView):
 
 
 class LeadDetailView(LeadScopedView):
-    """GET/PATCH /api/v1/leads/<id>/ — read or correct a lead."""
+    """GET/PATCH/DELETE /api/v1/leads/<id>/ — read, correct, or (Admin) soft-delete a lead."""
 
     def get(self, request: Request, lead_id: str) -> Response:
         lead, err = self.resolve(request, lead_id)
@@ -355,6 +453,7 @@ class LeadDetailView(LeadScopedView):
         fields = dict(serializer.validated_data)
         contact_numbers = fields.pop("contact_numbers", None)
         study_interest = fields.pop("study_interest", None)
+        language_certificates = fields.pop("language_certificates", None)
 
         try:
             updated = services.update_lead(
@@ -363,8 +462,11 @@ class LeadDetailView(LeadScopedView):
                 fields=fields,
                 contact_numbers=contact_numbers,
                 study_interest=study_interest,
+                language_certificates=language_certificates,
                 ip_address=_client_ip(request),
             )
+        except LeadDeletedError:
+            return _lead_deleted()
         except ReferenceInactiveError:
             return error_response(
                 ErrorCode.SOURCE_INACTIVE,
@@ -384,7 +486,72 @@ class LeadDetailView(LeadScopedView):
                 "A lead needs at least one contact number.",
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
+        except _QUALIFICATION_ERRORS as exc:
+            return _qualification_error(exc)
         return success_response(data=LeadDetailSerializer(updated).data, message="Lead updated.")
+
+    def delete(self, request: Request, lead_id: str) -> Response:
+        lead, err = self.resolve(request, lead_id)
+        if err:
+            return err
+        try:
+            require_admin(request.user)
+        except ActorNotPermittedError:
+            return _forbidden()
+        serializer = LeadDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            deleted = services.delete_lead(
+                actor=request.user,
+                lead=lead,
+                reason=serializer.validated_data["reason"],
+                ip_address=_client_ip(request),
+            )
+        except LeadDeletedError:
+            return _lead_deleted()
+        except LeadAlreadyConvertedError:
+            return error_response(
+                ErrorCode.LEAD_ALREADY_CONVERTED,
+                "A converted lead cannot be deleted; it is an applicant's origin record.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        except DeleteReasonRequiredError:
+            return error_response(
+                CoreErrorCode.VALIDATION_ERROR,
+                "Deleting a lead requires a reason.",
+                details={"reason": ["This field may not be blank."]},
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        return success_response(data=LeadDetailSerializer(deleted).data, message="Lead deleted.")
+
+
+class LeadRestoreView(LeadScopedView):
+    """POST /api/v1/leads/<id>/restore/ — bring a deleted lead back. Admin only."""
+
+    def post(self, request: Request, lead_id: str) -> Response:
+        lead, err = self.resolve(request, lead_id)
+        if err:
+            return err
+        try:
+            require_admin(request.user)
+        except ActorNotPermittedError:
+            return _forbidden()
+        serializer = LeadRestoreSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+        try:
+            restored = services.restore_lead(
+                actor=request.user,
+                lead=lead,
+                reason=serializer.validated_data.get("reason", ""),
+                ip_address=_client_ip(request),
+            )
+        except LeadNotDeletedError:
+            return error_response(
+                ErrorCode.LEAD_NOT_DELETED,
+                "Only a deleted lead can be restored.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        return success_response(data=LeadDetailSerializer(restored).data, message="Lead restored.")
 
 
 class LeadStageView(LeadScopedView):
@@ -403,6 +570,8 @@ class LeadStageView(LeadScopedView):
                 stage=serializer.validated_data["stage"],
                 ip_address=_client_ip(request),
             )
+        except LeadDeletedError:
+            return _lead_deleted()
         except StageNotEditableError:
             return error_response(
                 ErrorCode.STAGE_NOT_EDITABLE,
@@ -437,6 +606,14 @@ class LeadFollowUpView(LeadScopedView):
                 followed_up_at=data.get("followed_up_at"),
                 ip_address=_client_ip(request),
             )
+        except LeadDeletedError:
+            return _lead_deleted()
+        except LeadAlreadyConvertedError:
+            return error_response(
+                ErrorCode.LEAD_ALREADY_CONVERTED,
+                "This lead was converted; add the follow-up note on the applicant instead.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
         except StageNotEditableError:
             return error_response(
                 ErrorCode.STAGE_NOT_EDITABLE,
@@ -470,6 +647,8 @@ class LeadMarkLostView(LeadScopedView):
                 detail=data.get("detail", ""),
                 ip_address=_client_ip(request),
             )
+        except LeadDeletedError:
+            return _lead_deleted()
         except StageNotEditableError:
             return error_response(
                 ErrorCode.STAGE_NOT_EDITABLE,
@@ -518,6 +697,8 @@ class LeadReopenView(LeadScopedView):
                 stage=serializer.validated_data.get("stage"),
                 ip_address=_client_ip(request),
             )
+        except LeadDeletedError:
+            return _lead_deleted()
         except LeadNotLostError:
             return error_response(
                 ErrorCode.LEAD_NOT_LOST,
@@ -534,13 +715,23 @@ class LeadReopenView(LeadScopedView):
 
 
 class LeadNoteListCreateView(LeadScopedView):
-    """GET/POST /api/v1/leads/<id>/notes/ — read or append notes. Notes are never edited."""
+    """GET/POST /api/v1/leads/<id>/notes/ — read the notes feed, or write a note."""
 
     def get(self, request: Request, lead_id: str) -> Response:
         lead, err = self.resolve(request, lead_id)
         if err:
             return err
-        return _paginated(request, get_notes_for_lead(lead), LeadNoteSerializer, "Notes retrieved.")
+        filters = LeadNoteListFilterSerializer(data=request.query_params)
+        filters.is_valid(raise_exception=True)
+        queryset = get_notes_for_lead(
+            lead,
+            category=filters.validated_data.get("category"),
+            ordering=filters.validated_data.get("ordering"),
+        )
+        response = _paginated(request, queryset, LeadNoteSerializer, "Notes retrieved.")
+        # Per-category totals so both tabs can show a badge from one request.
+        response.data.setdefault("meta", {})["counts"] = get_note_category_counts(lead)
+        return response
 
     def post(self, request: Request, lead_id: str) -> Response:
         lead, err = self.resolve(request, lead_id)
@@ -548,17 +739,68 @@ class LeadNoteListCreateView(LeadScopedView):
             return err
         serializer = LeadNoteCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        note = services.add_note(
-            actor=request.user,
-            lead=lead,
-            body=serializer.validated_data["body"],
-            ip_address=_client_ip(request),
-        )
+        data = serializer.validated_data
+        try:
+            note = services.add_note(
+                actor=request.user,
+                lead=lead,
+                body=data["body"],
+                category=data["category"],
+                noted_at=data.get("noted_at"),
+                ip_address=_client_ip(request),
+            )
+        except _NOTE_WRITE_ERRORS as exc:
+            return _note_write_error(exc)
         return success_response(
             data=LeadNoteSerializer(note).data,
             message="Note added.",
             http_status=status.HTTP_201_CREATED,
         )
+
+
+class LeadNoteDetailView(LeadScopedView):
+    """PATCH/DELETE /api/v1/leads/<id>/notes/<note_id>/ — correct or remove a note.
+
+    The author or an Admin only. Delete is soft: the note leaves the feed, the
+    row and its audit trail stay.
+    """
+
+    def _resolve_note(self, request: Request, lead_id: str, note_id: str) -> tuple[Any, Any, Response | None]:
+        lead, err = self.resolve(request, lead_id)
+        if err:
+            return None, None, err
+        note = get_note_for_lead(lead, note_id)
+        if note is None:
+            return None, None, _note_not_found()
+        return lead, note, None
+
+    def patch(self, request: Request, lead_id: str, note_id: str) -> Response:
+        lead, note, err = self._resolve_note(request, lead_id, note_id)
+        if err:
+            return err
+        serializer = LeadNoteUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            updated = services.update_note(
+                actor=request.user,
+                lead=lead,
+                note=note,
+                fields=dict(serializer.validated_data),
+                ip_address=_client_ip(request),
+            )
+        except _NOTE_WRITE_ERRORS as exc:
+            return _note_write_error(exc)
+        return success_response(data=LeadNoteSerializer(updated).data, message="Note updated.")
+
+    def delete(self, request: Request, lead_id: str, note_id: str) -> Response:
+        lead, note, err = self._resolve_note(request, lead_id, note_id)
+        if err:
+            return err
+        try:
+            services.delete_note(actor=request.user, lead=lead, note=note, ip_address=_client_ip(request))
+        except _NOTE_WRITE_ERRORS as exc:
+            return _note_write_error(exc)
+        return success_response(data=None, message="Note deleted.")
 
 
 class LeadConvertView(LeadScopedView):
@@ -584,6 +826,8 @@ class LeadConvertView(LeadScopedView):
                 lead=lead,
                 ip_address=_client_ip(request),
             )
+        except LeadDeletedError:
+            return _lead_deleted()
         except LeadAlreadyConvertedError:
             return error_response(
                 ErrorCode.LEAD_ALREADY_CONVERTED,

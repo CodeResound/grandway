@@ -63,11 +63,16 @@ class LeadAuditAction:
     LEAD_CONTACT_CHANGED = "lead_contact_changed"
     LEAD_SOURCE_CHANGED = "lead_source_changed"
     LEAD_INTEREST_CHANGED = "lead_interest_changed"
+    LEAD_CERTIFICATES_CHANGED = "lead_certificates_changed"
     LEAD_STAGE_CHANGED = "lead_stage_changed"
     LEAD_FOLLOWUP_RECORDED = "lead_followup_recorded"
     LEAD_MARKED_LOST = "lead_marked_lost"
     LEAD_REOPENED = "lead_reopened"
     LEAD_NOTE_ADDED = "lead_note_added"
+    LEAD_NOTE_UPDATED = "lead_note_updated"
+    LEAD_NOTE_DELETED = "lead_note_deleted"
+    LEAD_DELETED = "lead_deleted"
+    LEAD_RESTORED = "lead_restored"
     LEAD_CONVERTED = "lead_converted"
     LEAD_APPLICANT_CREATED = "lead_applicant_created"
 
@@ -114,6 +119,24 @@ class ErrorCode:
     # Access
     ACTOR_FORBIDDEN = "LEADS_ACTOR_FORBIDDEN"
 
-    # Conversion (Phase 4 — endpoint not yet built)
+    # Conversion
     LEAD_ALREADY_CONVERTED = "LEADS_LEAD_ALREADY_CONVERTED"
     CONVERSION_NOT_READY = "LEADS_CONVERSION_NOT_READY"
+
+    # Soft delete
+    LEAD_DELETED = "LEADS_LEAD_DELETED"
+    LEAD_NOT_DELETED = "LEADS_LEAD_NOT_DELETED"
+
+    # Notes
+    NOTE_NOT_FOUND = "LEADS_NOTE_NOT_FOUND"
+    NOTE_FORBIDDEN = "LEADS_NOTE_FORBIDDEN"
+    NOTE_FUTURE_DATE = "LEADS_NOTE_FUTURE_DATE"
+
+    # Qualification and language certificates
+    STUDY_INTEREST_INVALID = "LEADS_STUDY_INTEREST_INVALID"
+    CERTIFICATE_INVALID = "LEADS_CERTIFICATE_INVALID"
+    CERTIFICATE_LIMIT = "LEADS_CERTIFICATE_LIMIT"
+
+
+#: Most language certificates one lead may carry.
+MAX_LANGUAGE_CERTIFICATES = 10

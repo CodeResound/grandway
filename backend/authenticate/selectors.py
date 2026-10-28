@@ -6,11 +6,12 @@ from datetime import datetime
 from typing import Any
 
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet
+from django.db.models.functions import Lower
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
-from authenticate.constants import AuthorityType
+from authenticate.constants import CLIPBOARD_UNCATEGORIZED, AuthorityType
 from authenticate.managers import UserManager
-from authenticate.models import AuthEvent, AuthSession, User
+from authenticate.models import AuthEvent, AuthSession, ClipboardCategory, ClipboardEntry, User
 
 # Which authority tier each actor tier may manage (concept hierarchy):
 # superadmin manages admins; admin manages lead managers; lead managers manage none.
@@ -69,6 +70,18 @@ def get_active_admins() -> QuerySet[User]:
     question, not the caller's.
     """
     return User.objects.filter(authority_type=AuthorityType.ADMIN, is_active=True).order_by("username")
+
+
+def get_active_lead_actors() -> QuerySet[User]:
+    """Every active Admin and Lead Manager, by username — everyone who works the files.
+
+    Added for ``notifications`` (2026-10-29): an event about an applicant nobody
+    is assigned to goes to the whole team. Superadmins are excluded for the same
+    reason ``get_active_admins`` excludes them.
+    """
+    return User.objects.filter(
+        authority_type__in=(AuthorityType.ADMIN, AuthorityType.LEAD_MANAGER), is_active=True
+    ).order_by("username")
 
 
 def get_active_sessions_for_user(user: User) -> QuerySet[AuthSession]:
@@ -226,3 +239,71 @@ def get_session_revocation_counts_for_user(user: User, since: datetime) -> list[
         .annotate(count=Count("id"))
         .order_by("revoked_reason")
     )
+
+
+# ---------------------------------------------------------------------------
+# Personal clipboard (2026-10-29) — every query starts from the owner
+# ---------------------------------------------------------------------------
+
+
+def get_own_clipboard(
+    user: User,
+    *,
+    field_keys: list[str] | None = None,
+    category: str | None = None,
+    search: str | None = None,
+) -> QuerySet[ClipboardEntry]:
+    """This user's clipboard, most used first. Never another account's rows.
+
+    ``category`` is a category id, or ``none`` for entries in no category.
+    ``search`` matches the label, the text, or the category name.
+    """
+    queryset = ClipboardEntry.objects.select_related("category").filter(user=user)
+    if field_keys:
+        queryset = queryset.filter(field_key__in=field_keys)
+    if category == CLIPBOARD_UNCATEGORIZED:
+        queryset = queryset.filter(category__isnull=True)
+    elif category:
+        queryset = queryset.filter(category_id=category)
+    if search:
+        queryset = queryset.filter(
+            Q(label__icontains=search) | Q(text__icontains=search) | Q(category__name__icontains=search)
+        )
+    return queryset
+
+
+def get_own_clipboard_entry(user: User, entry_id: Any) -> ClipboardEntry | None:
+    """One of this user's entries, or None — another account's id reads as missing."""
+    return ClipboardEntry.objects.select_related("category").filter(user=user, pk=entry_id).first()
+
+
+def count_own_clipboard_entries(user: User) -> int:
+    return ClipboardEntry.objects.filter(user=user).count()
+
+
+def get_own_clipboard_categories(user: User) -> QuerySet[ClipboardCategory]:
+    """This user's categories by name (ignoring case), each with ``entry_count``.
+
+    Ordered explicitly: an aggregating query drops the model's default ordering.
+    """
+    return (
+        ClipboardCategory.objects.filter(user=user)
+        .annotate(entry_count=Count("entries"))
+        .order_by(Lower("name"), "id")
+    )
+
+
+def get_own_clipboard_category(user: User, category_id: Any) -> ClipboardCategory | None:
+    return ClipboardCategory.objects.filter(user=user, pk=category_id).first()
+
+
+def own_clipboard_category_name_exists(user: User, name: str, *, exclude_id: Any = None) -> bool:
+    """Whether this user already has a category of that name, ignoring case."""
+    queryset = ClipboardCategory.objects.filter(user=user, name__iexact=name)
+    if exclude_id is not None:
+        queryset = queryset.exclude(pk=exclude_id)
+    return queryset.exists()
+
+
+def count_own_clipboard_categories(user: User) -> int:
+    return ClipboardCategory.objects.filter(user=user).count()

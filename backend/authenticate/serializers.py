@@ -6,11 +6,20 @@ dicts into services — always validated data.
 
 from __future__ import annotations
 
+import re
+import uuid
+from typing import Any
+
 from core.nepal.text import normalize_unicode
 from rest_framework import serializers
 
-from authenticate.constants import AuthorityType
-from authenticate.models import AuthEvent, AuthSession, User
+from authenticate.constants import (
+    CLIPBOARD_FIELD_KEY_RE,
+    CLIPBOARD_UNCATEGORIZED,
+    MAX_CLIPBOARD_TEXT,
+    AuthorityType,
+)
+from authenticate.models import AuthEvent, AuthSession, ClipboardCategory, ClipboardEntry, User
 from authenticate.selectors import has_confirmed_mfa
 from authenticate.services import is_mfa_mandatory
 
@@ -189,3 +198,113 @@ class AuthEventSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Personal clipboard (2026-10-29)
+# ---------------------------------------------------------------------------
+
+_FIELD_KEY = re.compile(CLIPBOARD_FIELD_KEY_RE)
+
+
+def _check_field_key(value: str) -> str:
+    if value and not _FIELD_KEY.match(value):
+        raise serializers.ValidationError("Use lowercase dotted words, e.g. 'father.name'.")
+    return value
+
+
+def _normalized_required(value: str) -> str:
+    cleaned = normalize_unicode(value or "").strip()
+    if not cleaned:
+        raise serializers.ValidationError("This field may not be blank.")
+    return cleaned
+
+
+class ClipboardCategoryBriefSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+
+class ClipboardEntrySerializer(serializers.ModelSerializer):
+    """One clipboard entry as its owner sees it."""
+
+    category = ClipboardCategoryBriefSerializer(read_only=True, allow_null=True)
+
+    class Meta:
+        model = ClipboardEntry
+        fields = [
+            "id",
+            "label",
+            "text",
+            "field_key",
+            "category",
+            "usage_count",
+            "last_used_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ClipboardEntryWriteSerializer(serializers.Serializer):
+    """``POST``/``PATCH`` input. ``category`` is one of the caller's category ids, or ``null``."""
+
+    label = serializers.CharField(max_length=120)
+    text = serializers.CharField(max_length=MAX_CLIPBOARD_TEXT, trim_whitespace=False)
+    field_key = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    category = serializers.UUIDField(required=False, allow_null=True)
+
+    def validate_label(self, value: str) -> str:
+        return _normalized_required(value)
+
+    def validate_text(self, value: str) -> str:
+        return _normalized_required(value)
+
+    def validate_field_key(self, value: str) -> str:
+        return _check_field_key(value.strip())
+
+
+class ClipboardFilterSerializer(serializers.Serializer):
+    """``GET /me/clipboard/`` query: ``field_key=a,b``, ``category=<id>|none``, ``search``."""
+
+    field_key = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    category = serializers.CharField(required=False, allow_blank=True, max_length=36)
+    search = serializers.CharField(required=False, allow_blank=True, max_length=100)
+
+    def validate_field_key(self, value: str) -> list[str]:
+        keys = [key.strip() for key in value.split(",") if key.strip()]
+        for key in keys:
+            _check_field_key(key)
+        return keys
+
+    def validate_category(self, value: str) -> str:
+        value = value.strip().lower()
+        if not value or value == CLIPBOARD_UNCATEGORIZED:
+            return value
+        try:
+            return str(uuid.UUID(value))
+        except ValueError as exc:
+            raise serializers.ValidationError("Expected a category id or 'none'.") from exc
+
+
+class ClipboardCategorySerializer(serializers.ModelSerializer):
+    """One category, with how many entries are in it (list only)."""
+
+    entry_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClipboardCategory
+        fields = ["id", "name", "entry_count", "created_at", "updated_at"]
+        read_only_fields = fields
+
+    def get_entry_count(self, obj: Any) -> int:
+        # Annotated by ``get_own_clipboard_categories``; counted directly after a create or rename.
+        annotated = getattr(obj, "entry_count", None)
+        return annotated if annotated is not None else obj.entries.count()
+
+
+class ClipboardCategoryWriteSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=60)
+
+    def validate_name(self, value: str) -> str:
+        return _normalized_required(value)

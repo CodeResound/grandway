@@ -1,7 +1,7 @@
 # API — Documents
 
 **Owner app:** `documents`
-**Version:** 1.1.0
+**Version:** 1.4.0
 **Status:** Active
 **Created:** 2026-07-24
 **Base prefix:** `/api/v1/documents/`
@@ -18,6 +18,9 @@
 | 1.0.0 | 2026-07-24 | AI (Claude) | Initial API documentation — 9 endpoints across one resource |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint change. Corrected the history endpoint's note now that `document_history` exists |
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | §1.9 history entries gained `actor_id` and are now serialized by audit's shared `AuditEventHistorySerializer` (`documents.document.list_history` → 1.1.0). Additive, and the body is still never present; no other endpoint changed |
+| 1.2.0 | 2026-10-29 | AI (Claude Opus 5.5) | §1.1 archived hidden by default + `include_archived` (approved in-place behaviour change); §1.2/§1.5 `template_version` and `student-certificate` content validation (`details.fields`); §1.3 `archived_count`, all-archived applicants kept; §1.8 restore returns the pre-archive status and takes an optional `reason`. Endpoints list/create/workspaces/read/update/restore → 1.1.0 |
+| 1.3.0 | 2026-10-29 | AI (Claude Opus 5.5) | §2 Document prefill — `GET /api/v1/documents/prefill/<applicant_id>/` |
+| 1.4.0 | 2026-10-29 | AI (Claude Opus 5.5) | §1.6: a move to `ready` emits the `document.ready` domain event → `document_ready` alert to the other Admins. Registry `documents.document.change_status` 1.1.0. No request or response change |
 
 ---
 
@@ -66,7 +69,7 @@ Serializer-level failures return the project-wide `VALIDATION_ERROR` (400) with 
 
 These hold on every endpoint below and are not repeated per endpoint.
 
-1. **`content` is stored verbatim and returned verbatim.** Nothing in this app computes, injects, normalizes, reorders, or strips anything inside the document body. Running balances, debit/credit totals, closing balances, the auto interest and tax rows, and amount-in-words are frontend concerns. Unknown keys are preserved because a template the backend has never heard of may depend on them.
+1. **`content` is stored verbatim and returned verbatim.** Nothing in this app computes, injects, normalizes, reorders, or strips anything inside the document body. One template's body — `student-certificate` — is *checked* on write (`validators.validate_template_content`), still never altered. Running balances, debit/credit totals, closing balances, the auto interest and tax rows, and amount-in-words are frontend concerns. Unknown keys are preserved because a template the backend has never heard of may depend on them.
 2. **The document body never reaches the audit log.** Every mutation appends one `audit.AuditEvent`, and `content` is replaced in the `changes` map by the literal marker `<changed>` (`constants.CONTENT_CHANGE_MARKER`). Implemented in `services._diff_for_audit`, which is written out in full rather than copied from the other apps' `_diff` so the redaction is visible where it happens. §17; see `SECURITY.md` §2.
 3. **A `PATCH` that changes nothing writes no audit event** and still returns 200.
 4. **Immutable fields are rejected, not dropped** — the inverse of the `institutions` convention, matching `offers` and `clients`.
@@ -85,7 +88,7 @@ These hold on every endpoint below and are not repeated per endpoint.
 - **Permission key:** `documents.document.list` (risk: **medium**)
 - **Auth:** required. Admin only.
 
-**Query parameters:** `applicant` (UUID); `standalone` (bool — omitting it returns both kinds); `status`, `family` (exact enums); `template_key` (exact string); `search` (partial match on `label`); `fiscal_year` (`YYYY/YY`, on `created_at`); `page`, `page_size`.
+**Query parameters:** `applicant` (UUID); `standalone` (bool — omitting it returns both kinds); `status`, `family` (exact enums); `include_archived` (bool, default `false`); `template_key` (exact string); `search` (partial match on `label`); `fiscal_year` (`YYYY/YY`, on `created_at`); `page`, `page_size`.
 
 **Response:** paginated list of the Document **list shape** — `content` is omitted. See `INTEGRATION.md` §4.
 
@@ -93,18 +96,18 @@ These hold on every endpoint below and are not repeated per endpoint.
 
 `selectors.search_documents` matches `label` only and **does not reach into `content`** — full-text search over personal financial data is a feature that needs its own decision, not an accident of a search box.
 
-**Business rules:** none beyond access. Risk is `medium` rather than `low` because the list reveals which applicants have financial documents on file, even without returning the bodies.
+**Business rules:** archived documents are excluded unless `status=archived` (only them) or `include_archived=true` (all) — staff archive to remove, and a removed document that kept reappearing read as "remove does not work". `include_archived` is ignored when `status` is given. Risk is `medium` rather than `low` because the list reveals which applicants have financial documents on file, even without returning the bodies.
 
 **Error codes:** `DOCUMENTS_ACTOR_FORBIDDEN`, `VALIDATION_ERROR` (bad filter).
 
-**AI debugging notes:** if an archived document "will not disappear" from a list, check whether `status` was passed at all. Omitting it returns every status by design — the concept requires that no historical document vanish just because it is inactive.
+**AI debugging notes:** if an archived document "has vanished", it is hidden by the default filter — pass `status=archived` or `include_archived=true`. The default changed on 2026-10-29; before that, omitting `status` returned every status. Global search (`search` app) does not use `filter_documents` and still returns archived documents.
 
 ### 1.2 Create a document
 
 - **URI:** `POST /api/v1/documents/`
 - **Permission key:** `documents.document.create` (risk: medium)
 
-**Request:** `family`, `template_key`, `label` required; then either `applicant` or `standalone_purpose`; plus optional `content`, `notes`.
+**Request:** `family`, `template_key`, `label` required; then either `applicant` or `standalone_purpose`; plus optional `content`, `template_version` (ASCII `^[A-Za-z0-9._-]{1,20}$`, default `"1"`; a JSON number is accepted and stored as a string), `notes`.
 
 ```json
 {
@@ -122,13 +125,13 @@ These hold on every endpoint below and are not repeated per endpoint.
 
 **Response:** 201 with the Document detail shape — see `DATA_CONTRACT.md` §1 "Example".
 
-**Validation rules:** `DATA_CONTRACT.md` §1 "Validation Rules". Ownership and template/family agreement are enforced in `services.assert_owner_declared` and `services.assert_template_key_matches_family`; body checks in `services.assert_content_storable`.
+**Validation rules:** `DATA_CONTRACT.md` §1 "Validation Rules". Ownership and template/family agreement are enforced in `services.assert_owner_declared` and `services.assert_template_key_matches_family`; body checks in `services.assert_content_storable`, then — for `student-certificate` only — `validators.validate_template_content` (rules in `DATA_CONTRACT.md` §2).
 
 **Business rules:** `status` is always `draft` on creation and is not accepted from the request. `content` defaults to `{}` — a workspace is opened before anything is typed into it.
 
 **Error codes:** `DOCUMENTS_APPLICANT_NOT_FOUND`, `DOCUMENTS_OWNER_REQUIRED`, `DOCUMENTS_TEMPLATE_KEY_INVALID`, `DOCUMENTS_CONTENT_INVALID`, `DOCUMENTS_CONTENT_TOO_LARGE`, `DOCUMENTS_ACTOR_FORBIDDEN`, `VALIDATION_ERROR`.
 
-**AI debugging notes:** a malformed slug (`"Student Certificate"`) fails at the **serializer** with `VALIDATION_ERROR` on `template_key`, while a well-formed slug in the wrong family (`bank-vyas-statement` under `lor`) reaches the **service** and fails with `DOCUMENTS_TEMPLATE_KEY_INVALID`. Both are 400; the codes differ because the layers do.
+**AI debugging notes:** a `student-certificate` rejected with `DOCUMENTS_CONTENT_INVALID` lists each failing content path in `error.details.fields`; the photo rule (`photo_media_id`) queries `uploaded_files` and is the only cross-app read on this path. A malformed slug (`"Student Certificate"`) fails at the **serializer** with `VALIDATION_ERROR` on `template_key`, while a well-formed slug in the wrong family (`bank-vyas-statement` under `lor`) reaches the **service** and fails with `DOCUMENTS_TEMPLATE_KEY_INVALID`. Both are 400; the codes differ because the layers do.
 
 ### 1.3 List document workspaces
 
@@ -137,9 +140,9 @@ These hold on every endpoint below and are not repeated per endpoint.
 
 **Response:** paginated list of WorkspaceSummary, ordered by most recent edit.
 
-**Query access pattern.** `selectors.get_workspace_summaries` is a single aggregate query — `values(...).annotate(Count, Max)` — not a fetch-and-group in Python, which would mean pulling every document in the system to build one table. Standalone documents are excluded via `applicant__isnull=False` (they have no applicant to group under, and a null bucket would produce a row the UI cannot link anywhere), and archived documents via `.exclude(status=ARCHIVED)`, because this table answers "whose files have live work on them".
+**Query access pattern.** `selectors.get_workspace_summaries` is a single aggregate query — `values(...).annotate(Count, Max)` — not a fetch-and-group in Python, which would mean pulling every document in the system to build one table. Standalone documents are excluded via `applicant__isnull=False` (they have no applicant to group under, and a null bucket would produce a row the UI cannot link anywhere), and archived documents are split out with conditional aggregates — `document_count = Count(filter=~Q(status=ARCHIVED))`, `archived_count = Count(filter=Q(status=ARCHIVED))` — in the same single query.
 
-**Business rules:** an applicant whose documents are all archived does not appear at all.
+**Business rules:** an applicant whose documents are all archived keeps a row with `document_count: 0`, so their removed documents stay reachable for restore. `last_updated` spans archived documents too.
 
 **Error codes:** `DOCUMENTS_ACTOR_FORBIDDEN`.
 
@@ -163,7 +166,7 @@ These hold on every endpoint below and are not repeated per endpoint.
 - **URI:** `PATCH /api/v1/documents/<document_id>/`
 - **Permission key:** `documents.document.update` (risk: **high**)
 
-**Request:** any subset of `label`, `content`, `standalone_purpose`, `notes`.
+**Request:** any subset of `label`, `content`, `template_version`, `standalone_purpose`, `notes`.
 
 **Response:** 200 with the Document detail shape.
 
@@ -172,6 +175,7 @@ These hold on every endpoint below and are not repeated per endpoint.
 - **`content` is replaced wholesale, not merged.** Sending `{"content": {"a": 1}}` on a document whose body had ten keys leaves it with one.
 - Clearing a standalone document's `standalone_purpose` is rejected — the ownership rule is re-checked against the resulting record, not just on create.
 - An archived document returns 409 before any of this runs.
+- A `student-certificate` `content` is re-validated on every save that carries it (`validators.validate_template_content`). `document_history`'s snapshot recovery calls the same service with `check_template_content=False`: it restores a printed body verbatim, even one that predates today's rules.
 
 **Error codes:** `DOCUMENTS_OWNERSHIP_IMMUTABLE`, `DOCUMENTS_STATUS_IMMUTABLE`, `DOCUMENTS_DOCUMENT_NOT_EDITABLE`, `DOCUMENTS_OWNER_REQUIRED`, `DOCUMENTS_CONTENT_INVALID`, `DOCUMENTS_CONTENT_TOO_LARGE`, `DOCUMENTS_DOCUMENT_NOT_FOUND`, `DOCUMENTS_ACTOR_FORBIDDEN`, `VALIDATION_ERROR`.
 
@@ -186,7 +190,7 @@ These hold on every endpoint below and are not repeated per endpoint.
 
 **Response:** 200 with the Document detail shape.
 
-**Business rules:** `archived` is excluded at **both** layers — from `SELECTABLE_STATUS_CHOICES` in the serializer, so the request is refused with a field-level error, and from `SELECTABLE_STATUSES` in the service, so a caller reaching the service another way still cannot set it. Archiving demands a reason, and this endpoint has no field for one. Re-sending the current status is a no-op: 200, no event.
+**Business rules:** `archived` is excluded at **both** layers — from `SELECTABLE_STATUS_CHOICES` in the serializer, so the request is refused with a field-level error, and from `SELECTABLE_STATUSES` in the service, so a caller reaching the service another way still cannot set it. Archiving demands a reason, and this endpoint has no field for one. Re-sending the current status is a no-op: 200, no event. A move **to `ready`** emits `document.ready` through `core.events.emit` (post-commit, ids only); `notifications` raises `document_ready` to every other active Admin — never a Lead Manager, never the actor. This app imports nothing from `notifications`.
 
 **Error codes:** `DOCUMENTS_DOCUMENT_NOT_EDITABLE` (409), `DOCUMENTS_STATUS_INVALID_TRANSITION`, `DOCUMENTS_DOCUMENT_NOT_FOUND`, `DOCUMENTS_ACTOR_FORBIDDEN`, `VALIDATION_ERROR`.
 
@@ -210,13 +214,13 @@ These hold on every endpoint below and are not repeated per endpoint.
 - **URI:** `POST /api/v1/documents/<document_id>/restore/`
 - **Permission key:** `documents.document.restore` (risk: **high**)
 
-**Request:** empty body.
+**Request:** optional `{ "reason": "Removed by mistake." }` (≤2000, Unicode-normalized); an empty body is fine.
 
-**Response:** 200 with the Document detail shape: `status: "draft"`, archive fields cleared.
+**Response:** 200 with the Document detail shape: `status` back to its pre-archive value, archive fields cleared.
 
-**Business rules:** only an archived document may be restored, and it **always returns to `draft`, never to `ready`** — whoever archived it may have done so precisely because it was not ready, and a restore should not re-assert a judgement nobody made. Clearing the denormalized archive fields does not erase the archiving from history.
+**Business rules:** only an archived document may be restored. It returns to `status_before_archive` (stored by archive) — a `ready` document comes back `ready` — or to `DEFAULT_RESTORE_STATUS` (`draft`) when that is blank, i.e. for documents archived before 2026-10-29. The always-`draft` rule it replaces demoted finished documents and read to users as the restore failing. The optional reason goes on the `document_restored` audit event, whose `changes.status.to` records the actual target. Clearing the denormalized archive fields does not erase the archiving from history.
 
-**Error codes:** `DOCUMENTS_DOCUMENT_NOT_ARCHIVED` (409), `DOCUMENTS_DOCUMENT_NOT_FOUND`, `DOCUMENTS_ACTOR_FORBIDDEN`.
+**Error codes:** `DOCUMENTS_DOCUMENT_NOT_ARCHIVED` (409), `VALIDATION_ERROR` (reason too long), `DOCUMENTS_DOCUMENT_NOT_FOUND`, `DOCUMENTS_ACTOR_FORBIDDEN`.
 
 ### 1.9 Document history
 
@@ -230,3 +234,16 @@ These hold on every endpoint below and are not repeated per endpoint.
 **Business rules:** **a body change appears as the `<changed>` marker, never as content.** This endpoint answers "who changed this document and when", never "what did it say before". Reconstructing a previous body is what `document_history` print snapshots are for — so **editing a document that was never printed loses its previous contents irrecoverably.** A snapshot is captured by an explicit print action, not automatically on save.
 
 **Error codes:** `DOCUMENTS_DOCUMENT_NOT_FOUND`, `DOCUMENTS_ACTOR_FORBIDDEN`.
+
+---
+
+## 2. Document prefill
+
+### 2.1 Read — `GET /api/v1/documents/prefill/<applicant_id>/`
+
+**Policy key(s):** `documents.prefill.read` (risk: **high** — citizenship, passport, family). **Admin only** (`DocumentActorView.check_actor`).
+**Response:** the `DocumentPrefill` shape — `INTEGRATION.md` §4 (consumer contract) / `DATA_CONTRACT.md` §3.
+**Error codes:** `DOCUMENTS_APPLICANT_NOT_FOUND` (404); `DOCUMENTS_ACTOR_FORBIDDEN` (403).
+**Business rules:** read-only, no audit event. Built by `serializers.DocumentPrefillSerializer` over `selectors.get_prefill_applicant` (→ `applicants.selectors.get_applicant_by_id`) with `selectors.get_prefill_photo_id` (→ `uploaded_files.selectors.filter_files`, newest current non-archived `photograph`). Name parts come from `serializers.split_full_name` — first word, middle words, last word. The relative for each of father/mother/grandfather/grandmother is the newest `FamilyMember` of that relationship. Uses plain serializers, never applicants' own (§4: selectors and services only across apps).
+**Query access pattern:** one applicant query with the passport joined and six prefetches (contacts, addresses, family, emergency contacts, educations, language tests, journeys), plus one `uploaded_files` query for the photo — constant, regardless of file size.
+**AI debugging notes:** a `null` relative or address means the applicant file lacks it, not a bug here — check the applicant detail. A wrong first/last name split on compound surnames is the documented heuristic.

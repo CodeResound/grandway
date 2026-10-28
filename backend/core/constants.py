@@ -6,6 +6,8 @@ an enum across apps, and a shared enum owned by one app would invert the
 dependency (``applicant_journeys`` must not import from ``leads``).
 """
 
+from datetime import timedelta
+
 from django.db import models
 
 
@@ -79,3 +81,78 @@ class ContactNumberLabel(models.TextChoices):
     WHATSAPP = "whatsapp", "WhatsApp"
     VIBER = "viber", "Viber"
     OTHER = "other", "Other"
+
+
+class NoteCategory(models.TextChoices):
+    """What kind of note a staff member wrote.
+
+    Shared by ``leads`` (notes on an enquiry) and ``applicants`` (notes on the
+    person), because a lead's notes are carried onto the applicant at
+    conversion and must mean the same thing on both sides. ``visit`` is a
+    record of an in-person office visit; everything else is ``general``.
+    Extensible — a ``call`` category is the obvious next one.
+    """
+
+    GENERAL = "general", "General"
+    VISIT = "visit", "Visit"
+
+
+#: Longest note body accepted, in characters.
+NOTE_BODY_MAX_LENGTH = 10_000
+
+#: How far ahead of the server clock ``noted_at`` may be. A note records
+#: something that already happened; a few minutes absorbs client clock skew.
+NOTE_FUTURE_TOLERANCE = timedelta(minutes=5)
+
+#: A note whose ``noted_at`` is this much earlier than when it was saved is
+#: reported as backdated — written after the fact.
+NOTE_BACKDATED_THRESHOLD = timedelta(minutes=15)
+
+#: Orderings a notes list accepts (``?ordering=``). ``-noted_at`` is the default.
+NOTE_ORDERINGS = ("-noted_at", "noted_at", "-created_at")
+
+
+class HighestQualification(models.TextChoices):
+    """A person's highest completed qualification, on the Nepali ladder.
+
+    Shared by ``leads`` (what an enquirer reports) and ``applicants`` (the
+    education record it becomes at conversion), which map 1:1. Distinct from
+    ``StudyLevel``, which is the level a person is *aiming at*.
+    """
+
+    SEE = "see", "SEE / SLC"
+    PLUS_TWO = "plus_two", "+2 / NEB"
+    DIPLOMA = "diploma", "Diploma"
+    BACHELOR = "bachelor", "Bachelor"
+    MASTER = "master", "Master"
+    PHD = "phd", "PhD"
+    OTHER = "other", "Other"
+
+
+class LanguageTestType(models.TextChoices):
+    """Which language test a score belongs to.
+
+    Shared by lead certificates and applicant language tests, which are copied
+    1:1 at conversion. A fixed enum by decision (2026-10-29): SAT, GRE, and a
+    configurable test catalogue are out of scope; ``other`` is unvalidated.
+    """
+
+    IELTS = "ielts", "IELTS"
+    PTE = "pte", "PTE"
+    TOEFL = "toefl", "TOEFL"
+    DUOLINGO = "duolingo", "Duolingo"
+    OTHER = "other", "Other"
+
+
+class AcademicScoreType(models.TextChoices):
+    """How an academic score is expressed. Divisions and letter grades go in a free-text label."""
+
+    GPA = "gpa", "GPA"
+    PERCENTAGE = "percentage", "Percentage"
+
+
+class CalendarSystem(models.TextChoices):
+    """Which calendar a bare year is in. A BS year spans two AD years, so it cannot be converted after the fact."""
+
+    BS = "bs", "Bikram Sambat"
+    AD = "ad", "Gregorian (AD)"

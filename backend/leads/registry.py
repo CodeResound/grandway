@@ -178,17 +178,11 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "route_pattern": "/api/v1/leads/",
         "view_import_path": "leads.views.LeadListCreateView",
         "risk_level": "low",
-        # The route and method are unchanged; the contract behind them is not.
-        # A version bump appends a record — it never edits the 1.0.0 one (§35 item 10).
-        "version": "1.1.0",
         "dependencies": _REQUIRES_LOGIN,
-        "change_summary": "Widened search to email and contact number; added relevance ordering.",
-        "change_reason": (
-            "A lead is very often a phone number in a call log before anyone has agreed how to spell "
-            "the name, and search matched names only. Backward compatible: every previous filter "
-            "behaves unchanged and no field was removed, renamed, or added (§22, §29). Owner scoping "
-            "is unaffected — ranking reorders rows inside the caller's existing scope."
-        ),
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.2.0",
+        "change_summary": "Deleted leads excluded (Admin-only ?deleted=true); new filters highest_qualification_level, language_test_status, language_test_type.",
+        "change_reason": "Lead soft delete (updates.md §3.1) and Structured qualification and language certificates (frontend updates.md §1, 2026-10-29). Deleted leads are hidden from every list, search, and dashboard; a Lead Manager sending ?deleted=true gets 403. The three filters are additive.",
     },
     # 8. Create a lead. Requires a source, hence the dependency on source.list.
     {
@@ -206,8 +200,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
             _dep("leads.lead.list", "Creating leads requires the ability to list them."),
             _dep("leads.source.list", "A lead must be attributed to a source chosen from the source list."),
         ],
-        "change_summary": "Initial registration of the lead create endpoint.",
-        "change_reason": _PHASE_2,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.2.0",
+        "change_summary": "Creating a lead now raises a lead_created notification to the Admins.",
+        "change_reason": "Lead notifications (frontend updates.md §4, 2026-10-29). Additive side effect.",
     },
     # 9. Read one lead — the dependency root for every per-lead action below.
     {
@@ -222,8 +218,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "leads.views.LeadDetailView",
         "risk_level": "low",
         "dependencies": [_dep("leads.lead.list", "Reading a lead requires list access to its scope.")],
-        "change_summary": "Initial registration of the lead read endpoint.",
-        "change_reason": _PHASE_2,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Adds deleted_* fields, study-interest qualification/score/year fields, and language_certificates.",
+        "change_reason": "Lead soft delete (updates.md §3.1) and Structured qualification and language certificates (frontend updates.md §1, 2026-10-29). Additive fields; a deleted lead is 404 for Lead Managers.",
     },
     # 10. Correct a lead's information. Stage is not editable here.
     {
@@ -238,8 +236,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "leads.views.LeadDetailView",
         "risk_level": "medium",
         "dependencies": _REQUIRES_LEAD_READ,
-        "change_summary": "Initial registration of the lead update endpoint.",
-        "change_reason": _PHASE_2,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "409 on a deleted lead; accepts the new study-interest fields and a language_certificates replacement list.",
+        "change_reason": "Lead soft delete (updates.md §3.1) and Structured qualification and language certificates (frontend updates.md §1, 2026-10-29). Certificates replace the whole set when sent, like contact_numbers; omitted means untouched.",
     },
     # --- Phase 3: lifecycle -------------------------------------------------
     # 11. Move between active stages.
@@ -255,8 +255,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "leads.views.LeadStageView",
         "risk_level": "medium",
         "dependencies": _REQUIRES_LEAD_READ,
-        "change_summary": "Initial registration of the lead stage-change endpoint.",
-        "change_reason": _PHASE_3,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Refused with 409 on a deleted lead.",
+        "change_reason": "Lead soft delete (frontend updates.md §3.1, 2026-10-29). Returns 409 LEADS_LEAD_DELETED on a soft-deleted lead. Additive error; request and response unchanged.",
     },
     # 12. Record a manual follow-up.
     {
@@ -271,8 +273,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "leads.views.LeadFollowUpView",
         "risk_level": "low",
         "dependencies": _REQUIRES_LEAD_READ,
-        "change_summary": "Initial registration of the lead follow-up endpoint.",
-        "change_reason": _PHASE_3,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Refused with 409 on a deleted lead, and on a converted lead when a note is sent.",
+        "change_reason": "Lead soft delete (frontend updates.md §3.1, 2026-10-29). Returns 409 LEADS_LEAD_DELETED on a soft-deleted lead. Additive error; request and response unchanged. A follow-up note on a converted (reopened) lead returns 409 LEADS_LEAD_ALREADY_CONVERTED: notes continue on the applicant.",
     },
     # 13. Close a lead. A reason is mandatory, so this depends on loss_reason.list.
     {
@@ -290,8 +294,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
             _dep("leads.lead.read", "The lead must be readable before it can be closed."),
             _dep("leads.loss_reason.list", "Closing a lead requires a reason chosen from the loss-reason list."),
         ],
-        "change_summary": "Initial registration of the mark-lost endpoint.",
-        "change_reason": _PHASE_3,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Refused with 409 on a deleted lead.",
+        "change_reason": "Lead soft delete (frontend updates.md §3.1, 2026-10-29). Returns 409 LEADS_LEAD_DELETED on a soft-deleted lead. Additive error; request and response unchanged.",
     },
     # 14. Reopen. Never undoes a conversion.
     {
@@ -309,8 +315,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
             _dep("leads.lead.read", "The lead must be readable before it can be reopened."),
             _dep("leads.lead.mark_lost", "Reopening only applies to a lead that was closed or converted."),
         ],
-        "change_summary": "Initial registration of the lead reopen endpoint.",
-        "change_reason": _PHASE_3,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Refused with 409 on a deleted lead.",
+        "change_reason": "Lead soft delete (frontend updates.md §3.1, 2026-10-29). Returns 409 LEADS_LEAD_DELETED on a soft-deleted lead. Additive error; request and response unchanged.",
     },
     # 15. List a lead's notes.
     {
@@ -321,16 +329,18 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "leads.note.list",
         "operation_type": "list",
         "display_name": "List Lead Notes",
-        "description": "List the notes recorded against a lead, newest first.",
+        "description": "List a lead's live notes, most recent noted_at first, with per-category counts.",
         "http_method": "GET",
         "route_pattern": "/api/v1/leads/<lead_id>/notes/",
         "view_import_path": "leads.views.LeadNoteListCreateView",
         "risk_level": "low",
         "dependencies": _REQUIRES_LEAD_READ,
-        "change_summary": "Initial registration of the lead-note list endpoint.",
-        "change_reason": _PHASE_3,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Adds category, noted_at(+_bs), is_backdated, updated_by; ?category, ?ordering; meta.counts; hides deleted notes.",
+        "change_reason": "Categorised, backdatable, correctable notes (frontend updates.md §2, 2026-10-29). Additive fields and params; default order is now noted_at (equal to created_at for every existing note).",
     },
-    # 16. Append a note. Notes are never edited or deleted.
+    # 16. Write a note (categorised, backdatable).
     {
         **_LEAD,
         "model_key": "lead_note",
@@ -339,14 +349,16 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "leads.note.create",
         "operation_type": "create",
         "display_name": "Add Lead Note",
-        "description": "Append a note to a lead. Notes are append-only — there is no edit or delete.",
+        "description": "Write a general or visit note on a lead, optionally backdated.",
         "http_method": "POST",
         "route_pattern": "/api/v1/leads/<lead_id>/notes/",
         "view_import_path": "leads.views.LeadNoteListCreateView",
         "risk_level": "low",
         "dependencies": [_dep("leads.note.list", "Adding a note requires the ability to read the lead's notes.")],
-        "change_summary": "Initial registration of the lead-note create endpoint.",
-        "change_reason": _PHASE_3,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.2.0",
+        "change_summary": "A visit note now raises a visit_note_added notification to the lead's owner.",
+        "change_reason": "Visit-note notifications (frontend updates.md §4, 2026-10-29). Additive side effect.",
     },
     # 17. The lead's history, projected from the central audit log.
     {
@@ -361,8 +373,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "leads.views.LeadHistoryView",
         "risk_level": "low",
         "dependencies": _REQUIRES_LEAD_READ,
-        "change_summary": "Initial registration of the lead history endpoint.",
-        "change_reason": _PHASE_3,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "A deleted lead's history is readable by an Admin only.",
+        "change_reason": "Lead soft delete (frontend updates.md §3.1, 2026-10-29). Follows the read rule: a Lead Manager gets 404 on a deleted lead. Shape unchanged.",
     },
     # --- Phase 4: conversion ------------------------------------------------
     # 18. The one point where the lead cycle meets the applicant cycle.
@@ -384,8 +398,85 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
             _dep("leads.lead.read", "The lead must be readable before it can be converted."),
             _dep("applicants.applicant.create", "Conversion creates the applicant record."),
             _dep("applicant_journeys.journey.create", "Conversion creates the initial journey."),
+            _dep("applicants.note.create", "Conversion copies the lead's notes onto the applicant."),
         ],
-        "change_summary": "Initial registration of the lead conversion endpoint.",
-        "change_reason": "leads app Phase 4 (conversion), unblocked by applicants + applicant_journeys.",
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.2.0",
+        "change_summary": "The new applicant is assigned to the lead's owner (when still an active Admin or Lead Manager); a lead_converted notification is raised.",
+        "change_reason": "Optional applicant assignment and lead notifications (frontend updates.md §4, 2026-10-29). Additive.",
+    },
+    # --- 2026-10-29: soft delete and note corrections ------------------------
+    # 19. Soft-delete a lead. Admin only; hides it everywhere, erases nothing.
+    {
+        **_LEAD,
+        "endpoint_key": "lead-delete",
+        "permission_key": "leads.lead.delete",
+        "operation_type": "delete",
+        "display_name": "Delete Lead",
+        "description": "Soft-delete a lead with a reason: hidden from lists, search, and dashboards; restorable. Admin only.",
+        "http_method": "DELETE",
+        "route_pattern": "/api/v1/leads/<lead_id>/",
+        "view_import_path": "leads.views.LeadDetailView",
+        "risk_level": "high",
+        "dependencies": [_dep("leads.lead.read", "The lead must be readable before it can be deleted.")],
+        "version": "1.1.0",
+        "change_summary": "A deletion now raises a lead_deleted notification.",
+        "change_reason": "Lead notifications (frontend updates.md §4, 2026-10-29). Additive side effect.",
+    },
+    # 20. Restore a soft-deleted lead. Admin only.
+    {
+        **_LEAD,
+        "endpoint_key": "lead-restore",
+        "permission_key": "leads.lead.restore",
+        "operation_type": "custom",
+        "display_name": "Restore Lead",
+        "description": "Bring a soft-deleted lead back exactly as it was. Admin only.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/leads/<lead_id>/restore/",
+        "view_import_path": "leads.views.LeadRestoreView",
+        "risk_level": "high",
+        "dependencies": [
+            _dep("leads.lead.read", "The deleted lead must be readable (Admin) before it can be restored."),
+            _dep("leads.lead.delete", "Restoring only applies to a lead that was deleted."),
+        ],
+        "version": "1.1.0",
+        "change_summary": "A restore now raises a lead_restored notification.",
+        "change_reason": "Lead notifications (frontend updates.md §4, 2026-10-29). Additive side effect.",
+    },
+    # 21. Correct a note. Author or Admin.
+    {
+        **_LEAD,
+        "model_key": "lead_note",
+        "model_display_name": "Lead Note",
+        "endpoint_key": "lead-note-update",
+        "permission_key": "leads.note.update",
+        "operation_type": "update",
+        "display_name": "Edit Lead Note",
+        "description": "Correct a note's category, text, or noted_at. The author or an Admin only; audited.",
+        "http_method": "PATCH",
+        "route_pattern": "/api/v1/leads/<lead_id>/notes/<note_id>/",
+        "view_import_path": "leads.views.LeadNoteDetailView",
+        "risk_level": "medium",
+        "dependencies": [_dep("leads.note.list", "A note must be listed before it can be edited.")],
+        "change_summary": "Initial registration of the lead-note update endpoint.",
+        "change_reason": "Correctable notes (frontend updates.md §2, 2026-10-29). Replaces append-only notes.",
+    },
+    # 22. Remove a note (soft). Author or Admin.
+    {
+        **_LEAD,
+        "model_key": "lead_note",
+        "model_display_name": "Lead Note",
+        "endpoint_key": "lead-note-delete",
+        "permission_key": "leads.note.delete",
+        "operation_type": "delete",
+        "display_name": "Delete Lead Note",
+        "description": "Soft-delete a note: it leaves the feed, the row and its audit trail stay. Author or Admin.",
+        "http_method": "DELETE",
+        "route_pattern": "/api/v1/leads/<lead_id>/notes/<note_id>/",
+        "view_import_path": "leads.views.LeadNoteDetailView",
+        "risk_level": "medium",
+        "dependencies": [_dep("leads.note.list", "A note must be listed before it can be deleted.")],
+        "change_summary": "Initial registration of the lead-note delete endpoint.",
+        "change_reason": "Correctable notes (frontend updates.md §2, 2026-10-29). Soft delete only.",
     },
 ]

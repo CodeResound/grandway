@@ -10,17 +10,30 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from core.constants import ContactNumberLabel, LanguageTestStatus, StudyLevel
+from core.constants import (
+    NOTE_BODY_MAX_LENGTH,
+    NOTE_ORDERINGS,
+    AcademicScoreType,
+    CalendarSystem,
+    ContactNumberLabel,
+    HighestQualification,
+    LanguageTestStatus,
+    LanguageTestType,
+    NoteCategory,
+    StudyLevel,
+)
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
-from core.validators import validate_fiscal_year_label
+from core.validators import note_is_backdated, validate_fiscal_year_label
 from rest_framework import serializers
 
 from leads.constants import ACTIVE_STAGES, LeadStage
 from leads.models import (
     Lead,
     LeadContactNumber,
+    LeadLanguageCertificate,
     LeadNote,
     LeadSource,
     LeadStudyInterest,
@@ -141,6 +154,11 @@ class LeadStudyInterestSerializer(serializers.ModelSerializer):
             "budget_currency",
             "scholarship_interest",
             "highest_qualification",
+            "highest_qualification_level",
+            "academic_score",
+            "academic_score_type",
+            "pass_year",
+            "pass_year_calendar",
             "language_test_status",
             "interest_notes",
         ]
@@ -165,6 +183,15 @@ class LeadStudyInterestWriteSerializer(serializers.Serializer):
     budget_currency = serializers.CharField(max_length=3, required=False, allow_blank=True)
     scholarship_interest = serializers.BooleanField(required=False)
     highest_qualification = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    highest_qualification_level = serializers.ChoiceField(
+        choices=HighestQualification.choices, required=False, allow_blank=True
+    )
+    # Pairing (score ↔ type, year ↔ calendar) and ranges are checked in the
+    # service against the merged record, so a partial PATCH is judged correctly.
+    academic_score = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    academic_score_type = serializers.ChoiceField(choices=AcademicScoreType.choices, required=False, allow_blank=True)
+    pass_year = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    pass_year_calendar = serializers.ChoiceField(choices=CalendarSystem.choices, required=False, allow_blank=True)
     language_test_status = serializers.ChoiceField(
         choices=LanguageTestStatus.choices, required=False, allow_blank=True
     )
@@ -181,6 +208,51 @@ class LeadStudyInterestWriteSerializer(serializers.Serializer):
 
     def validate_budget_currency(self, value: str) -> str:
         return value.strip().upper()
+
+
+class LeadLanguageCertificateSerializer(serializers.ModelSerializer):
+    test_date_bs = serializers.SerializerMethodField()
+    expiry_date_bs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LeadLanguageCertificate
+        fields = [
+            "id",
+            "test_type",
+            "overall_score",
+            "listening_score",
+            "reading_score",
+            "writing_score",
+            "speaking_score",
+            "test_date",
+            "test_date_bs",
+            "certificate_number",
+            "expiry_date",
+            "expiry_date_bs",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_test_date_bs(self, obj: LeadLanguageCertificate) -> dict[str, Any] | None:
+        return _bs(obj.test_date)
+
+    def get_expiry_date_bs(self, obj: LeadLanguageCertificate) -> dict[str, Any] | None:
+        return _bs(obj.expiry_date)
+
+
+class LeadLanguageCertificateWriteSerializer(serializers.Serializer):
+    """One certificate. Ranges and dates: ``core.validators.language_test_errors``, in the service."""
+
+    test_type = serializers.ChoiceField(choices=LanguageTestType.choices)
+    overall_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    listening_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    reading_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    writing_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    speaking_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    test_date = serializers.DateField(required=False, allow_null=True)
+    certificate_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    expiry_date = serializers.DateField(required=False, allow_null=True)
 
 
 # ---------------------------------------------------------------------------
@@ -233,11 +305,15 @@ class LeadDetailSerializer(LeadListSerializer):
     # journey without this app embedding either module's response shape.
     converted_applicant_id = serializers.UUIDField(read_only=True, allow_null=True)
     converted_journey_id = serializers.UUIDField(read_only=True, allow_null=True)
+    deleted_by = UserBriefSerializer(read_only=True)
+    deleted_at_bs = serializers.SerializerMethodField()
+    language_certificates = LeadLanguageCertificateSerializer(many=True, read_only=True)
 
     class Meta(LeadListSerializer.Meta):
         fields = [
             *LeadListSerializer.Meta.fields,
             "study_interest",
+            "language_certificates",
             "last_followed_up_by",
             "lost_reason",
             "lost_detail",
@@ -250,6 +326,10 @@ class LeadDetailSerializer(LeadListSerializer):
             "converted_by",
             "converted_applicant_id",
             "converted_journey_id",
+            "deleted_at",
+            "deleted_at_bs",
+            "deleted_by",
+            "delete_reason",
         ]
         read_only_fields = fields
 
@@ -263,6 +343,9 @@ class LeadDetailSerializer(LeadListSerializer):
     def get_converted_at_bs(self, obj: Lead) -> dict[str, Any] | None:
         return _bs(obj.converted_at)
 
+    def get_deleted_at_bs(self, obj: Lead) -> dict[str, Any] | None:
+        return _bs(obj.deleted_at)
+
 
 class LeadListFilterSerializer(serializers.Serializer):
     """GET /leads/ query params, validated before they reach a selector.
@@ -275,6 +358,21 @@ class LeadListFilterSerializer(serializers.Serializer):
     source = serializers.UUIDField(required=False)
     search = serializers.CharField(max_length=150, required=False)
     fiscal_year = serializers.CharField(required=False, validators=[validate_fiscal_year_label])
+    #: Admin only (the view refuses it to a Lead Manager): list deleted leads instead.
+    deleted = serializers.BooleanField(required=False, default=False)
+    highest_qualification_level = serializers.ChoiceField(choices=HighestQualification.choices, required=False)
+    language_test_status = serializers.ChoiceField(choices=LanguageTestStatus.choices, required=False)
+    language_test_type = serializers.ChoiceField(choices=LanguageTestType.choices, required=False)
+
+
+class LeadDeleteSerializer(serializers.Serializer):
+    """DELETE /leads/<id>/ body. Normalized in the service, which also rejects a blank reason."""
+
+    reason = serializers.CharField(max_length=500)
+
+
+class LeadRestoreSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=2000, required=False, allow_blank=True)
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +391,8 @@ class LeadCreateSerializer(serializers.Serializer):
 
     contact_numbers = LeadContactNumberWriteSerializer(many=True, allow_empty=False)
     study_interest = LeadStudyInterestWriteSerializer(required=False)
+    # Replaces the whole set, like contact_numbers; the 10-item cap is a service rule.
+    language_certificates = LeadLanguageCertificateWriteSerializer(many=True, required=False)
 
     def validate_full_name(self, value: str) -> str:
         return normalize_unicode(value)
@@ -351,20 +451,61 @@ class ReopenSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 
+#: A ``noted_at`` sent without a UTC offset is read as Nepal time (§39.5): it
+#: is typed by staff in Kathmandu, and reading it as UTC would shift the note
+#: by 5h45m. Clients should still send an offset.
+_NOTED_AT_TZ = ZoneInfo("Asia/Kathmandu")
+
+
 class LeadNoteSerializer(serializers.ModelSerializer):
     author = UserBriefSerializer(read_only=True)
+    updated_by = UserBriefSerializer(read_only=True, allow_null=True)
+    noted_at_bs = serializers.SerializerMethodField()
+    is_backdated = serializers.SerializerMethodField()
 
     class Meta:
         model = LeadNote
-        fields = ["id", "body", "author", "created_at"]
+        fields = [
+            "id",
+            "category",
+            "body",
+            "noted_at",
+            "noted_at_bs",
+            "is_backdated",
+            "author",
+            "updated_by",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = fields
+
+    def get_noted_at_bs(self, obj: LeadNote) -> dict[str, Any] | None:
+        return _bs(obj.noted_at)
+
+    def get_is_backdated(self, obj: LeadNote) -> bool:
+        return note_is_backdated(created_at=obj.created_at, noted_at=obj.noted_at)
 
 
 class LeadNoteCreateSerializer(serializers.Serializer):
-    body = serializers.CharField()
+    """A new note. Blank-after-normalization and future ``noted_at`` are refused in the service."""
+
+    category = serializers.ChoiceField(choices=NoteCategory.choices, default=NoteCategory.GENERAL)
+    body = serializers.CharField(max_length=NOTE_BODY_MAX_LENGTH)
+    noted_at = serializers.DateTimeField(required=False, default_timezone=_NOTED_AT_TZ)
 
     def validate_body(self, value: str) -> str:
         return normalize_unicode(value)
+
+
+class LeadNoteUpdateSerializer(LeadNoteCreateSerializer):
+    """A correction: any subset of the three fields. Use with ``partial=True``."""
+
+    category = serializers.ChoiceField(choices=NoteCategory.choices, required=False)
+
+
+class LeadNoteListFilterSerializer(serializers.Serializer):
+    category = serializers.ChoiceField(choices=NoteCategory.choices, required=False)
+    ordering = serializers.ChoiceField(choices=[(o, o) for o in NOTE_ORDERINGS], required=False)
 
 
 # A lead's history entries are serialized by ``audit.serializers``'s canonical
