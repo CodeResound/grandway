@@ -90,3 +90,19 @@ class RefreshTokenReuseError(Exception):
 
     Signals that the whole session family should be revoked.
     """
+
+
+class ClipboardLimitError(Exception):
+    """Raised when an account already holds the maximum number of clipboard entries."""
+
+
+class ClipboardCategoryLimitError(Exception):
+    """Raised when an account already holds the maximum number of clipboard categories."""
+
+
+class ClipboardCategoryNameTakenError(Exception):
+    """Raised when an account already has a clipboard category of that name (any case)."""
+
+
+class ClipboardCategoryInvalidError(Exception):
+    """Raised when an entry names a category that is not one of the caller's own."""

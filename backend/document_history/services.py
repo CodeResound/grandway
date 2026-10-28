@@ -303,6 +303,9 @@ def recover_snapshot(
         document=document,
         fields={field: getattr(snapshot, field) for field in RECOVERABLE_FIELDS},
         ip_address=ip_address,
+        # Put back exactly what was printed, even where it predates the
+        # template's current content rules or names a photo archived since.
+        check_template_content=False,
     )
     _create_print_event(
         actor=actor,

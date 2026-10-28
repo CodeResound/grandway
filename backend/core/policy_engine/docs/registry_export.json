@@ -141,6 +141,10 @@
       "display_name": "Operations Dashboard"
     },
     {
+      "category_key": "personal_tools",
+      "display_name": "Personal Tools"
+    },
+    {
       "category_key": "policy_engine_administration",
       "display_name": "Policy Engine Administration"
     },
@@ -153,7 +157,7 @@
       "display_name": "Session Management"
     }
   ],
-  "endpoint_count": 180,
+  "endpoint_count": 202,
   "endpoints": [
     {
       "permission_key": "applicant_journeys.journey.change_stage",
@@ -386,6 +390,30 @@
       ]
     },
     {
+      "permission_key": "applicants.applicant.assign",
+      "app_key": "applicants",
+      "model_key": "applicant",
+      "endpoint_key": "applicant-assign",
+      "display_name": "Assign Applicant",
+      "description": "Set or clear the staff member notified about an applicant. Admins assign anyone; a Lead Manager may only take an unassigned applicant or release their own. Never changes who can see the file.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/assign/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The applicant must be readable before it can be assigned."
+        }
+      ]
+    },
+    {
       "permission_key": "applicants.applicant.change_status",
       "app_key": "applicants",
       "model_key": "applicant",
@@ -396,7 +424,7 @@
       "route_pattern": "/api/v1/applicants/<applicant_id>/status/",
       "operation_type": "custom",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "category_key": "applicant_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -420,7 +448,7 @@
       "route_pattern": "/api/v1/applicants/",
       "operation_type": "create",
       "risk_level": "high",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "category_key": "applicant_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -444,7 +472,7 @@
       "route_pattern": "/api/v1/applicants/",
       "operation_type": "list",
       "risk_level": "low",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category_key": "applicant_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -499,7 +527,7 @@
       "route_pattern": "/api/v1/applicants/<applicant_id>/",
       "operation_type": "read",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "category_key": "applicant_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -509,6 +537,37 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Reading an applicant requires list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.applicant.restore",
+      "app_key": "applicants",
+      "model_key": "applicant",
+      "endpoint_key": "applicant-restore",
+      "display_name": "Restore Applicant",
+      "description": "Un-archive an applicant back to the status held before archiving. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/restore/",
+      "operation_type": "custom",
+      "risk_level": "medium",
+      "version": "1.1.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.change_status",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Restoring only applies to an applicant archived through status."
+        },
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The applicant must be readable before it can be restored."
         }
       ]
     },
@@ -523,6 +582,78 @@
       "route_pattern": "/api/v1/applicants/<applicant_id>/",
       "operation_type": "update",
       "risk_level": "medium",
+      "version": "1.2.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The applicant must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.note.create",
+      "app_key": "applicants",
+      "model_key": "applicant_note",
+      "endpoint_key": "applicant-note-create",
+      "display_name": "Add Applicant Note",
+      "description": "Write a general or visit note on an applicant, optionally backdated.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/notes/",
+      "operation_type": "create",
+      "risk_level": "low",
+      "version": "1.1.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.note.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Adding a note requires the ability to read the notes."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.note.delete",
+      "app_key": "applicants",
+      "model_key": "applicant_note",
+      "endpoint_key": "applicant-note-delete",
+      "display_name": "Delete Applicant Note",
+      "description": "Soft-delete a note: it leaves the feed, the row and its audit trail stay. Author or Admin.",
+      "http_method": "DELETE",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/notes/<note_id>/",
+      "operation_type": "delete",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.note.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A note must be listed before it can be deleted."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.note.list",
+      "app_key": "applicants",
+      "model_key": "applicant_note",
+      "endpoint_key": "applicant-note-list",
+      "display_name": "List Applicant Notes",
+      "description": "List an applicant's live notes, most recent noted_at first, with per-category counts.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/notes/",
+      "operation_type": "list",
+      "risk_level": "low",
       "version": "1.0.0",
       "category_key": "applicant_management",
       "is_dependency_root": false,
@@ -533,6 +664,30 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The applicant must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "applicants.note.update",
+      "app_key": "applicants",
+      "model_key": "applicant_note",
+      "endpoint_key": "applicant-note-update",
+      "display_name": "Edit Applicant Note",
+      "description": "Correct a note's category, text, or noted_at. The author or an Admin only; audited.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/applicants/<applicant_id>/notes/<note_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "applicant_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.note.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A note must be listed before it can be edited."
         }
       ]
     },
@@ -597,6 +752,271 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Reading one event is meaningful only alongside list access."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_category.create",
+      "app_key": "authenticate",
+      "model_key": "clipboard_category",
+      "endpoint_key": "clipboard-category-create",
+      "display_name": "Create Clipboard Category",
+      "description": "Create a category on the caller's own clipboard. Names are unique per account, ignoring case.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/me/clipboard/categories/",
+      "operation_type": "create",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_category.delete",
+      "app_key": "authenticate",
+      "model_key": "clipboard_category",
+      "endpoint_key": "clipboard-category-delete",
+      "display_name": "Delete Clipboard Category",
+      "description": "Delete one of the caller's own clipboard categories; its entries are kept, uncategorized.",
+      "http_method": "DELETE",
+      "route_pattern": "/api/v1/auth/me/clipboard/categories/<category_id>/",
+      "operation_type": "delete",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.clipboard_category.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A category id is discovered from the caller's own category list."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_category.list",
+      "app_key": "authenticate",
+      "model_key": "clipboard_category",
+      "endpoint_key": "clipboard-category-list",
+      "display_name": "List Own Clipboard Categories",
+      "description": "The caller's own clipboard categories by name, each with its entry count.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/auth/me/clipboard/categories/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_category.update",
+      "app_key": "authenticate",
+      "model_key": "clipboard_category",
+      "endpoint_key": "clipboard-category-update",
+      "display_name": "Rename Clipboard Category",
+      "description": "Rename one of the caller's own clipboard categories.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/auth/me/clipboard/categories/<category_id>/",
+      "operation_type": "update",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.clipboard_category.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A category id is discovered from the caller's own category list."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_entry.create",
+      "app_key": "authenticate",
+      "model_key": "clipboard_entry",
+      "endpoint_key": "clipboard-entry-create",
+      "display_name": "Save Clipboard Entry",
+      "description": "Save a snippet (label, text, optional field key and category) to the caller's own clipboard.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/me/clipboard/",
+      "operation_type": "create",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.clipboard_category.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "warning",
+          "reason": "Filing an entry in a category needs the category list; a category is optional."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_entry.delete",
+      "app_key": "authenticate",
+      "model_key": "clipboard_entry",
+      "endpoint_key": "clipboard-entry-delete",
+      "display_name": "Delete Clipboard Entry",
+      "description": "Permanently delete one of the caller's own clipboard entries.",
+      "http_method": "DELETE",
+      "route_pattern": "/api/v1/auth/me/clipboard/<entry_id>/",
+      "operation_type": "delete",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.clipboard_entry.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "An entry id is discovered from the caller's own clipboard list."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_entry.list",
+      "app_key": "authenticate",
+      "model_key": "clipboard_entry",
+      "endpoint_key": "clipboard-entry-list",
+      "display_name": "List Own Clipboard",
+      "description": "The caller's own clipboard entries, most used first; filter by field key, category, or search.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/auth/me/clipboard/",
+      "operation_type": "list",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_entry.update",
+      "app_key": "authenticate",
+      "model_key": "clipboard_entry",
+      "endpoint_key": "clipboard-entry-update",
+      "display_name": "Update Clipboard Entry",
+      "description": "Change the label, text, field key, or category of one of the caller's own entries.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/auth/me/clipboard/<entry_id>/",
+      "operation_type": "update",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.clipboard_category.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "warning",
+          "reason": "Filing an entry in a category needs the category list; a category is optional."
+        },
+        {
+          "target_permission_key": "authenticate.clipboard_entry.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "An entry id is discovered from the caller's own clipboard list."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "authenticate.clipboard_entry.use",
+      "app_key": "authenticate",
+      "model_key": "clipboard_entry",
+      "endpoint_key": "clipboard-entry-use",
+      "display_name": "Use Clipboard Entry",
+      "description": "Record that the caller copied one of their entries, so the list ranks it higher.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/auth/me/clipboard/<entry_id>/use/",
+      "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "personal_tools",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.clipboard_entry.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "An entry id is discovered from the caller's own clipboard list."
+        },
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
         }
       ]
     },
@@ -2590,7 +3010,7 @@
       "route_pattern": "/api/v1/documents/<document_id>/status/",
       "operation_type": "custom",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "document_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -2614,7 +3034,7 @@
       "route_pattern": "/api/v1/documents/",
       "operation_type": "create",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "document_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -2633,12 +3053,12 @@
       "model_key": "document",
       "endpoint_key": "document-list",
       "display_name": "List Documents",
-      "description": "List document working records across applicants and standalone documents. Admin only.",
+      "description": "List document working records across applicants and standalone documents; archived ones only on request. Admin only.",
       "http_method": "GET",
       "route_pattern": "/api/v1/documents/",
       "operation_type": "list",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "document_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -2681,12 +3101,12 @@
       "model_key": "document",
       "endpoint_key": "document-workspaces",
       "display_name": "List Document Workspaces",
-      "description": "List applicants with live documents, each with a count and the most recent edit.",
+      "description": "List applicants with documents, each with live and archived counts and the most recent edit.",
       "http_method": "GET",
       "route_pattern": "/api/v1/documents/workspaces/",
       "operation_type": "list",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "document_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -2710,7 +3130,7 @@
       "route_pattern": "/api/v1/documents/<document_id>/",
       "operation_type": "read",
       "risk_level": "high",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "document_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -2729,12 +3149,12 @@
       "model_key": "document",
       "endpoint_key": "document-restore",
       "display_name": "Restore Document",
-      "description": "Return an archived document to draft so it can be edited again.",
+      "description": "Return an archived document to the status it held before archiving (draft if unknown).",
       "http_method": "POST",
       "route_pattern": "/api/v1/documents/<document_id>/restore/",
       "operation_type": "custom",
       "risk_level": "high",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "document_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -2760,12 +3180,12 @@
       "model_key": "document",
       "endpoint_key": "document-update",
       "display_name": "Edit Document",
-      "description": "Save the workspace — label, body, notes. Owner, family, template, and status are unaffected.",
+      "description": "Save the workspace — label, body, notes, layout version. Owner, family, template, and status are unaffected.",
       "http_method": "PATCH",
       "route_pattern": "/api/v1/documents/<document_id>/",
       "operation_type": "update",
       "risk_level": "high",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "document_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -2775,6 +3195,37 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The document must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "documents.prefill.read",
+      "app_key": "documents",
+      "model_key": "document_prefill",
+      "endpoint_key": "document-prefill",
+      "display_name": "Read Document Prefill",
+      "description": "The applicant's names, identity numbers, addresses, parents and grandparents, education, language tests, and current photo, shaped for document forms. Admin only; read-only.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/documents/prefill/<applicant_id>/",
+      "operation_type": "read",
+      "risk_level": "high",
+      "version": "1.0.0",
+      "category_key": "document_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "applicants.applicant.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Prefill is a projection of the applicant record."
+        },
+        {
+          "target_permission_key": "documents.document.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Prefill serves the document workspace."
         }
       ]
     },
@@ -3297,7 +3748,7 @@
       "route_pattern": "/api/v1/leads/<lead_id>/stage/",
       "operation_type": "custom",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3321,7 +3772,7 @@
       "route_pattern": "/api/v1/leads/<lead_id>/convert/",
       "operation_type": "custom",
       "risk_level": "critical",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3338,6 +3789,13 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "Conversion creates the applicant record."
+        },
+        {
+          "target_permission_key": "applicants.note.create",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Conversion copies the lead's notes onto the applicant."
         },
         {
           "target_permission_key": "leads.lead.read",
@@ -3359,7 +3817,7 @@
       "route_pattern": "/api/v1/leads/",
       "operation_type": "create",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3380,6 +3838,30 @@
       ]
     },
     {
+      "permission_key": "leads.lead.delete",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-delete",
+      "display_name": "Delete Lead",
+      "description": "Soft-delete a lead with a reason: hidden from lists, search, and dashboards; restorable. Admin only.",
+      "http_method": "DELETE",
+      "route_pattern": "/api/v1/leads/<lead_id>/",
+      "operation_type": "delete",
+      "risk_level": "high",
+      "version": "1.1.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The lead must be readable before it can be deleted."
+        }
+      ]
+    },
+    {
       "permission_key": "leads.lead.list",
       "app_key": "leads",
       "model_key": "lead",
@@ -3390,7 +3872,7 @@
       "route_pattern": "/api/v1/leads/",
       "operation_type": "list",
       "risk_level": "low",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3414,7 +3896,7 @@
       "route_pattern": "/api/v1/leads/<lead_id>/history/",
       "operation_type": "list",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3438,7 +3920,7 @@
       "route_pattern": "/api/v1/leads/<lead_id>/lost/",
       "operation_type": "custom",
       "risk_level": "high",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3469,7 +3951,7 @@
       "route_pattern": "/api/v1/leads/<lead_id>/",
       "operation_type": "read",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3493,7 +3975,7 @@
       "route_pattern": "/api/v1/leads/<lead_id>/follow-up/",
       "operation_type": "custom",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3517,7 +3999,7 @@
       "route_pattern": "/api/v1/leads/<lead_id>/reopen/",
       "operation_type": "custom",
       "risk_level": "high",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3538,6 +4020,37 @@
       ]
     },
     {
+      "permission_key": "leads.lead.restore",
+      "app_key": "leads",
+      "model_key": "lead",
+      "endpoint_key": "lead-restore",
+      "display_name": "Restore Lead",
+      "description": "Bring a soft-deleted lead back exactly as it was. Admin only.",
+      "http_method": "POST",
+      "route_pattern": "/api/v1/leads/<lead_id>/restore/",
+      "operation_type": "custom",
+      "risk_level": "high",
+      "version": "1.1.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.lead.delete",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "Restoring only applies to a lead that was deleted."
+        },
+        {
+          "target_permission_key": "leads.lead.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "The deleted lead must be readable (Admin) before it can be restored."
+        }
+      ]
+    },
+    {
       "permission_key": "leads.lead.update",
       "app_key": "leads",
       "model_key": "lead",
@@ -3548,7 +4061,7 @@
       "route_pattern": "/api/v1/leads/<lead_id>/",
       "operation_type": "update",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3639,12 +4152,12 @@
       "model_key": "lead_note",
       "endpoint_key": "lead-note-create",
       "display_name": "Add Lead Note",
-      "description": "Append a note to a lead. Notes are append-only — there is no edit or delete.",
+      "description": "Write a general or visit note on a lead, optionally backdated.",
       "http_method": "POST",
       "route_pattern": "/api/v1/leads/<lead_id>/notes/",
       "operation_type": "create",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3658,17 +4171,41 @@
       ]
     },
     {
+      "permission_key": "leads.note.delete",
+      "app_key": "leads",
+      "model_key": "lead_note",
+      "endpoint_key": "lead-note-delete",
+      "display_name": "Delete Lead Note",
+      "description": "Soft-delete a note: it leaves the feed, the row and its audit trail stay. Author or Admin.",
+      "http_method": "DELETE",
+      "route_pattern": "/api/v1/leads/<lead_id>/notes/<note_id>/",
+      "operation_type": "delete",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.note.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A note must be listed before it can be deleted."
+        }
+      ]
+    },
+    {
       "permission_key": "leads.note.list",
       "app_key": "leads",
       "model_key": "lead_note",
       "endpoint_key": "lead-note-list",
       "display_name": "List Lead Notes",
-      "description": "List the notes recorded against a lead, newest first.",
+      "description": "List a lead's live notes, most recent noted_at first, with per-category counts.",
       "http_method": "GET",
       "route_pattern": "/api/v1/leads/<lead_id>/notes/",
       "operation_type": "list",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "lead_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3678,6 +4215,30 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "The lead must be readable before it can be acted on."
+        }
+      ]
+    },
+    {
+      "permission_key": "leads.note.update",
+      "app_key": "leads",
+      "model_key": "lead_note",
+      "endpoint_key": "lead-note-update",
+      "display_name": "Edit Lead Note",
+      "description": "Correct a note's category, text, or noted_at. The author or an Admin only; audited.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/leads/<lead_id>/notes/<note_id>/",
+      "operation_type": "update",
+      "risk_level": "medium",
+      "version": "1.0.0",
+      "category_key": "lead_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "leads.note.list",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A note must be listed before it can be edited."
         }
       ]
     },
@@ -3802,7 +4363,7 @@
       "route_pattern": "/api/v1/notifications/",
       "operation_type": "list",
       "risk_level": "medium",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "notification_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3826,7 +4387,7 @@
       "route_pattern": "/api/v1/notifications/read-all/",
       "operation_type": "custom",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "notification_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3933,7 +4494,7 @@
       "route_pattern": "/api/v1/notifications/<id>/",
       "operation_type": "read",
       "risk_level": "low",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category_key": "notification_management",
       "is_dependency_root": false,
       "dependencies": [
@@ -3959,10 +4520,34 @@
       "model_key": "notification",
       "endpoint_key": "notification-summary",
       "display_name": "Read Own Notification Summary",
-      "description": "Unread count plus active totals by priority and by due bucket, for the calling user. Exists so a client rendering a bell badge is not forced to page the whole feed.",
+      "description": "Unread count plus active totals by priority and by due bucket, and unread counts by category, for the calling user. Exists so a client rendering a bell badge is not forced to page the whole feed.",
       "http_method": "GET",
       "route_pattern": "/api/v1/notifications/summary/",
       "operation_type": "custom",
+      "risk_level": "low",
+      "version": "1.1.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.preference.read",
+      "app_key": "notifications",
+      "model_key": "preference",
+      "endpoint_key": "notification-preference-read",
+      "display_name": "Read Own Notification Preferences",
+      "description": "The caller's per-category in-app switches and the assigned-only setting. Defaults (everything on) when nothing has been saved.",
+      "http_method": "GET",
+      "route_pattern": "/api/v1/notifications/preferences/",
+      "operation_type": "read",
       "risk_level": "low",
       "version": "1.0.0",
       "category_key": "notification_management",
@@ -3974,6 +4559,37 @@
           "dependency_type": "requires",
           "enforcement_mode": "strict",
           "reason": "A session must be established by login before this endpoint is usable."
+        }
+      ]
+    },
+    {
+      "permission_key": "notifications.preference.update",
+      "app_key": "notifications",
+      "model_key": "preference",
+      "endpoint_key": "notification-preference-update",
+      "display_name": "Update Own Notification Preferences",
+      "description": "Mute or unmute notification categories and switch assigned-only on or off for the caller. Only what is sent changes; nothing already in the feed is hidden.",
+      "http_method": "PATCH",
+      "route_pattern": "/api/v1/notifications/preferences/",
+      "operation_type": "update",
+      "risk_level": "low",
+      "version": "1.0.0",
+      "category_key": "notification_management",
+      "is_dependency_root": false,
+      "dependencies": [
+        {
+          "target_permission_key": "authenticate.session.login",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A session must be established by login before this endpoint is usable."
+        },
+        {
+          "target_permission_key": "notifications.preference.read",
+          "direction": "forward",
+          "dependency_type": "requires",
+          "enforcement_mode": "strict",
+          "reason": "A client edits the preferences it has read."
         }
       ]
     },

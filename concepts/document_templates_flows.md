@@ -1,7 +1,7 @@
 # FLOWS — Document Templates
 
 **Owner app:** `document_templates`
-**Updated:** 2026-07-24
+**Updated:** 2026-10-29
 **Purpose:** The user-flow binding layer for this app — connects the product intent in
 `concepts/document_templates.txt` to the callable endpoints in
 `backend/document_templates/docs/INTEGRATION.md`.
@@ -114,11 +114,12 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    **(cross-app: `documents`)**
    - **Requires state:** the document must not be archived.
    - **Side effects:** appends `document_updated` in `documents`, with the body redacted.
-   - Put the ids in `content.instructorId` and `content.directorId`, and **send the complete
-     `content`** — that app replaces the body wholesale.
-   - **Nothing validates these ids.** `documents` stores `content` as an opaque body and does not
-     look inside it: a typo, a stale id, or the id of a `draft` signatory are all accepted with a
-     200. **Your dropdown is the only guard there is.**
+   - Put the ids in `content.instructor_id` and `content.director_id` (older certificates hold
+     the camelCase `instructorId` / `directorId`), and **send the complete `content`** — that app
+     replaces the body wholesale.
+   - **Nothing validates these ids.** `documents` checks some `student-certificate` keys since
+     2026-10-29, but not these two: a typo, a stale id, or the id of a `draft` signatory are all
+     accepted with a 200. **Your dropdown is the only guard there is.**
 
 3. **Print Preview** — freeze the resolved signer into the snapshot →
    `POST /api/v1/document-history/documents/<document_id>/snapshots/`

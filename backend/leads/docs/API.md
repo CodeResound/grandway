@@ -1,7 +1,7 @@
 # API Documentation — Leads
 
 **App:** `leads`
-**Version:** 1.2.1
+**Version:** 1.5.0
 **Base prefix:** `/api/v1/leads/`
 **Auth:** Bearer access JWT on every endpoint (`IsAuthenticated`). Authority and ownership rules are enforced inline per `SECURITY.md` §1 — this app does not use the §9 `is_staff` snippet, because leads are owner-scoped rows.
 **Throttle:** Project DRF defaults only. No custom scopes — every endpoint is authenticated and none is expensive enough to warrant one today (`SECURITY.md` §7).
@@ -17,6 +17,9 @@
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Lead list (§3.1) widened: `search` now matches email and any contact number, and results are relevance-ordered rather than newest-first. Owner scoping is unchanged — ranking reorders inside the caller's existing scope. Additive only |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 | 1.2.1 | 2026-08-17 | AI (Claude Fable 5) | List filters (§3.1) validated before the selector: malformed `source` UUID, unknown `stage`, or unconvertible `fiscal_year` now returns `400 VALIDATION_ERROR` with field details instead of an unhandled `500` (security audit S6) |
+| 1.3.0 | 2026-10-29 | AI (Claude Opus 5.5) | §3.4a/§3.4b lead soft delete and restore (Admin only); §4 notes become categorised, backdatable, correctable (§4.3, §4.4 new); every lead write returns 409 on a deleted lead; conversion copies notes to the applicant |
+| 1.4.0 | 2026-10-29 | AI (Claude Opus 5.5) | §3.1 three new filters; §3.2/§3.4 study-interest qualification/score/year fields and `language_certificates`; §6.1 conversion creates an applicant education record and language tests |
+| 1.5.0 | 2026-10-29 | AI (Claude Opus 5.5) | No request or response change. §3.2, §3.4a, §3.4b, §4.2, §6.1 now emit `core.events` domain events (`lead.created`, `lead.deleted`, `lead.restored`, `lead.note_added`, `lead.converted`) that `notifications` turns into alerts; §6.1 passes the lead's owner to `applicants.services.create_applicant` as `assigned_to`. Registry: `leads.lead.create` 1.2.0, `leads.lead.convert` 1.2.0, `leads.lead.delete` 1.1.0, `leads.lead.restore` 1.1.0, `leads.note.create` 1.2.0 |
 
 ---
 
@@ -43,6 +46,7 @@
 - Field-level validation failures return 400 with the offending fields under `error.details`, produced by DRF. Codes listed per endpoint are the app's own domain errors, raised after validation passes.
 - Every user-facing datetime has a `<field>_bs` companion carrying the Bikram Sambat projection (§39.4). System timestamps (`created_at`, `updated_at`) do not.
 - Both list endpoints for reference data are unpaginated (small, bounded sets). Lead, note, and history lists are paginated.
+- **Every write on a soft-deleted lead returns 409 `LEADS_LEAD_DELETED`** (`services._assert_not_deleted`, first check in update, stage, follow-up, lost, reopen, convert, and every note write). A deleted lead is invisible to Lead Managers (404) and to every list unless an Admin passes `?deleted=true` (Lead Manager → 403).
 
 ---
 
@@ -120,6 +124,8 @@ Same shape and same access split as §1. A reason is mandatory whenever a lead i
 - `source` — a `LeadSource` id
 - `search` — matches across `full_name`, `full_name`, `full_name`, `email`, and any contact number. All partial (`icontains`) matches
 - `fiscal_year` — Nepali fiscal year as `YYYY/YY`, e.g. `2081/82`, filtering on `created_at`
+- `highest_qualification_level`, `language_test_status` — exact match on the study interest
+- `language_test_type` — leads holding at least one certificate of that type (an `Exists` subquery, so a lead with two IELTS results appears once and relevance ranking still composes)
 - `page`, `page_size` (max 100)
 
 **Response:** paginated array of the lead **list** shape — `DATA_CONTRACT.md` §3, minus `study_interest` and the lifecycle-state fields. Ordered newest first, **except** when `search` is supplied, in which case results are ordered by relevance and only tie-broken by recency.
@@ -144,16 +150,23 @@ Same shape and same access split as §1. A reason is mandatory whenever a lead i
   "source": "0f1c2b3a-4d5e-6f70-8192-a3b4c5d6e7f8",
   "source_detail": "",
   "contact_numbers": [{ "number": "9800000000", "label": "mobile", "is_primary": true }],
-  "study_interest": { "interested_countries": ["Australia"], "study_level": "masters" }
+  "study_interest": {
+    "interested_countries": ["Australia"], "study_level": "masters",
+    "highest_qualification": "BBS", "highest_qualification_level": "bachelor",
+    "academic_score": "3.45", "academic_score_type": "gpa", "pass_year": 2080, "pass_year_calendar": "bs"
+  },
+  "language_certificates": [{ "test_type": "ielts", "overall_score": "7.0", "test_date": "2025-03-01" }]
 }
 ```
 **Response:** the created lead in the **detail** shape (`DATA_CONTRACT.md` §3), HTTP 201.
-**Validation rules:** `contact_numbers` must contain at least one entry. `study_interest` is optional and every field inside it is optional. `stage` and `created_by` are not accepted — a new lead always starts at `new`, owned by the caller.
+**Validation rules:** `contact_numbers` must contain at least one entry. `study_interest` is optional and every field inside it is optional, but `academic_score` comes with `academic_score_type` and `pass_year` with `pass_year_calendar`, in range (`core.validators`) — checked in `services._assert_study_interest_valid` against the record as it will be after the write. `language_certificates` (≤10) are checked by `core.validators.language_test_errors`, the rule applicant language tests share. `stage` and `created_by` are not accepted — a new lead always starts at `new`, owned by the caller.
 **Error codes:**
 - `LEADS_SOURCE_INACTIVE` (400) — the chosen source has been deactivated.
 - `LEADS_SOURCE_DETAIL_REQUIRED` (400) — the chosen source has `requires_detail` but `source_detail` was blank.
 - `LEADS_CONTACT_REQUIRED` (400) — no contact number survived validation.
-**Business rules:** `full_name` is Unicode-normalized server-side (§39.2). Writes one `lead_created` audit event.
+- `LEADS_STUDY_INTEREST_INVALID` (400) — pairing or range; `error.details.fields`.
+- `LEADS_CERTIFICATE_INVALID` (400) — a certificate rule; `error.details.fields`. `LEADS_CERTIFICATE_LIMIT` (400) — more than 10.
+**Business rules:** `full_name` is Unicode-normalized server-side (§39.2). Writes one `lead_created` audit event, then emits `lead.created` → `notifications` raises `lead_created` to every active Admin except the actor.
 
 ### 3.3 Retrieve — `GET /api/v1/leads/<lead_id>/`
 
@@ -164,10 +177,27 @@ Same shape and same access split as §1. A reason is mandatory whenever a lead i
 ### 3.4 Update — `PATCH /api/v1/leads/<lead_id>/`
 
 **Policy key(s):** `leads.lead.update` (risk: medium)
-**Request:** any subset of the create payload. Supplying `contact_numbers` **replaces the entire set** — send the complete list the lead should end up with, not a delta. Supplying `study_interest` upserts the single interest row.
+**Request:** any subset of the create payload. Supplying `contact_numbers` or `language_certificates` **replaces the entire set** — send the complete list the lead should end up with, not a delta (writes `lead_contact_changed` / `lead_certificates_changed` with a count, never scores). Supplying `study_interest` upserts the single interest row.
 **Response:** the updated lead, detail shape.
 **Error codes:** same three as §3.2.
 **Business rules:** `stage` is **not** writable here. Sending it is ignored, not rejected — stage moves only through §3.5, §3.7, §3.8, or (Phase 4) conversion. Writes `lead_updated` (or `lead_source_changed` when the source moved), plus `lead_contact_changed` and `lead_interest_changed` when those were supplied.
+
+### 3.4a Soft delete — `DELETE /api/v1/leads/<lead_id>/`
+
+**Policy key(s):** `leads.lead.delete` (risk: high) — **Admin only** (`require_admin` after the scoped resolve, so a Lead Manager gets 403 on their own lead and 404 on another's).
+**Request:** `{ "reason": "Duplicate enquiry." }` (required, ≤500; JSON body on `DELETE`).
+**Response:** the Lead detail shape with `deleted_at`, `deleted_at_bs`, `deleted_by`, `delete_reason`.
+**Error codes:** `LEADS_LEAD_ALREADY_CONVERTED` (409), `LEADS_LEAD_DELETED` (409, already deleted), `VALIDATION_ERROR` (reason missing/blank/long).
+**Business rules:** `services.delete_lead`. Converted leads are applicant origin records and cannot be deleted. Writes `lead_deleted` with the reason, then emits `lead.deleted` → `notifications` raises `lead_deleted` to the lead's owner and every active Admin, minus the actor. Nothing is erased; `LeadAdmin.has_delete_permission` is `False`, so there is no hard delete anywhere.
+**Query access pattern:** `get_leads_for_actor(actor, deleted=False)` filters `deleted_at IS NULL` (indexed); `search` and `dashboards` read leads through it, so a deleted lead drops out of both with no change in those apps.
+
+### 3.4b Restore — `POST /api/v1/leads/<lead_id>/restore/`
+
+**Policy key(s):** `leads.lead.restore` (risk: high) — Admin only.
+**Request:** `{ "reason": "…" }` optional.
+**Response:** the Lead detail shape, `deleted_*` cleared.
+**Error codes:** `LEADS_LEAD_NOT_DELETED` (409).
+**Business rules:** `services.restore_lead`; writes `lead_restored`, then emits `lead.restored` → `lead_restored` alert to the owner and every active Admin, minus the actor. `get_lead_for_actor` keeps deleted leads in scope for an Admin only, which is what makes this route reachable.
 
 ### 3.5 Change stage — `POST /api/v1/leads/<lead_id>/stage/`
 
@@ -221,20 +251,40 @@ All three fields are optional; an empty body records a follow-up at the current 
 
 ## 4. Lead Notes
 
+Categorised (`general`/`visit`), backdatable (`noted_at`), correctable by the author or an Admin, soft-deleted — since 2026-10-29; append-only before. Shape: `LeadNote` — `DATA_CONTRACT.md` §6. Shared rules live in `core`: `NoteCategory`, `NOTE_BODY_MAX_LENGTH`, `NOTE_ORDERINGS` (`core/constants.py`) and `noted_at_is_in_future` / `note_is_backdated` (`core/validators.py`).
+
+**Write guard (every note write):** `services._assert_notes_writable` — 409 `LEADS_LEAD_DELETED` for a deleted lead, 409 `LEADS_LEAD_ALREADY_CONVERTED` once `converted_applicant` is set (even after a reopen): a converted lead's notes were copied to the applicant and continue there.
+
 ### 4.1 List — `GET /api/v1/leads/<lead_id>/notes/`
 
 **Policy key(s):** `leads.note.list` (risk: low)
-**Response:** paginated array of the `LeadNote` shape — `DATA_CONTRACT.md` §6. Newest first.
-**Query access pattern:** `selectors.get_notes_for_lead` applies `select_related("author")` so author attribution costs no extra query per row.
-**Error codes:** app-wide 404 only.
+**Query parameters:** `category` (`general`|`visit`), `ordering` (`-noted_at` default | `noted_at` | `-created_at`), `page`, `page_size` — validated by `LeadNoteListFilterSerializer`.
+**Response:** paginated array of `LeadNote`, excluding soft-deleted notes; `meta.counts = { general, visit }` (live notes, independent of `category`), added by the view after pagination.
+**Query access pattern:** `selectors.get_notes_for_lead` filters `deleted_at IS NULL` and applies `select_related("author", "updated_by")`; ordering is served by `leadnote_lead_noted_idx` `(lead, -noted_at)`. `get_note_category_counts` is one grouped `COUNT`.
+**Error codes:** app-wide 404; `VALIDATION_ERROR` for a bad `category`/`ordering`.
 
 ### 4.2 Add — `POST /api/v1/leads/<lead_id>/notes/`
 
 **Policy key(s):** `leads.note.create` (risk: low)
-**Request:** `{ "body": "Wants Australia, needs IELTS." }`
+**Request:** `{ "category": "visit", "body": "Came in with her father.", "noted_at": "2026-07-22T15:15:00+05:45" }` — `category` defaults to `general`, `noted_at` to now. A `noted_at` without an offset is parsed in Asia/Kathmandu (`DateTimeField(default_timezone=…)`), never UTC.
 **Response:** the created `LeadNote`, HTTP 201.
-**Error codes:** app-wide 404 only.
-**Business rules:** notes are **append-only**. There is no update or delete endpoint and none will be added — a Lead Manager may not delete lead history. `PUT`/`PATCH`/`DELETE` on this path return 405. Writes `lead_note_added`; the note's text is deliberately **not** copied into the audit payload (`SECURITY.md` §5).
+**Error codes:** `LEADS_NOTE_FUTURE_DATE` (400, `noted_at` > now + 5 min), `LEADS_LEAD_ALREADY_CONVERTED` (409), `LEADS_LEAD_DELETED` (409), `VALIDATION_ERROR` (blank/over-long body, bad category).
+**Business rules:** the body is normalized and must be non-blank (§39.2) in the serializer **and** the service. Writes `lead_note_added` with `metadata { note_id, category, noted_at, is_backdated }`; the text is never copied into the audit payload (`SECURITY.md` §5). Emits `lead.note_added` (`note_id`, `category`); for a `visit` note `notifications` raises `visit_note_added` to the lead's owner unless the owner is the author. General notes raise nothing.
+
+### 4.3 Edit — `PATCH /api/v1/leads/<lead_id>/notes/<note_id>/`
+
+**Policy key(s):** `leads.note.update` (risk: medium)
+**Request:** any subset of `category`, `body`, `noted_at`.
+**Response:** the updated `LeadNote`, with `updated_by` set.
+**Error codes:** `LEADS_NOTE_NOT_FOUND` (404, missing or deleted), `LEADS_NOTE_FORBIDDEN` (403, neither author nor Admin), plus the 4.2 codes.
+**Business rules:** author-or-Admin check in `services._assert_may_change_note`. Writes `lead_note_updated` with a per-field `changes` map — `body` is the `<changed>` marker, never text. A no-op edit writes nothing.
+
+### 4.4 Delete — `DELETE /api/v1/leads/<lead_id>/notes/<note_id>/`
+
+**Policy key(s):** `leads.note.delete` (risk: medium)
+**Response:** `data: null`, HTTP 200.
+**Error codes:** as 4.3.
+**Business rules:** soft — sets `deleted_at`/`deleted_by`; the note then 404s and leaves the list, the row stays. Writes `lead_note_deleted`. `GET`/`POST` on the list path are unaffected; `DELETE` on the list path still returns 405.
 
 ---
 
@@ -279,6 +329,7 @@ All three fields are optional; an empty body records a follow-up at the current 
 - `LEADS_ACTOR_FORBIDDEN` (403) — a Lead Manager or Superadmin attempted conversion.
 - `LEADS_LEAD_ALREADY_CONVERTED` (409) — this lead already produced an applicant.
 - `LEADS_CONVERSION_NOT_READY` (409) — the lead is lost or converted; reopen it first.
+- `LEADS_LEAD_DELETED` (409) — the lead is soft-deleted.
 
 **Business rules:**
 
@@ -287,6 +338,10 @@ All three fields are optional; an empty body records a follow-up at the current 
 *What it creates.* One `applicants.Applicant` and one `applicant_journeys.ApplicantJourney`, both with `creation_source: "lead_conversion"`, by calling those apps' services — never their models (§4). Then sets `converted_applicant`, `converted_journey`, `converted_at`, `converted_by`, and `stage = "converted"` on the lead.
 
 *Idempotency (§15).* Guaranteed at two levels. `services.convert_lead` refuses when `converted_applicant_id` is already set, and `Lead.converted_applicant` is a `OneToOneField`, so a second applicant for one lead is impossible at the database level even if the service guard were bypassed. The test asserts object **counts**, not just the 409, because a status code alone would not prove the second call created nothing.
+
+*Notes.* Since 2026-10-29 the lead's live notes are copied to the applicant inside the same transaction: `selectors.get_lead_note_exports` hands plain values (category, body, `noted_at`, author, `created_at`) to `applicants.services.import_lead_notes`, which bulk-creates `ApplicantNote` rows with `source_lead_id` and restores each original `created_at` (otherwise every carried note would read as backdated). Soft-deleted notes are not copied. The lead's own notes stay and become read-only.
+
+*Qualification and certificates.* When `highest_qualification_level` is set, `_build_education` maps the study interest onto one applicant education entry (`applicants.services.import_lead_qualification`); every certificate becomes an applicant language test (`import_lead_certificates`, via `selectors.get_lead_certificate_exports` — plain values). Both carry `source_lead_id`. `language_test_status` and a level-less `highest_qualification` stay in the journey notes.
 
 *Atomicity.* The whole conversion runs in one `atomic()` block. A failure while creating the journey rolls back the applicant too — there is no state in which a lead has an applicant but no journey.
 
@@ -302,6 +357,10 @@ All three fields are optional; an empty body records a follow-up at the current 
 | `interest_notes` | journey `notes` | Direct. |
 
 *Audit.* Writes `lead_converted` and `lead_applicant_created` to this lead's history, plus `applicant_created` and `journey_created` to the new records' own histories.
+
+*Assignment (2026-10-29).* `convert_lead` passes `assigned_to=lead.created_by` to `applicants.services.create_applicant`, so the new applicant is assigned to the lead's owner. `create_applicant` drops it silently (applicant unassigned) when the owner is no longer an active Admin or Lead Manager — conversion never fails because the owner left. Routing only; the applicant stays shared (`applicants/docs/SECURITY.md` §9). `applicant_created.metadata.assigned_to` records the outcome.
+
+*Notification.* After the conversion commits, emits `lead.converted` (with `applicant_id`) → `notifications` raises `lead_converted` to the lead's owner and every active Admin, minus the converting Admin. A notification failure cannot roll back the conversion.
 
 *What it does not do.* It does not delete or alter the lead beyond the conversion fields — notes, contact numbers, and history all survive. A converted lead can be reopened (§3.8), but reopening never clears `converted_applicant`/`converted_journey`, so a second applicant can never come from the same lead.
 

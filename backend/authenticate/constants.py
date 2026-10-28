@@ -83,6 +83,39 @@ class ErrorCode:
     USERNAME_TAKEN = "AUTH_USERNAME_TAKEN"
     INVALID_AUTHORITY = "AUTH_INVALID_AUTHORITY"
     SESSION_NOT_FOUND = "AUTH_SESSION_NOT_FOUND"
+    CLIPBOARD_ENTRY_NOT_FOUND = "AUTH_CLIPBOARD_ENTRY_NOT_FOUND"
+    CLIPBOARD_LIMIT_REACHED = "AUTH_CLIPBOARD_LIMIT_REACHED"
+    CLIPBOARD_CATEGORY_NOT_FOUND = "AUTH_CLIPBOARD_CATEGORY_NOT_FOUND"
+    CLIPBOARD_CATEGORY_INVALID = "AUTH_CLIPBOARD_CATEGORY_INVALID"
+    CLIPBOARD_CATEGORY_NAME_TAKEN = "AUTH_CLIPBOARD_CATEGORY_NAME_TAKEN"
+    CLIPBOARD_CATEGORY_LIMIT_REACHED = "AUTH_CLIPBOARD_CATEGORY_LIMIT_REACHED"
+
+
+# --- Personal clipboard (2026-10-29) -----------------------------------------
+MAX_CLIPBOARD_ENTRIES = 200
+MAX_CLIPBOARD_CATEGORIES = 50
+MAX_CLIPBOARD_TEXT = 2000
+#: An optional, opaque dotted key naming a document form field (``father.name``).
+CLIPBOARD_FIELD_KEY_RE = r"^[a-z0-9_]+(\.[a-z0-9_]+)*$"
+#: ``?category=none`` — entries in no category.
+CLIPBOARD_UNCATEGORIZED = "none"
+
+#: ``audit.AuditEvent`` labels for clipboard writes. Recorded centrally only, not
+#: as ``AuthEvent`` rows: the clipboard is a personal tool, not account security.
+AUDIT_APP_LABEL = "authenticate"
+AUDIT_ENTITY_CLIPBOARD_ENTRY = "authenticate.clipboard_entry"
+AUDIT_ENTITY_CLIPBOARD_CATEGORY = "authenticate.clipboard_category"
+
+
+class ClipboardAuditAction:
+    """``audit.AuditEvent.action`` names for clipboard writes. Using an entry is not audited."""
+
+    ENTRY_CREATED = "clipboard_entry_created"
+    ENTRY_UPDATED = "clipboard_entry_updated"
+    ENTRY_DELETED = "clipboard_entry_deleted"
+    CATEGORY_CREATED = "clipboard_category_created"
+    CATEGORY_UPDATED = "clipboard_category_updated"
+    CATEGORY_DELETED = "clipboard_category_deleted"
 
 
 # Access-token claim keys (added on top of SimpleJWT's standard claims).

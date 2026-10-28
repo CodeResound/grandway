@@ -1,7 +1,7 @@
 # Integration — Reminders
 
 **Owner app:** `reminders`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-08-17
 
@@ -12,12 +12,13 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-08-17 | AI (Claude) | Initial integration contract — seven endpoints |
+| 1.1.0 | 2026-10-29 | AI (Claude Opus 5.5) | No endpoint or shape change. Corrected the alert routing: since applicants gained an optional assignee, a due **applicant** reminder's `custom_reminder` alert also reaches that applicant's assignee (who may be a Lead Manager); client reminders still go to Admins only |
 
 ---
 
 ## 1. Module
 
-- **Name:** Reminders — one-off, date-only follow-up notes set by staff against an applicant or client, surfaced to Admins as a notification when the date arrives.
+- **Name:** Reminders — one-off, date-only follow-up notes set by staff against an applicant or client, surfaced as a notification when the date arrives — to the Admins, plus the applicant's assignee for an applicant reminder.
 - **Base path:** `/api/v1/reminders/`
 - **Auth:** JWT (project-standard). `admin` and `lead_manager` may do everything on every endpoint; `superadmin` may do nothing, reads included.
 - **Status:** active
@@ -31,14 +32,14 @@
 | `applicants` | FK (`PROTECT`) | A reminder may be owned by an applicant | Creating with `applicant` returns 400 `REMINDERS_OWNER_NOT_FOUND` |
 | `clients` | FK (`PROTECT`) | A reminder may be owned by a client | Creating with `client` returns 400 `REMINDERS_OWNER_NOT_FOUND` |
 | `audit` | service call | Every mutation appends one history event; `/history/` reads them back | Mutations fail; history is empty |
-| `notifications` | service call (inbound) | The nightly sweep reads this app's due reminders and raises `custom_reminder` alerts to Admins | Reminders still store and list, but no alert ever surfaces — the feature's trigger half is gone |
+| `notifications` | service call (inbound) | The nightly sweep reads this app's due reminders and raises `custom_reminder` alerts to Admins — and, for an applicant reminder, to the applicant's assignee *(cross-app: `applicants`)* | Reminders still store and list, but no alert ever surfaces — the feature's trigger half is gone |
 
 Both owner FKs are `PROTECT`: a record with reminders against it cannot be removed while they exist. Nothing in this project deletes applicants or clients anyway, but the constraint is real and this module is the one creating it.
 
 ## 3. Conventions
 
 - **Permission keys are registry metadata, not the enforced gate.** The `permission_key` on each §7 endpoint is registered in the policy engine for future wiring; no view consults one today (project-level `INTEGRATION.md` §4/§10). The enforced rule is the flat authority check below — do not generate a client capability map from the keys.
-- **Access — one rule, everywhere.** `admin` and `lead_manager` may do everything on every endpoint; `superadmin` may do nothing, reads included. There is no read/write split. Only Admins *receive* the due alert, but that is `notifications` routing — it does not restrict anything here.
+- **Access — one rule, everywhere.** `admin` and `lead_manager` may do everything on every endpoint; `superadmin` may do nothing, reads included. There is no read/write split. Only Admins — and the assignee of the applicant a reminder is about — *receive* the due alert, but that is `notifications` routing — it does not restrict anything here.
 - **Nothing is ever deleted.** There is **no `DELETE` method on any endpoint in this module**. A reminder ends as `completed` or `dismissed` and stays retrievable forever. Build complete/dismiss controls, not a delete button.
 - **No reopen.** `completed` and `dismissed` are terminal. "Remind me again later" is a **new** reminder (`POST /`), not an edit to the finished one.
 - **Response:** the standard project envelope — `success`, `message`, `data`, `meta`. Below, `data` is abridged to three fields to show the envelope; a real create returns the full `Reminder` shape defined in §4.
@@ -75,7 +76,7 @@ Both owner FKs are `PROTECT`: a record with reminders against it cannot be remov
 - **Query parameter encoding.** Invalid query parameters are **rejected with 400, not ignored**. Dates are `YYYY-MM-DD` (Gregorian, never Bikram Sambat). `page_size` above the 100 maximum is clamped, not rejected.
 - **Request encoding:** `application/json`.
 - **List ordering:** newest-created first, always. There is no `?ordering=` parameter — a due-date-ordered worklist must sort its page client-side or narrow with the due-window filters.
-- **One alert per due date, never a nightly re-nag.** The sweep raises at most one `custom_reminder` notification per Admin per reminder per due date (the date is part of the idempotency key). A reminder that stays open past its date does not generate further alerts — the existing one simply stays active in the feed until the reminder is closed. Only a reschedule (new date) can produce a new alert.
+- **One alert per due date, never a nightly re-nag.** The sweep raises at most one `custom_reminder` notification per recipient per reminder per due date (the date is part of the idempotency key). A reminder that stays open past its date does not generate further alerts — the existing one simply stays active in the feed until the reminder is closed. Only a reschedule (new date) can produce a new alert.
 - **Pagination:** page-number based. Params `page` and `page_size` (default 20, max 100). `data` is the **bare array of rows — not nested under a `results` key**. `meta` carries `count`, `page`, `page_size`, `next`, `previous`; `next`/`previous` are absolute URLs or `null`. Applied to both list endpoints here (the reminder list and the history list).
 - **IDs:** UUID strings throughout.
 - **Times (deviation from the project-wide "ISO 8601 UTC" convention, per the global contract):** `updated_at` is ISO 8601 UTC with no `_bs` sibling. User-facing dates carry a Bikram Sambat sibling (`due_date_bs`, `closed_at_bs`, `created_at_bs`) — each an object or `null`, never a string, shaped `{ year, month, day, month_name, display }`. `created_at` carries one because when a reminder was set is itself operational memory. **Write the Gregorian field; read either** — `POST`/`PATCH` accept `YYYY-MM-DD` only, and `due_date` must be Nepal's today or later.
@@ -148,7 +149,7 @@ Both owner FKs are `PROTECT`: a record with reminders against it cannot be remov
 - update: `due_date` and/or `note` — at least one; owner and lifecycle fields are rejected (`REMINDERS_FIELD_IMMUTABLE`)
 **Returns:** `Reminder` | list[`Reminder`]
 **Requires state:** the owner record must exist (any status — a reminder may be set on an archived applicant or retired client). For `PATCH`, the reminder must be `active`.
-**Side effects:** every mutation appends one `HistoryEvent` (audit module). A create or a reschedule also determines what the **nightly notifications sweep** does later: when `due_date` arrives, each active Admin receives a `custom_reminder` notification (notifications module); a reschedule of a not-yet-closed reminder auto-resolves any already-raised alert on the next sweep and a fresh one is raised when the new date arrives.
+**Side effects:** every mutation appends one `HistoryEvent` (audit module). A create or a reschedule also determines what the **nightly notifications sweep** does later: when `due_date` arrives, each active Admin — plus, for an applicant reminder, the applicant's assignee if any — receives a `custom_reminder` notification (notifications module); a reschedule of a not-yet-closed reminder auto-resolves any already-raised alert on the next sweep and a fresh one is raised when the new date arrives.
 **Notes:**
 - List filters: `applicant`, `client`, `status`, `due_before`, `due_after` (both inclusive, on `due_date`), `fiscal_year` (`YYYY/YY` — a **Nepali (Bikram Sambat) fiscal-year label**, e.g. `2082/83`, Shrawan 1 to Ashadh end, resolved server-side to a Gregorian range over `due_date`). Omitting `status` returns open **and** closed reminders — hide finished ones client-side if the panel wants only open follow-ups.
 - `status`, `closed_at`, `closed_by`, `created_by` are set by the server, never accepted from a client.
@@ -195,7 +196,7 @@ Both owner FKs are `PROTECT`: a record with reminders against it cannot be remov
    - 400 `REMINDERS_OWNER_NOT_FOUND`: the record id is stale — refresh the record screen.
 
 **Act on a due alert (cross-app: notifications)**
-1. A `custom_reminder` notification appears in an Admin's feed (`GET /api/v1/notifications/`); its `source_entity_id` is the reminder id and `source_api_path` is `/api/v1/reminders/<id>/`.
+1. A `custom_reminder` notification appears in each Admin's feed (and the applicant's assignee's, for an applicant reminder) (`GET /api/v1/notifications/`); its `source_entity_id` is the reminder id and `source_api_path` is `/api/v1/reminders/<id>/`.
 2. `GET /api/v1/reminders/<id>/` → show the note and the owning record (follow `applicant`/`client`).
 3. `POST /api/v1/reminders/<id>/complete/` (or `/dismiss/`) → 200, terminal.
 4. Do **not** dismiss the notification as well — the next nightly sweep resolves it automatically because the reminder is closed.
@@ -212,5 +213,5 @@ Both owner FKs are `PROTECT`: a record with reminders against it cannot be remov
 - There is no per-owner convenience route (`/api/v1/applicants/<id>/reminders/`); record panels use the `?applicant=`/`?client=` filters.
 - The sweep's run time is a deployment decision and is not exposed through the API — "the alert appears on the due date" means "after that night's sweep", and this module cannot tell a client when that is.
 - No bulk actions (complete/dismiss several at once).
-- **A Lead Manager never receives the due alert, and cannot be shown anyone else's feed** — notification reads are scoped to the calling user, and reminder alerts route to Admins only. A Lead Manager's own follow-ups therefore surface nowhere automatically for them. A client that wants Lead Managers to see their due work must build it from this module directly: `GET /api/v1/reminders/?status=active&due_before=<npt_today>`.
+- **A Lead Manager receives a due alert only for an applicant reminder on an applicant assigned to them, and cannot be shown anyone else's feed** — notification reads are scoped to the calling user, and reminder alerts route to Admins plus that assignee. A Lead Manager's own follow-ups on unassigned applicants, on applicants assigned to others, and on clients therefore surface nowhere automatically for them — the reminder's author is not a recipient. A client that wants Lead Managers to see their due work must build it from this module directly: `GET /api/v1/reminders/?status=active&due_before=<npt_today>`.
 - The payload carries `created_by_username`/`closed_by_username` but no user UUIDs — an avatar or profile link needs an out-of-band username lookup, and usernames are not guaranteed immutable.

@@ -1,8 +1,15 @@
 """Real-time lifecycle alerts (§11).
 
-Five ``post_save`` receivers, one per source model. Together they are the half of
-this app that cannot wait for the nightly sweep: work landing on somebody's desk,
-a file coming back rejected, a journey reaching a new stage.
+Five ``post_save`` receivers, one per source model, and one ``core.events``
+receiver for the domain events leads, applicants, and documents raise
+(2026-10-29). Together they are the half of this app that cannot wait for the
+nightly sweep: work landing on somebody's desk, a file coming back rejected, a
+journey reaching a new stage, a lead converted, a visit recorded.
+
+**Why domain events for the newer alerts.** ``post_save`` cannot say who saved a
+row, and "never tell someone about their own action" needs exactly that. The
+source apps announce the event with the actor through ``core.events.emit`` — a
+signal they own no listener of, so the dependency still runs one way.
 
 **Why signals, and not calls from the source apps.** The dependency has to run
 one way. ``notifications`` knows that checklists, files, journeys, and offers
@@ -37,6 +44,8 @@ import logging
 from typing import Any
 
 from applicant_journeys.constants import TERMINAL_STAGES
+from core.constants import NoteCategory
+from core.events import domain_event
 from django.conf import settings
 from django.db import transaction
 from django.db.models.signals import post_save
@@ -45,7 +54,7 @@ from offers.constants import TERMINAL_STATUSES as OFFER_TERMINAL_STATUSES
 from uploaded_files.constants import VerificationStatus
 
 from notifications import services
-from notifications.constants import GenerationSource, SourceEntityType
+from notifications.constants import GenerationSource, NotificationType, SourceEntityType
 
 logger = logging.getLogger(__name__)
 
@@ -186,21 +195,25 @@ def on_file_saved(sender: Any, instance: Any, **kwargs: Any) -> None:
 
 
 def _alert_journey(journey_id: Any) -> None:
-    """Tell the Admins that a journey moved, or ended.
+    """Tell the Admins — and the applicant's assignee, if any — that a journey moved, or ended.
 
-    Journeys carry no owner anywhere in this project, so this is the Admin
-    fan-out. That is a fact about the current data model rather than a decision
-    this app is making: as ownership arrives elsewhere, the routing narrows with
-    no change here.
+    Journeys carry no owner of their own. Since 2026-10-29 an applicant may be
+    assigned to someone, and that person is told too; an unassigned applicant's
+    journey alerts still go to the Admins only (the product owner kept the
+    existing alerts' routing rather than widening it to every Lead Manager).
     """
     from applicant_journeys.models import ApplicantJourney
 
-    journey = ApplicantJourney.objects.select_related("applicant", "target_country_ref").filter(pk=journey_id).first()
+    journey = (
+        ApplicantJourney.objects.select_related("applicant__assigned_to", "target_country_ref")
+        .filter(pk=journey_id)
+        .first()
+    )
     if journey is None:
         return
 
     spec = services.build_journey_alert(journey, closed=journey.stage in TERMINAL_STAGES)
-    services.dispatch(spec, services.recipients_for_admins(), generated_by=GenerationSource.SIGNAL)
+    services.dispatch(spec, services.recipients_for_applicant(journey.applicant), generated_by=GenerationSource.SIGNAL)
 
 
 @receiver(post_save, sender="applicant_journeys.ApplicantJourney", dispatch_uid="notifications_journey_stage")
@@ -248,3 +261,164 @@ def on_offer_saved(sender: Any, instance: Any, **kwargs: Any) -> None:
         return
     offer_id = instance.pk
     transaction.on_commit(lambda: _safely("offer_decided", lambda: _alert_offer_decided(offer_id)))
+
+
+# ---------------------------------------------------------------------------
+# Domain events (2026-10-29) — leads, applicants, documents
+# ---------------------------------------------------------------------------
+#
+# Raised by the source apps' services through ``core.events.emit``, which
+# already waits for the commit — so these handlers run directly, not via
+# ``on_commit``. Each re-reads what it needs: the event carries ids, never
+# instances, and the row is the authority on what was saved.
+
+_LEAD_EVENT_TYPES = {
+    "lead.created": NotificationType.LEAD_CREATED,
+    "lead.converted": NotificationType.LEAD_CONVERTED,
+    "lead.deleted": NotificationType.LEAD_DELETED,
+    "lead.restored": NotificationType.LEAD_RESTORED,
+}
+
+
+def _load_lead(lead_id: Any) -> Any:
+    from leads.models import Lead
+
+    return Lead.objects.select_related("created_by").filter(pk=lead_id).first()
+
+
+def _load_applicant(applicant_id: Any) -> Any:
+    from applicants.models import Applicant
+
+    return Applicant.objects.select_related("assigned_to", "originating_lead").filter(pk=applicant_id).first()
+
+
+def _on_lead_event(event: str, event_id: Any, actor: Any, entity_id: Any, data: dict[str, Any]) -> None:
+    """Created → the Admins. Converted, deleted, restored → the lead's owner and the Admins."""
+    lead = _load_lead(entity_id)
+    if lead is None:
+        return
+    notification_type = _LEAD_EVENT_TYPES[event]
+    applicant = _load_applicant(data["applicant_id"]) if data.get("applicant_id") else None
+    spec = services.build_lead_alert(
+        lead, notification_type=notification_type, event_id=event_id, actor=actor, applicant=applicant
+    )
+    candidates = services.recipients_for_admins()
+    if notification_type != NotificationType.LEAD_CREATED:
+        candidates = [lead.created_by, *candidates]
+    services.dispatch(
+        spec, services.recipients_for_users(candidates, exclude_actor=actor), generated_by=GenerationSource.SIGNAL
+    )
+
+
+def _on_lead_note(event: str, event_id: Any, actor: Any, entity_id: Any, data: dict[str, Any]) -> None:
+    """A visit note on a lead → the lead's owner. General notes raise nothing."""
+    if data.get("category") != NoteCategory.VISIT:
+        return
+    lead = _load_lead(entity_id)
+    if lead is None:
+        return
+    spec = services.build_visit_note_alert(
+        owner_type=SourceEntityType.LEAD, owner=lead, note_id=data["note_id"], event_id=event_id, actor=actor
+    )
+    services.dispatch(
+        spec,
+        services.recipients_for_users([lead.created_by], exclude_actor=actor),
+        generated_by=GenerationSource.SIGNAL,
+    )
+
+
+def _on_applicant_status(event: str, event_id: Any, actor: Any, entity_id: Any, data: dict[str, Any]) -> None:
+    """Status change or restore → the assignee and the Admins; everyone when unassigned."""
+    applicant = _load_applicant(entity_id)
+    if applicant is None:
+        return
+    spec = services.build_applicant_status_alert(
+        applicant,
+        restored=event == "applicant.restored",
+        from_status=data["from_status"],
+        to_status=data["to_status"],
+        event_id=event_id,
+        actor=actor,
+    )
+    recipients = services.recipients_for_applicant(applicant, exclude_actor=actor, fallback_all=True)
+    services.dispatch(spec, recipients, generated_by=GenerationSource.SIGNAL)
+
+
+def _on_applicant_note(event: str, event_id: Any, actor: Any, entity_id: Any, data: dict[str, Any]) -> None:
+    """A visit note → the assignee; everyone when unassigned. General notes raise nothing."""
+    if data.get("category") != NoteCategory.VISIT:
+        return
+    applicant = _load_applicant(entity_id)
+    if applicant is None:
+        return
+    spec = services.build_visit_note_alert(
+        owner_type=SourceEntityType.APPLICANT,
+        owner=applicant,
+        note_id=data["note_id"],
+        event_id=event_id,
+        actor=actor,
+    )
+    recipients = services.recipients_for_applicant(
+        applicant, exclude_actor=actor, include_admins=False, fallback_all=True
+    )
+    services.dispatch(spec, recipients, generated_by=GenerationSource.SIGNAL)
+
+
+def _on_applicant_assigned(event: str, event_id: Any, actor: Any, entity_id: Any, data: dict[str, Any]) -> None:
+    """Tell the new assignee they have it, and the previous one they no longer do."""
+    from authenticate.selectors import get_active_user_by_id
+
+    applicant = _load_applicant(entity_id)
+    if applicant is None:
+        return
+    for user_id, assigned in ((data.get("assignee_id"), True), (data.get("previous_assignee_id"), False)):
+        user = get_active_user_by_id(str(user_id)) if user_id else None
+        if user is None:
+            continue
+        spec = services.build_applicant_assignment_alert(
+            applicant, assigned=assigned, recipient=user, event_id=event_id, actor=actor
+        )
+        services.dispatch(
+            spec, services.recipients_for_users([user], exclude_actor=actor), generated_by=GenerationSource.SIGNAL
+        )
+
+
+def _on_document_ready(event: str, event_id: Any, actor: Any, entity_id: Any, data: dict[str, Any]) -> None:
+    """A document marked ready → the other Admins. Documents are Admin-only, so never a Lead Manager."""
+    from documents.models import Document
+
+    document = Document.objects.select_related("applicant__assigned_to").filter(pk=entity_id).first()
+    if document is None:
+        return
+    spec = services.build_document_ready_alert(document, event_id=event_id, actor=actor)
+    services.dispatch(spec, services.recipients_for_admins(exclude_actor=actor), generated_by=GenerationSource.SIGNAL)
+
+
+_EVENT_HANDLERS = {
+    **dict.fromkeys(_LEAD_EVENT_TYPES, _on_lead_event),
+    "lead.note_added": _on_lead_note,
+    "applicant.status_changed": _on_applicant_status,
+    "applicant.restored": _on_applicant_status,
+    "applicant.note_added": _on_applicant_note,
+    "applicant.assigned": _on_applicant_assigned,
+    "document.ready": _on_document_ready,
+}
+
+
+@receiver(domain_event, dispatch_uid="notifications_domain_event")
+def on_domain_event(
+    sender: Any,
+    *,
+    event: str,
+    event_id: Any,
+    actor: Any,
+    entity_type: str,
+    entity_id: Any,
+    data: dict[str, Any],
+    **kwargs: Any,
+) -> None:
+    """Turn one domain event into its alerts. Unknown events are ignored, failures recorded."""
+    handler = _EVENT_HANDLERS.get(event)
+    if handler is None or _signals_disabled():
+        return
+    _safely(event, lambda: handler(event, event_id, actor, entity_id, data))

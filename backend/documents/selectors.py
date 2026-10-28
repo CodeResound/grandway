@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from audit.selectors import get_events_for_entity
 from core.querying import narrow_to_window
-from django.db.models import Count, Max, QuerySet
+from django.db.models import Count, Max, Q, QuerySet
 
 from documents.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_DOCUMENT, DocumentStatus
 from documents.models import Document
@@ -66,13 +66,17 @@ def search_documents(queryset: QuerySet[Document], query: str) -> QuerySet[Docum
 def filter_documents(queryset: QuerySet[Document], filters: dict[str, Any] | None = None) -> QuerySet[Document]:
     """Apply the documented list filters.
 
-    Recognised keys: ``applicant``, ``standalone``, ``status``, ``family``,
-    ``template_key``, ``search``, and ``fiscal_year`` (``YYYY/YY``, Nepali
-    fiscal year — §39.4).
+    Recognised keys: ``applicant``, ``standalone``, ``status``,
+    ``include_archived``, ``family``, ``template_key``, ``search``, and
+    ``fiscal_year`` (``YYYY/YY``, Nepali fiscal year — §39.4).
 
-    Omitting ``status`` returns archived documents too. The concept requires
-    that "no historical document should disappear just because it is no longer
-    active"; which of them a given screen shows is a presentation decision.
+    Archived documents are **hidden unless asked for**: ``status=archived``
+    lists only them, ``include_archived=true`` lists them alongside the rest.
+    Staff archive a document to remove it, and a removed document that kept
+    coming back in the applicant's list read as "remove does not work". Nothing
+    disappears — the concept's "no historical document should disappear" is
+    kept by both of those parameters and by the ``archived_count`` the
+    workspace list reports.
     """
     filters = filters or {}
 
@@ -87,6 +91,8 @@ def filter_documents(queryset: QuerySet[Document], filters: dict[str, Any] | Non
     status = filters.get("status")
     if status:
         queryset = queryset.filter(status=status)
+    elif not filters.get("include_archived"):
+        queryset = queryset.exclude(status=DocumentStatus.ARCHIVED)
 
     family = filters.get("family")
     if family:
@@ -121,14 +127,22 @@ def get_workspace_summaries() -> QuerySet[dict[str, Any]]:
     Standalone documents are **excluded** — they have no applicant to group
     under, and folding them into a null bucket would produce a row the UI
     cannot link anywhere. List them through ``?standalone=true`` instead.
-    Archived documents are excluded from the count for the same reason the
-    landing table exists: it answers "whose files have live work on them".
+    ``document_count`` counts live (non-archived) documents and
+    ``archived_count`` the removed ones, so the table still answers "whose
+    files have live work on them" while an applicant whose documents are all
+    archived keeps a row (``document_count`` 0) — otherwise their removed
+    documents could not be reached from this screen to be restored.
+    ``last_updated`` spans both.
     """
+    archived = Q(status=DocumentStatus.ARCHIVED)
     return (
         Document.objects.filter(applicant__isnull=False)
-        .exclude(status=DocumentStatus.ARCHIVED)
         .values("applicant_id", "applicant__full_name")
-        .annotate(document_count=Count("id"), last_updated=Max("updated_at"))
+        .annotate(
+            document_count=Count("id", filter=~archived),
+            archived_count=Count("id", filter=archived),
+            last_updated=Max("updated_at"),
+        )
         .order_by("-last_updated")
     )
 
@@ -197,3 +211,39 @@ def get_history_for_document(document: Document) -> QuerySet[AuditEvent]:
         entity_id=str(document.id),
         app_label=AUDIT_APP_LABEL,
     )
+
+
+# ---------------------------------------------------------------------------
+# Document prefill — read-only, composed from the owning apps' selectors
+# ---------------------------------------------------------------------------
+
+
+def get_prefill_applicant(applicant_id: str) -> Any:
+    """The applicant with everything prefill renders, or None.
+
+    ``applicants.selectors.get_applicant_by_id`` already joins the passport and
+    prefetches contacts, addresses, family, educations, and language tests, so
+    the prefill costs a fixed handful of queries (§6, N+1).
+    """
+    from applicants.selectors import get_applicant_by_id
+
+    return get_applicant_by_id(applicant_id)
+
+
+def get_prefill_photo_id(applicant_id: str) -> str | None:
+    """The applicant's newest current, non-archived photograph, or None.
+
+    A **convention**, not a stored choice: nothing designates a primary
+    photograph (``applicants/docs/INTEGRATION.md`` §9). A replaced (superseded)
+    or archived photo is never picked. Read through ``uploaded_files``'
+    selectors, imported here rather than at module level because that app
+    already depends on this one.
+    """
+    from uploaded_files.constants import FileCategory
+    from uploaded_files.selectors import filter_files, get_files
+
+    photo = filter_files(
+        get_files(),
+        {"applicant": applicant_id, "category": FileCategory.PHOTOGRAPH, "is_archived": False, "is_current": True},
+    ).first()
+    return str(photo.id) if photo else None

@@ -11,12 +11,13 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 from audit.selectors import get_events_for_entity
+from core.constants import NoteCategory
 from core.nepal.calendar import nepal_today
 from core.querying import narrow_to_window
 from django.db.models import Case, Count, IntegerField, Q, QuerySet, When
 
-from applicants.constants import AUDIT_APP_LABEL, AUDIT_ENTITY_APPLICANT, ApplicantStatus
-from applicants.models import Applicant, PassportDetail
+from applicants.constants import ASSIGNED_TO_NONE, AUDIT_APP_LABEL, AUDIT_ENTITY_APPLICANT, ApplicantStatus
+from applicants.models import Applicant, ApplicantLanguageTest, ApplicantNote, PassportDetail
 
 if TYPE_CHECKING:
     # Annotation only. Importing another app's model at runtime for anything but
@@ -35,7 +36,7 @@ def get_applicants() -> QuerySet[Applicant]:
     carries each applicant's destinations, read through the reverse accessor.
     Without it a page of twenty applicants would fire twenty extra queries.
     """
-    return Applicant.objects.select_related("created_by").prefetch_related(
+    return Applicant.objects.select_related("created_by", "assigned_to").prefetch_related(
         "contact_numbers",
         "journeys__target_country_ref",
     )
@@ -44,12 +45,14 @@ def get_applicants() -> QuerySet[Applicant]:
 def get_applicant_by_id(applicant_id: str) -> Applicant | None:
     """One applicant with its full detail graph, or None."""
     return (
-        Applicant.objects.select_related("created_by", "passport")
+        Applicant.objects.select_related("created_by", "assigned_to", "passport")
         .prefetch_related(
             "contact_numbers",
             "addresses",
             "family_members",
             "emergency_contacts",
+            "educations",
+            "language_tests",
             "journeys__target_country_ref",
         )
         .filter(pk=applicant_id)
@@ -143,8 +146,9 @@ def filter_applicants(queryset: QuerySet[Applicant], filters: dict[str, Any] | N
     """Apply the documented list filters.
 
     Recognised keys: ``status``, ``creation_source``, ``search``, ``country``,
-    ``country_code``, ``journey_stage``, and ``fiscal_year`` (``YYYY/YY``,
-    Nepali fiscal year — §39.4).
+    ``country_code``, ``journey_stage``, ``fiscal_year`` (``YYYY/YY``, Nepali
+    fiscal year — §39.4), and ``assigned_to`` — a user id, or the literal
+    ``none`` for applicants nobody is assigned to (the view resolves ``me``).
 
     ``country``, ``country_code``, and ``journey_stage`` reach through the
     reverse ``journeys`` accessor. An applicant has no destination of its own —
@@ -185,6 +189,12 @@ def filter_applicants(queryset: QuerySet[Applicant], filters: dict[str, Any] | N
     journey_stage = filters.get("journey_stage")
     if journey_stage:
         queryset = queryset.filter(journeys__stage=journey_stage).distinct()
+
+    assigned_to = filters.get("assigned_to")
+    if assigned_to == ASSIGNED_TO_NONE:
+        queryset = queryset.filter(assigned_to__isnull=True)
+    elif assigned_to:
+        queryset = queryset.filter(assigned_to_id=assigned_to)
 
     fiscal_year = filters.get("fiscal_year")
     if fiscal_year:
@@ -257,13 +267,30 @@ def get_expiring_passports(
     """
     horizon = nepal_today() + timedelta(days=within_days)
     queryset = (
-        PassportDetail.objects.select_related("applicant")
+        PassportDetail.objects.select_related("applicant__assigned_to")
         .filter(expiry_date__isnull=False, expiry_date__lte=horizon)
         .exclude(applicant__status=ApplicantStatus.ARCHIVED)
     )
     if country_id:
         queryset = queryset.filter(applicant__journeys__target_country_ref_id=country_id).distinct()
     return queryset.order_by("expiry_date", "id")
+
+
+def get_expiring_language_tests(*, within_days: int = 90) -> QuerySet[ApplicantLanguageTest]:
+    """Language tests already expired or expiring within ``within_days``, soonest first.
+
+    Feeds the notifications sweep (2026-10-29). Same shape as
+    ``get_expiring_passports``: already-expired tests are included, archived
+    applicants are not, and "today" is today in Nepal (§39.5). Tests with no
+    expiry date are never returned.
+    """
+    horizon = nepal_today() + timedelta(days=within_days)
+    return (
+        ApplicantLanguageTest.objects.select_related("applicant__assigned_to")
+        .filter(expiry_date__isnull=False, expiry_date__lte=horizon)
+        .exclude(applicant__status=ApplicantStatus.ARCHIVED)
+        .order_by("expiry_date", "id")
+    )
 
 
 def get_history_for_applicant(applicant: Applicant) -> QuerySet[AuditEvent]:
@@ -276,3 +303,49 @@ def get_history_for_applicant(applicant: Applicant) -> QuerySet[AuditEvent]:
         entity_id=str(applicant.id),
         app_label=AUDIT_APP_LABEL,
     )
+
+
+# ---------------------------------------------------------------------------
+# Notes
+# ---------------------------------------------------------------------------
+
+
+def get_notes_for_applicant(
+    applicant: Applicant,
+    *,
+    category: str | None = None,
+    ordering: str | None = None,
+) -> QuerySet[ApplicantNote]:
+    """An applicant's live notes, most recent ``noted_at`` first, with authors joined.
+
+    Soft-deleted notes are excluded. ``ordering`` is one of
+    ``core.constants.NOTE_ORDERINGS``; the serializer validates it first.
+    """
+    queryset = ApplicantNote.objects.filter(applicant=applicant, deleted_at__isnull=True).select_related(
+        "author", "updated_by"
+    )
+    if category:
+        queryset = queryset.filter(category=category)
+    if ordering:
+        queryset = queryset.order_by(ordering, "-created_at")
+    return queryset
+
+
+def get_note_for_applicant(applicant: Applicant, note_id: str) -> ApplicantNote | None:
+    """One live note of this applicant, or None (a deleted note is not found)."""
+    return (
+        ApplicantNote.objects.filter(applicant=applicant, pk=note_id, deleted_at__isnull=True)
+        .select_related("author", "updated_by")
+        .first()
+    )
+
+
+def get_note_category_counts(applicant: Applicant) -> dict[str, int]:
+    """Live note count per category — the notes panel's tab badges."""
+    counts = dict(
+        ApplicantNote.objects.filter(applicant=applicant, deleted_at__isnull=True)
+        .values("category")
+        .annotate(total=Count("id"))
+        .values_list("category", "total")
+    )
+    return {category: counts.get(category, 0) for category in NoteCategory.values}

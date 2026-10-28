@@ -39,7 +39,9 @@ from notifications.serializers import (
     BulkReadResultSerializer,
     FeedSummarySerializer,
     NotificationFilterSerializer,
+    NotificationPreferenceSerializer,
     NotificationSerializer,
+    ReadAllSerializer,
 )
 
 
@@ -222,7 +224,9 @@ class NotificationReadAllView(NotificationBaseView):
     def post(self, request: Request) -> Response:
         if err := self.authorize(request):
             return err
-        marked = services.mark_all_read(request.user)
+        body = ReadAllSerializer(data=request.data or {})
+        body.is_valid(raise_exception=True)
+        marked = services.mark_all_read(request.user, category=body.validated_data.get("category") or None)
         return success_response(
             data=BulkReadResultSerializer({"marked_read": marked}).data,
             message="Notifications marked read.",
@@ -257,3 +261,29 @@ class NotificationDismissView(NotificationBaseView):
                 http_status=status.HTTP_409_CONFLICT,
             )
         return self.render(request, dismissed, "Notification dismissed.")
+
+
+class NotificationPreferenceView(NotificationBaseView):
+    """GET/PATCH /api/v1/notifications/preferences/ — what the caller is told (2026-10-29).
+
+    Always the caller's own preferences; there is no way to read or change
+    anybody else's. ``PATCH`` changes only what it sends.
+    """
+
+    def get(self, request: Request) -> Response:
+        if err := self.authorize(request):
+            return err
+        return success_response(data=selectors.get_preferences(request.user), message="Preferences retrieved.")
+
+    def patch(self, request: Request) -> Response:
+        if err := self.authorize(request):
+            return err
+        serializer = NotificationPreferenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        services.update_preferences(
+            request.user,
+            in_app={category: value["in_app"] for category, value in data.get("categories", {}).items()},
+            assigned_only=data.get("assigned_only"),
+        )
+        return success_response(data=selectors.get_preferences(request.user), message="Preferences updated.")

@@ -29,6 +29,14 @@ The project overview calls out these events as the core set:
 
 That is the right starting list because each one is operationally useful and time-sensitive.
 
+2026-10-29 — the frontend's updates.md §4 widened the sources. Besides the nightly deadline sweep and the original save-driven alerts, these events now raise notifications, each announced by the owning app after its change commits, with the person who acted (who is never told about their own action):
+- leads: a lead created, converted into an applicant, deleted, or restored
+- applicants: a status change, a restore from archive, an applicant assigned to or taken off someone
+- visit notes on a lead or an applicant (general notes raise nothing)
+- documents: a document marked ready (Admins only, as documents are Admin-only)
+- language-test results expiring or expired (the sweep raises these now that applicants hold language tests)
+Alerts about an applicant also reach that applicant's assignee when one is set.
+
 ## What makes a good notification
 A useful notification should answer:
 - what happened
@@ -54,6 +62,8 @@ The app should support a small set of practical types:
 
 The type should drive priority, iconography, and grouping, not business logic.
 
+2026-10-29 — types are grouped into eleven categories for tabs, counts, and muting: lead, applicant status, journey, assignment, notes, follow-up, documents, checklist, offer, file, expiry. A category is derived from the type, never stored. There is no "case" category — journeys are Grandway's equivalent of a case.
+
 ## Recommended user experience
 The best notification experience is an inbox-like feed with:
 - unread and read state
@@ -64,6 +74,8 @@ The best notification experience is an inbox-like feed with:
 - bulk clear for low-priority items, if allowed
 
 The most important notifications should stay visible until the work is handled.
+
+2026-10-29 — per-person preferences exist: each user can turn any category off for the in-app feed, and can choose "only my applicants" so alerts about applicants assigned to someone else (or to no one) are not raised for them. Preferences apply to new alerts only; they never hide what is already in the feed. The inbox can be split into per-category tabs with their own unread counts and their own "mark all read". Snooze is still not built — dismiss remains one-way.
 
 ## Delivery model
 `notifications` should first be thought of as an in-app alert stream.
@@ -97,7 +109,8 @@ Notifications should point at, but not replace:
 - checklists for overdue work
 - documents for missing or pending document work
 - uploaded_files for rejected or replacement-needed files
-- test_scores for expiry alerts
+- test_scores for expiry alerts (2026-10-29: there is no test_scores app — language tests live on the applicant, and the expiry alert points there)
+- leads for the enquiry lifecycle and visit notes (2026-10-29)
 - journeys for stage changes
 - applicants for person-level follow-up
 
@@ -111,6 +124,8 @@ A notification usually moves through:
 4. Resolved, dismissed, or expired
 
 Some alerts may remain active until the source issue is fixed. Others can be informational and simply become read.
+
+2026-10-29 — retention: the nightly sweep deletes event alerts and resolved deadline alerts once they are older than 90 days (an operator setting). Dismissed and still-open deadline alerts are kept, because they are what stops the same condition being raised again. This replaces "keep every alert forever"; the audit log, not the feed, is the long-term record.
 
 ## Rules for useful alerts
 - Alert on things that need action, not every minor update.
@@ -135,10 +150,11 @@ Some alerts may remain active until the source issue is fixed. Others can be inf
 
 ## Open questions
 - Which notification types are mandatory in v1.
-- Whether users can mute or snooze specific notification categories.
+- Whether users can mute or snooze specific notification categories. (2026-10-29: muting by category is built, per user, along with "only my applicants". Snooze is still out.)
 - Whether emails are required at launch or only in-app alerts.
 - How aggressively overdue items should keep resurfacing.
-- Whether each role gets a separate default notification feed.
+- Whether each role gets a separate default notification feed. (2026-10-29: no separate feeds; routing differs by role — e.g. new leads go to Admins, unassigned applicants' status changes go to every Admin and Lead Manager — and each user can narrow their own with preferences.)
+- Whether push delivery is needed. (2026-10-29: the frontend asked for server-sent events and an unread-count endpoint; both declined for now — the client polls the summary, which carries every count.)
 
 ## Outcome
 This app should keep staff informed about the most important work in the system without turning into another source of business data.

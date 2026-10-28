@@ -1,7 +1,7 @@
 # Integration — Document History
 
 **Owner app:** `document_history`
-**Version:** 1.0.4
+**Version:** 1.0.5
 **Status:** Active
 **Created:** 2026-07-24
 
@@ -16,6 +16,7 @@
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint change. Second §19.5 review round: declared the recovery `Document` field set complete, defined `is_editable`, disambiguated the `-id` tiebreaker, removed a stale claim that the 403 was absent from §7's error lists, and documented capture-note propagation, empty-body capture, nullable BS objects, response size, and the unenforced permission keys |
 | 1.0.3 | 2026-07-24 | AI (Claude) | No endpoint change. Recorded that the signatory ids frozen into `render_context` now resolve against `document_templates` — while this module still validates nothing inside `render_context` — and that it gained no dependency on that module in either direction |
 | 1.0.4 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Named the calls that store and find a generated PDF, and that nothing here will report it |
+| 1.0.5 | 2026-10-29 | AI (Claude Opus 5.5) | No endpoint change. Recorded that recovery restores the frozen body verbatim, skipping the `student-certificate` content check `documents` now applies on save |
 
 ---
 
@@ -58,6 +59,7 @@ to something when a client looks them up; nothing about this module's behaviour 
 - **Nothing is ever edited or deleted.** There is **no `PUT`, `PATCH`, or `DELETE` method on any endpoint**. A snapshot has no status, no lifecycle, and no retirement state — it exists, and it says what it said.
 - **The backend copies the document body; it never accepts one.** A capture request has **no `content` field**. If you send one it is ignored. `content`, `family`, `template_key`, and `label` are all read off the committed document row inside the capture transaction.
 - **Recovery does not rewrite history.** It writes the frozen body *forward* into the working document and leaves the snapshot untouched. It also does not create a new snapshot — your next capture does that.
+- **Recovery restores the frozen body verbatim, unchecked.** Since 2026-10-29 `documents` validates `student-certificate` content on save; recovery skips that check, because a printed body may predate the rules or name a photograph archived since. So recovery never returns `DOCUMENTS_CONTENT_INVALID` — but the next ordinary `PATCH` of that document is checked again and may fail until the content is corrected.
 - **Response:** the standard project envelope — `success`, `message`, `data`, `meta`. Below, `data` is **abridged to three fields to show the envelope**; a real capture returns the full `Snapshot` shape defined in §4.
 
 ```json

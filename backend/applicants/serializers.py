@@ -7,21 +7,44 @@ actual writes happen in ``services``.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from applicant_journeys.constants import JourneyStage
-from core.constants import ContactNumberLabel
+from core.constants import (
+    NOTE_BODY_MAX_LENGTH,
+    NOTE_ORDERINGS,
+    AcademicScoreType,
+    CalendarSystem,
+    ContactNumberLabel,
+    HighestQualification,
+    LanguageTestType,
+    NoteCategory,
+)
 from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
-from core.validators import validate_fiscal_year_label
+from core.validators import note_is_backdated, validate_fiscal_year_label
 from rest_framework import serializers
 
-from applicants.constants import AddressType, ApplicantStatus, CreationSource, FamilyRelationship, Gender
+from applicants.constants import (
+    ASSIGNED_TO_ME,
+    ASSIGNED_TO_NONE,
+    AddressType,
+    ApplicantStatus,
+    CreationSource,
+    EducationStatus,
+    FamilyRelationship,
+    Gender,
+)
 from applicants.models import (
     Applicant,
     ApplicantAddress,
     ApplicantContactNumber,
+    ApplicantEducation,
+    ApplicantLanguageTest,
+    ApplicantNote,
     EmergencyContact,
     FamilyMember,
     PassportDetail,
@@ -97,8 +120,59 @@ class PassportDetailSerializer(serializers.ModelSerializer):
 class FamilyMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = FamilyMember
-        fields = ["id", "relationship", "full_name", "occupation", "contact_number"]
+        fields = ["id", "relationship", "full_name", "occupation", "contact_number", "citizenship_no"]
         read_only_fields = fields
+
+
+class ApplicantEducationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ApplicantEducation
+        fields = [
+            "id",
+            "level",
+            "qualification",
+            "institution",
+            "country",
+            "completion_status",
+            "score",
+            "score_type",
+            "grading_system",
+            "start_year",
+            "completion_year",
+            "year_calendar",
+            "source_lead_id",
+        ]
+        read_only_fields = fields
+
+
+class ApplicantLanguageTestSerializer(serializers.ModelSerializer):
+    test_date_bs = serializers.SerializerMethodField()
+    expiry_date_bs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ApplicantLanguageTest
+        fields = [
+            "id",
+            "test_type",
+            "overall_score",
+            "listening_score",
+            "reading_score",
+            "writing_score",
+            "speaking_score",
+            "test_date",
+            "test_date_bs",
+            "certificate_number",
+            "expiry_date",
+            "expiry_date_bs",
+            "source_lead_id",
+        ]
+        read_only_fields = fields
+
+    def get_test_date_bs(self, obj: ApplicantLanguageTest) -> dict[str, Any] | None:
+        return _bs(obj.test_date)
+
+    def get_expiry_date_bs(self, obj: ApplicantLanguageTest) -> dict[str, Any] | None:
+        return _bs(obj.expiry_date)
 
 
 class EmergencyContactSerializer(serializers.ModelSerializer):
@@ -162,12 +236,46 @@ class FamilyMemberWriteSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     occupation = serializers.CharField(max_length=150, required=False, allow_blank=True)
     contact_number = serializers.CharField(max_length=32, required=False, allow_blank=True)
+    citizenship_no = serializers.CharField(max_length=50, required=False, allow_blank=True)
 
     def validate_full_name(self, value: str) -> str:
         return normalize_unicode(value)
 
     def validate_occupation(self, value: str) -> str:
         return normalize_unicode(value)
+
+    def validate_citizenship_no(self, value: str) -> str:
+        return normalize_unicode(value).strip()
+
+
+class EducationWriteSerializer(serializers.Serializer):
+    """One education entry. Cross-field rules (score/type, years) live in the service."""
+
+    level = serializers.ChoiceField(choices=HighestQualification.choices)
+    qualification = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    institution = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    country = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    completion_status = serializers.ChoiceField(choices=EducationStatus.choices, default=EducationStatus.COMPLETED)
+    score = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    score_type = serializers.ChoiceField(choices=AcademicScoreType.choices, required=False, allow_blank=True)
+    grading_system = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    start_year = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    completion_year = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    year_calendar = serializers.ChoiceField(choices=CalendarSystem.choices, required=False, allow_blank=True)
+
+
+class LanguageTestWriteSerializer(serializers.Serializer):
+    """One language-test entry. Score ranges and dates are checked by ``core.validators.language_test_errors``."""
+
+    test_type = serializers.ChoiceField(choices=LanguageTestType.choices)
+    overall_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    listening_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    reading_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    writing_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    speaking_score = serializers.DecimalField(max_digits=5, decimal_places=1, required=False, allow_null=True)
+    test_date = serializers.DateField(required=False, allow_null=True)
+    certificate_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    expiry_date = serializers.DateField(required=False, allow_null=True)
 
 
 class EmergencyContactWriteSerializer(serializers.Serializer):
@@ -193,6 +301,7 @@ class ApplicantListSerializer(serializers.ModelSerializer):
     """The applicant as it appears in a list."""
 
     created_by = UserBriefSerializer(read_only=True)
+    assigned_to = UserBriefSerializer(read_only=True, allow_null=True)
     contact_numbers = ApplicantContactNumberSerializer(many=True, read_only=True)
     date_of_birth_bs = serializers.SerializerMethodField()
     destinations = serializers.SerializerMethodField()
@@ -210,6 +319,7 @@ class ApplicantListSerializer(serializers.ModelSerializer):
             "status",
             "creation_source",
             "created_by",
+            "assigned_to",
             "contact_numbers",
             "destinations",
             "created_at",
@@ -257,6 +367,8 @@ class ApplicantDetailSerializer(ApplicantListSerializer):
     addresses = ApplicantAddressSerializer(many=True, read_only=True)
     family_members = FamilyMemberSerializer(many=True, read_only=True)
     emergency_contacts = EmergencyContactSerializer(many=True, read_only=True)
+    educations = ApplicantEducationSerializer(many=True, read_only=True)
+    language_tests = ApplicantLanguageTestSerializer(many=True, read_only=True)
     passport = serializers.SerializerMethodField()
     originating_lead_id = serializers.SerializerMethodField()
 
@@ -267,6 +379,11 @@ class ApplicantDetailSerializer(ApplicantListSerializer):
             "passport",
             "family_members",
             "emergency_contacts",
+            "educations",
+            "language_tests",
+            "citizenship_no",
+            "citizenship_issue_district",
+            "national_id_no",
             "originating_lead_id",
         ]
         read_only_fields = fields
@@ -301,6 +418,17 @@ class ApplicantListFilterSerializer(serializers.Serializer):
     country_code = serializers.CharField(max_length=8, required=False)
     journey_stage = serializers.ChoiceField(choices=JourneyStage.choices, required=False)
     fiscal_year = serializers.CharField(required=False, validators=[validate_fiscal_year_label])
+    assigned_to = serializers.CharField(max_length=36, required=False)
+
+    def validate_assigned_to(self, value: str) -> str:
+        """``me``, ``none``, or a user id. Anything else is a 400, not an empty page."""
+        value = value.strip().lower()
+        if value in (ASSIGNED_TO_ME, ASSIGNED_TO_NONE):
+            return value
+        try:
+            return str(uuid.UUID(value))
+        except ValueError as exc:
+            raise serializers.ValidationError("Expected 'me', 'none', or a user id.") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -316,15 +444,29 @@ class ApplicantCreateSerializer(serializers.Serializer):
     gender = serializers.ChoiceField(choices=Gender.choices, required=False, allow_blank=True)
     nationality = serializers.CharField(max_length=100, required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)
+    citizenship_no = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    citizenship_issue_district = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    national_id_no = serializers.CharField(max_length=50, required=False, allow_blank=True)
 
     contact_numbers = ContactNumberWriteSerializer(many=True, allow_empty=False)
     addresses = AddressWriteSerializer(many=True, required=False)
     passport = PassportWriteSerializer(required=False)
     family_members = FamilyMemberWriteSerializer(many=True, required=False)
     emergency_contacts = EmergencyContactWriteSerializer(many=True, required=False)
+    educations = EducationWriteSerializer(many=True, required=False)
+    language_tests = LanguageTestWriteSerializer(many=True, required=False)
 
     def validate_full_name(self, value: str) -> str:
         return normalize_unicode(value)
+
+    def validate_citizenship_no(self, value: str) -> str:
+        return normalize_unicode(value).strip()
+
+    def validate_citizenship_issue_district(self, value: str) -> str:
+        return normalize_unicode(value).strip()
+
+    def validate_national_id_no(self, value: str) -> str:
+        return normalize_unicode(value).strip()
 
     def validate_nationality(self, value: str) -> str:
         return normalize_unicode(value)
@@ -346,6 +488,80 @@ class ApplicantUpdateSerializer(ApplicantCreateSerializer):
 
 class StatusChangeSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=ApplicantStatus.choices)
+
+
+class AssignSerializer(serializers.Serializer):
+    """POST /applicants/<id>/assign/ — a user id, or null to clear. The key is required."""
+
+    assigned_to = serializers.UUIDField(allow_null=True)
+
+
+class RestoreSerializer(serializers.Serializer):
+    """POST /applicants/<id>/restore/ — optional; normalized in the service."""
+
+    reason = serializers.CharField(max_length=2000, required=False, allow_blank=True)
+
+
+# ---------------------------------------------------------------------------
+# Notes
+# ---------------------------------------------------------------------------
+
+#: A ``noted_at`` sent without a UTC offset is read as Nepal time (§39.5): it
+#: is typed by staff in Kathmandu, and reading it as UTC would shift the note
+#: by 5h45m. Clients should still send an offset.
+_NOTED_AT_TZ = ZoneInfo("Asia/Kathmandu")
+
+
+class ApplicantNoteSerializer(serializers.ModelSerializer):
+    author = UserBriefSerializer(read_only=True)
+    updated_by = UserBriefSerializer(read_only=True, allow_null=True)
+    noted_at_bs = serializers.SerializerMethodField()
+    is_backdated = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ApplicantNote
+        fields = [
+            "id",
+            "category",
+            "body",
+            "noted_at",
+            "noted_at_bs",
+            "is_backdated",
+            "source_lead_id",
+            "author",
+            "updated_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_noted_at_bs(self, obj: ApplicantNote) -> dict[str, Any] | None:
+        return _bs(obj.noted_at)
+
+    def get_is_backdated(self, obj: ApplicantNote) -> bool:
+        return note_is_backdated(created_at=obj.created_at, noted_at=obj.noted_at)
+
+
+class ApplicantNoteCreateSerializer(serializers.Serializer):
+    """A new note. Blank-after-normalization and future ``noted_at`` are refused in the service."""
+
+    category = serializers.ChoiceField(choices=NoteCategory.choices, default=NoteCategory.GENERAL)
+    body = serializers.CharField(max_length=NOTE_BODY_MAX_LENGTH)
+    noted_at = serializers.DateTimeField(required=False, default_timezone=_NOTED_AT_TZ)
+
+    def validate_body(self, value: str) -> str:
+        return normalize_unicode(value)
+
+
+class ApplicantNoteUpdateSerializer(ApplicantNoteCreateSerializer):
+    """A correction: any subset of the three fields. Use with ``partial=True``."""
+
+    category = serializers.ChoiceField(choices=NoteCategory.choices, required=False)
+
+
+class ApplicantNoteListFilterSerializer(serializers.Serializer):
+    category = serializers.ChoiceField(choices=NoteCategory.choices, required=False)
+    ordering = serializers.ChoiceField(choices=[(o, o) for o in NOTE_ORDERINGS], required=False)
 
 
 # ---------------------------------------------------------------------------

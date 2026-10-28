@@ -1,7 +1,7 @@
 # Data Contract — Document Templates
 
 **Owner app:** `document_templates`
-**Version:** 1.2.0
+**Version:** 1.2.1
 **Status:** Active
 **Created:** 2026-07-24
 **Purpose:** Owns the signatory library that certificate documents point at, and the catalogue of template slugs the document picker offers. It does **not** own the editable document record (`documents`), the immutable print snapshot (`document_history`), file storage (`uploaded_files`, which this app now calls but does not own — signature bytes live there, not here), or the template *rendering* — which lives in the frontend as code, not here.
@@ -17,6 +17,7 @@
 | 1.0.2 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Same, for `signature_image_url` |
 | 1.1.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (Signatory `name`/`title`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 | 1.2.0 | 2026-09-10 | AI (Claude Opus 5) | Added `Signatory.signature_file` — a nullable `PROTECT` FK into `uploaded_files`, the app's first database relation outside itself. `signature_image_url` retained as the fallback with a documented precedence rule. Migration `0003_signatory_signature_file`. Additive, non-breaking |
+| 1.2.1 | 2026-10-29 | AI (Claude Opus 5.5) | No schema change. Noted that `documents` now stores a per-document `template_version` (authored-for layout) alongside the snapshot's printed version; this app still holds no version chain |
 
 ---
 
@@ -40,7 +41,7 @@ A second rule follows: **nothing here is ever deleted.** Documents reference a t
 `concepts/document_templates.txt` describes a considerably larger module than this. Each departure is recorded here, and the concept file carries matching correction notes.
 
 - **No template version chain, no section metadata, no field hints, no signature slots, and no preview.** The concept names all five, and the frontend consumes none of them — it has no endpoint for any, and its templates are code. Building them would mean inventing a schema against zero consumers, which §32 forbids and which would guarantee drift from the templates that actually exist. **`concepts/document_templates.txt`'s Template Editor, Template Detail / Version History, and Template Preview screens therefore have no backing endpoints.** Recorded in `docs/INTEGRATION.md` §9 rather than silently omitted, so a frontend author reading the concept knows they are absent by decision.
-- **Historical reproduction does not need a version chain here, and already works.** The concept's requirement — "Once a version has been used by a document or history snapshot, it should remain available for historical reproduction" — is already satisfied by `document_history`, which freezes the template key, the template version string, and the resolved signatories into each snapshot's `render_context`. A snapshot is self-sufficient for reproduction; it does not read back through this app. Adding an immutable version chain would duplicate a guarantee that already holds.
+- **Historical reproduction does not need a version chain here, and already works.** The concept's requirement — "Once a version has been used by a document or history snapshot, it should remain available for historical reproduction" — is already satisfied by `document_history`, which freezes the template key, the template version string, and the resolved signatories into each snapshot's `render_context`. A snapshot is self-sufficient for reproduction; it does not read back through this app. Adding an immutable version chain would duplicate a guarantee that already holds. **Since 2026-10-29 `documents` also stores a per-document `template_version`** — the layout the document was *authored for*, chosen by the frontend — while the snapshot's `render_context` still records what was *printed*. Neither is a version chain, and this app still holds none: the version is an opaque label, not a reference to a row here.
 - **The catalogue is advisory, not enforcing.** `documents` does **not** consult this table. Creating a document with a `template_key` absent from the catalogue still succeeds. Enforcing it would narrow a shipped endpoint's accepted input (§29 breaking change) and add a runtime dependency from `documents` to this app; that is its own decision with its own approval gate. The consequence is that `documents`' documented gap — *"a typo that happens to match the family prefix is accepted"* — stays open.
 - **~~The signature image is a URL, not an upload.~~ The deferral ended on 2026-09-10.** It read: *"§14 requires a full file contract … and `concepts/project_overview.txt` names a dedicated `uploaded_files` domain that does not exist."* That domain shipped on 2026-07-24, which removed the entire premise. The concept had always permitted either form — *"In V1 this can be a stored path or URL-like value"* — and flagged the URL as "additively replaceable later", which is exactly how it was replaced.
 

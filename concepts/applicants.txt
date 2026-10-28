@@ -61,6 +61,13 @@ Contact
 The same reasoning as leads applies: a person may have several usable numbers
 but one working email address.
 
+Identity documents
+
+* Citizenship certificate number and the district that issued it
+* National identity card number
+
+Ward-office (Woda) letters print these. They are stored as entered.
+
 Passport
 
 * Passport number
@@ -73,7 +80,9 @@ visa application. The record should make that date easy to find.
 
 Family
 
-* Family members, each with a relationship, name, occupation, and contact number
+* Family members, each with a relationship (including grandfather and
+  grandmother, for ward-office letters), name, occupation, contact number, and
+  citizenship number
 * Emergency contacts, each with a relationship and contact details
 
 Family members and emergency contacts are recorded separately because they are
@@ -82,10 +91,23 @@ a colleague rather than a relative.
 
 ## What does not belong on the applicant
 
-Academic history belongs to the education module. Test attempts belong to the
-test scores module. Study objectives, destinations, intakes, budgets, and
-outcomes belong to applicant journeys. Documents and uploaded files belong to
-their own modules.
+Education records and language-test results are kept on the applicant
+(2026-10-29) — the separate education and test-score modules sketched in
+`concepts/education.txt` and `concepts/test_scores.txt` were folded in here,
+because the requirement was small enough not to justify new modules:
+
+* Education — each qualification with its level (SEE / +2 / Diploma / Bachelor /
+  Master / PhD / Other), programme, institution, completion status, score (GPA or
+  percentage) with how it reads, and start/completion years in BS or AD.
+* Language tests — each IELTS, PTE, TOEFL, Duolingo, or other sitting with its
+  overall and four skill scores (validated per test), test date, certificate
+  number, and expiry date.
+
+Both are lists on the applicant record, edited like family members. A converted
+lead's highest qualification and language certificates arrive as these records.
+
+Study objectives, destinations, intakes, budgets, and outcomes belong to
+applicant journeys. Documents and uploaded files belong to their own modules.
 
 The applicant record answers "who is this person." It does not answer "what are
 they trying to do," "what have they studied," or "what have they scored."
@@ -131,12 +153,34 @@ than one staff member's prospect, and several people will legitimately need to
 work on their file.
 
 Lead ownership attribution survives conversion, but it grants no exclusive
-access to the resulting applicant.
+access to the resulting applicant. The lead's owner becomes the applicant's
+assignee (see Assignment), which decides who is notified — not who may see.
+
+## Assignment (decided 2026-10-29, frontend updates.md §4)
+
+An applicant may optionally be assigned to one staff member — an active Admin or
+Lead Manager. Assignment routes notifications only: the assignee hears about the
+applicant's status changes, restores, visit notes, journey moves, expiring
+passports and language tests, and due reminders. It never changes access —
+every Admin and Lead Manager still views and edits every applicant, assigned or
+not. Small teams can ignore it; an unassigned applicant's alerts go to the whole
+team.
+
+* An Admin may assign anyone eligible, reassign, or clear the assignment.
+* A Lead Manager may take an unassigned applicant for themselves, or release one
+  they hold — never assign someone else or take a colleague's file.
+* A converted applicant starts assigned to the lead's owner, when that person is
+  still an active Admin or Lead Manager; a directly created one starts unassigned.
+* The list can be filtered to "mine", "unassigned", or a named person.
+* Assigning and unassigning appear in the applicant's history, and the person
+  gaining or losing the applicant is notified.
 
 ## No deletion
 
-Applicants are never deleted. A closed file is archived, and archival is
-reversible.
+Applicants are never deleted. A closed file is archived (the UI may call it
+"Delete"), and archival is reversible — by an Admin, who restores the applicant
+to the status they had before archiving. Anyone who can change status may
+archive; only an Admin brings a file back. (Enforced from 2026-10-29.)
 
 The record carries identity, history, and the attribution for where the person
 came from. Deleting it would destroy the consultancy's ability to explain its
@@ -156,6 +200,7 @@ Important applicant actions should appear in a chronological history, including:
 * Passport information changed
 * Family or emergency contact changed
 * Status changed
+* Assigned or unassigned
 
 History entries should not be silently rewritten or removed.
 
@@ -171,6 +216,8 @@ An Admin may:
 * Change applicant status
 * Archive and restore an applicant
 * Review applicant history
+* Read, write, correct, and remove any note on an applicant
+* Assign any applicant to any active Admin or Lead Manager, or clear it
 
 Lead Manager
 
@@ -178,12 +225,19 @@ A Lead Manager may:
 
 * View any applicant
 * Edit any applicant's information
-* Change applicant status
+* Change applicant status, including archiving — but not restoring
 * Review applicant history
+* Read and write notes on any applicant (General or Visit, backdatable), and
+  correct or remove their own
+* Take an unassigned applicant, or release one assigned to them
 
 A Lead Manager may not:
 
 * Create an applicant, by either path
+* Restore an archived applicant
+* Correct or remove another person's note
+* Assign an applicant to someone else, or take or clear one assigned to a
+  colleague
 * Delete an applicant or any part of its history
 
 Superadmin
@@ -196,7 +250,8 @@ participate in consultancy operations and has no access to applicant records.
 Applicant List
 
 Shows every applicant, newest first. Columns: name, status, contact number,
-whether the person came from a lead, and creation date. Filters for status and a
+whether the person came from a lead, assignee, and creation date. Filters for
+status, assignee ("mine", "unassigned", or a person), and a
 search box matching the name, email, contact number, and passport number,
 so staff can type in either script. Primary action "New applicant" is visible to
 Admins only. Serves the direct-creation and find-an-applicant flows.
@@ -210,7 +265,8 @@ whole point is that a file can be started before every detail is known.
 
 Applicant Detail
 
-The person's file. Header shows name, status, and a link to the originating lead
+The person's file. Header shows name, status, the assignee (with Assign / Take /
+Release as the viewer's authority allows), and a link to the originating lead
 where one exists. Panels for identity, contact, addresses, passport (with the
 expiry date visually prominent), family, and emergency contacts. A journeys
 panel lists the person's study objectives with a "New journey" action. A history
@@ -234,9 +290,19 @@ row, so the form always submits the complete intended state.
 * No duplicate detection or merging. Two records for the same person is a real
   risk, but resolving it needs a merge process that preserves both histories,
   and that is its own piece of work.
-* No academic history, test scores, documents, or files.
+* No documents or files on the applicant record (they have their own modules).
+  Education gaps, training records, and non-language tests (SAT, GRE) are not
+  recorded.
 * No deletion, and no hard archival that hides a record from search.
 * No automatic status changes driven by journey activity.
+
+## Notes (added 2026-10-29, frontend updates.md §2)
+
+Staff keep notes on an applicant — general notes, and records of office visits —
+each dated to when it happened, which may be earlier than when it was written.
+Notes written on a lead arrive here when the lead is converted, so the enquiry →
+applicant story reads as one feed. While an applicant is archived their notes can
+be read but not changed.
 
 ## Open questions
 

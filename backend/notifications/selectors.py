@@ -24,12 +24,15 @@ from django.utils import timezone
 from notifications.constants import (
     DEFAULT_DUE_WITHIN_DAYS,
     SWEEP_TYPES,
+    TYPE_CATEGORY,
     DueBucket,
     GenerationSource,
+    NotificationCategory,
     NotificationStatus,
     Priority,
+    types_in_categories,
 )
-from notifications.models import Notification
+from notifications.models import Notification, NotificationPreference
 
 
 def _for_recipient(user: Any) -> QuerySet[Notification]:
@@ -86,6 +89,10 @@ def filter_feed(queryset: QuerySet[Notification], filters: dict[str, Any] | None
         queryset = queryset.filter(read_at__isnull=not is_read)
     if notification_type := filters.get("notification_type"):
         queryset = queryset.filter(notification_type=notification_type)
+    if categories := filters.get("category"):
+        queryset = queryset.filter(notification_type__in=types_in_categories(categories))
+    if applicant_id := filters.get("applicant_id"):
+        queryset = queryset.filter(applicant_id=applicant_id)
     if priority := filters.get("priority"):
         queryset = queryset.filter(priority=priority)
     if source_app := filters.get("source_app"):
@@ -127,7 +134,7 @@ def _due_bucket_condition(bucket: str, due_within_days: int | None = None) -> Q:
 
 
 def get_feed_summary(user: Any, *, due_within_days: int = DEFAULT_DUE_WITHIN_DAYS) -> dict[str, Any]:
-    """The bell badge and the feed's grouping headers, in two queries.
+    """The bell badge and the feed's grouping headers, in three queries.
 
     Exists so a client is not forced to page the whole feed to render a single
     number. Every count is zero-filled across the full vocabulary, because a
@@ -138,6 +145,9 @@ def get_feed_summary(user: Any, *, due_within_days: int = DEFAULT_DUE_WITHIN_DAY
     an alert that was resolved before anybody read it still deserves to be
     noticed once. Every other figure is scoped to ``active``, because they answer
     "what is on my desk".
+
+    ``by_category`` (2026-10-29) is unread counts per category — the per-tab
+    badge — grouped by type in the database and folded into categories here.
     """
     scoped = _for_recipient(user)
     active = scoped.filter(status=NotificationStatus.ACTIVE)
@@ -157,8 +167,14 @@ def get_feed_summary(user: Any, *, due_within_days: int = DEFAULT_DUE_WITHIN_DAY
         no_due=Count("id", filter=Q(due_at__isnull=True)),
     )
 
+    by_category = dict.fromkeys(NotificationCategory.values, 0)
+    for row in scoped.filter(read_at__isnull=True).values("notification_type").annotate(n=Count("id")):
+        category = TYPE_CATEGORY.get(row["notification_type"])
+        if category:
+            by_category[category] += row["n"]
+
     return {
-        "unread": scoped.filter(read_at__isnull=True).count(),
+        "unread": sum(by_category.values()),
         "active": aggregates["total"],
         "by_priority": {
             Priority.LOW: aggregates["low"],
@@ -172,6 +188,7 @@ def get_feed_summary(user: Any, *, due_within_days: int = DEFAULT_DUE_WITHIN_DAY
             DueBucket.LATER: aggregates["later"],
             DueBucket.NONE: aggregates["no_due"],
         },
+        "by_category": by_category,
     }
 
 
@@ -223,3 +240,25 @@ def get_notifications_for_source(source_entity_type: str, source_entity_id: str)
         source_entity_type=source_entity_type,
         source_entity_id=source_entity_id,
     )
+
+
+def get_purgeable(*, before: Any) -> QuerySet[Notification]:
+    """Notifications created before ``before`` that the retention purge may delete.
+
+    Event alerts of any status, plus resolved sweep alerts. Never a dismissed or
+    active sweep alert — see ``services.purge_expired``.
+    """
+    return Notification.objects.filter(created_at__lt=before).filter(
+        Q(generated_by=GenerationSource.SIGNAL)
+        | Q(generated_by=GenerationSource.SWEEP, status=NotificationStatus.RESOLVED)
+    )
+
+
+def get_preferences(user: Any) -> dict[str, Any]:
+    """This user's notification preferences, with defaults when none are saved."""
+    preference = NotificationPreference.objects.filter(user=user).first()
+    muted = set(preference.muted_categories or []) if preference else set()
+    return {
+        "categories": {category: {"in_app": category not in muted} for category in NotificationCategory.values},
+        "assigned_only": bool(preference and preference.assigned_only),
+    }

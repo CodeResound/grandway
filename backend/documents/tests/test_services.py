@@ -268,16 +268,50 @@ class LifecycleTests(TestCase):
         with self.assertRaises(DocumentAlreadyArchivedError):
             services.archive_document(actor=self.admin, document=self.document, reason="Again.")
 
-    def test_restore_always_returns_to_draft(self) -> None:
-        """Never to `ready` — whoever archived it may have done so because it wasn't."""
+    def test_restore_returns_to_the_status_held_before_archiving(self) -> None:
+        """Restoring undoes a removal: a ready document comes back ready.
+
+        Replaces the earlier always-draft rule, retired on 2026-10-29 at the
+        frontend's request (``updates.md`` §6.2) — the demotion read to users as
+        the restore not working.
+        """
         services.change_status(actor=self.admin, document=self.document, status=DocumentStatus.READY)
-        services.archive_document(actor=self.admin, document=self.document, reason="Superseded.")
+        archived = services.archive_document(actor=self.admin, document=self.document, reason="Superseded.")
+        self.assertEqual(archived.status_before_archive, DocumentStatus.READY)
+
         restored = services.restore_document(actor=self.admin, document=self.document)
 
-        self.assertEqual(restored.status, DocumentStatus.DRAFT)
+        self.assertEqual(restored.status, DocumentStatus.READY)
+        self.assertEqual(restored.status_before_archive, "")
         self.assertEqual(restored.archive_reason, "")
         self.assertIsNone(restored.archived_at)
         self.assertIsNone(restored.archived_by)
+
+    def test_restore_of_a_draft_returns_draft(self) -> None:
+        services.archive_document(actor=self.admin, document=self.document, reason="Superseded.")
+        restored = services.restore_document(actor=self.admin, document=self.document)
+        self.assertEqual(restored.status, DocumentStatus.DRAFT)
+
+    def test_restore_falls_back_to_draft_when_the_prior_status_is_unknown(self) -> None:
+        """Documents archived before ``status_before_archive`` existed hold ``""``."""
+        services.change_status(actor=self.admin, document=self.document, status=DocumentStatus.READY)
+        services.archive_document(actor=self.admin, document=self.document, reason="Superseded.")
+        self.document.status_before_archive = ""
+        self.document.save(update_fields=["status_before_archive"])
+
+        restored = services.restore_document(actor=self.admin, document=self.document)
+        self.assertEqual(restored.status, DocumentStatus.DRAFT)
+
+    def test_restore_records_the_target_status_and_reason(self) -> None:
+        services.change_status(actor=self.admin, document=self.document, status=DocumentStatus.READY)
+        services.archive_document(actor=self.admin, document=self.document, reason="Superseded.")
+        services.restore_document(actor=self.admin, document=self.document, reason="Archived by mistake.")
+
+        event = AuditEvent.objects.filter(
+            app_label=AUDIT_APP_LABEL, action=DocumentAuditAction.DOCUMENT_RESTORED, entity_id=str(self.document.id)
+        ).get()
+        self.assertEqual(event.reason, "Archived by mistake.")
+        self.assertEqual(event.changes["status"]["to"], DocumentStatus.READY)
 
     def test_restoring_an_active_document_is_rejected(self) -> None:
         with self.assertRaises(DocumentNotArchivedError):

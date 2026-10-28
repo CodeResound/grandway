@@ -1,7 +1,7 @@
 # Integration — Leads
 
 **Owner app:** `leads`
-**Version:** 1.2.1
+**Version:** 1.5.0
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -16,6 +16,9 @@
 | 1.1.1 | 2026-07-24 | AI (Claude Opus 4.8) | No endpoint or schema change — `HistoryEntry` already carried every field of the now-shared shape. Recorded that the shape is owned by the `audit` module and identical across all six modules with a history endpoint, and corrected §2 `Requires`: the `audit` coupling is a read dependency as well as a write one |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 | 1.2.1 | 2026-08-17 | AI (Claude Fable 5) | No endpoint or schema change. List filters are now validated before any query runs: malformed values (non-UUID `source`, unknown `stage`, unconvertible `fiscal_year`) return 400 with field details instead of a 500 — §3 conventions updated |
+| 1.3.0 | 2026-10-29 | AI (Claude Opus 5.5) | **Lead soft delete** (`DELETE /leads/<id>/`, `POST /leads/<id>/restore/`, Admin only; Admin-only `?deleted=true`; 409 `LEADS_LEAD_DELETED` on every write). **Notes are now categorised (`general`/`visit`), backdatable (`noted_at`), and correctable** (`PATCH`/`DELETE /notes/<note_id>/`, author or Admin) — no longer append-only. Converting copies notes onto the applicant; a converted lead's notes are read-only here. New `applicants` coupling in §2 |
+| 1.4.0 | 2026-10-29 | AI (Claude Opus 5.5) | Study interest gains `highest_qualification_level`, `academic_score`+`academic_score_type`, `pass_year`+`pass_year_calendar` (`highest_qualification` keeps its free-text meaning); new `language_certificates` on the lead (replaced wholesale, ≤10, scores validated per test); list filters `highest_qualification_level`, `language_test_status`, `language_test_type`; conversion turns the qualification and certificates into applicant `educations`/`language_tests`. Additive |
+| 1.5.0 | 2026-10-29 | AI (Claude Opus 5.5) | No request or response shape change. **New side effects:** create, convert, delete, restore, and visit-note create now raise notifications through the `notifications` module (`lead_created`, `lead_converted`, `lead_deleted`, `lead_restored`, `visit_note_added`), never to the caller. **Conversion now assigns the new applicant to the lead's owner** (`applicants` assignment, routing only). §2 records that this module depends on `notifications` for nothing |
 
 ---
 
@@ -33,8 +36,10 @@
 | `authenticate` | framework | Issues the access JWT and supplies the caller's `authority_type`, which decides whether the caller sees all leads, only their own, or none. | Every endpoint returns 401. Without a valid `authority_type` claim the caller is treated as neither Admin nor Lead Manager and gets 403 `LEADS_ACTOR_FORBIDDEN`. |
 | `authenticate` | FK | Lead ownership (`created_by`) and every attribution field (`last_followed_up_by`, `lost_by`, `converted_by`, note `author`) reference a user account. | Leads cannot be created; attribution fields would be unresolvable. |
 | `audit` | service call + read shape | Every mutation appends one immutable event to the central audit log; the lead history endpoint reads that log back through audit's selector and renders audit's shared entry shape. This module stores no history of its own. | Hard dependency in both directions of use — without it this module does not start. If only the write path failed, `GET /api/v1/leads/<lead_id>/history/` would return an empty list — the lead's entire chronological history disappears, though the lead itself still works. |
-| `applicants` | service call + FK | Conversion calls it to create the applicant record, and `Lead.converted_applicant` is a one-to-one link to the result. | `POST /api/v1/leads/<lead_id>/convert/` fails; no lead can enter the applicant lifecycle. Everything before conversion still works. |
+| `applicants` | service call + FK | Conversion calls it to create the applicant record and to copy the lead's notes onto it (`import_lead_notes`), and `Lead.converted_applicant` is a one-to-one link to the result. | `POST /api/v1/leads/<lead_id>/convert/` fails; no lead can enter the applicant lifecycle. Everything before conversion still works. |
 | `applicant_journeys` | service call + FK | Conversion calls it to create the initial journey, seeded from the lead's preliminary study interest. | As above — conversion is all-or-nothing, so a failure creates neither record. |
+
+**This module depends on `notifications` for nothing.** Create, convert, delete, restore, and note-create announce a domain event once their write has committed; `notifications` listens and decides who is told. If it is absent or fails, the write still succeeds and the response is identical — only the alert is missing.
 
 ## 3. Conventions
 
@@ -88,23 +93,31 @@
 
 **ContactNumber** — `{ id, number, label:[enum], is_primary }`
 
-**StudyInterest** — `{ interested_countries:json, study_level:[enum], field_of_study, preferred_intake, budget_amount?, budget_currency, scholarship_interest, highest_qualification, language_test_status:[enum], interest_notes }`
+**StudyInterest** — `{ interested_countries:json, study_level:[enum], field_of_study, preferred_intake, budget_amount?, budget_currency, scholarship_interest, highest_qualification, highest_qualification_level:[enum], academic_score?, academic_score_type:[enum], pass_year?:int, pass_year_calendar:[enum], language_test_status:[enum], interest_notes }`
 
 - `interested_countries` is an array of strings. `budget_amount` is a decimal **string** or `null`.
 - Every field is optional and may be blank — this record deliberately holds incomplete information.
+- `highest_qualification` is the **free-text** programme or stream ("BBS", "Science"); `highest_qualification_level` is the enum level. `academic_score` (decimal string) comes **with** `academic_score_type`; `pass_year` **with** `pass_year_calendar` (`bs`/`ad`). The frontend's `highest_qualification_detail` is this module's `highest_qualification`.
+
+**LanguageCertificate** — `{ id, test_type:[enum], overall_score?, listening_score?, reading_score?, writing_score?, speaking_score?, test_date?, test_date_bs?:BsDate, certificate_number, expiry_date?, expiry_date_bs?:BsDate, created_at, updated_at }`
+- Scores are decimal strings with one place, or `null`. Becomes an applicant `LanguageTest` (module `applicants`) at conversion, field for field.
 
 **UserBrief** — `{ id, username, display_name }`
 
 **Lead (list shape)** — `{ id, full_name, email, address, source:ReferenceEntry, source_detail, stage:[enum], created_by:UserBrief, contact_numbers:[ContactNumber], last_followed_up_at?, last_followed_up_at_bs?:BsDate, created_at, updated_at }`
 
-**Lead (detail shape)** — the list shape plus `{ study_interest?:StudyInterest, last_followed_up_by?:UserBrief, lost_reason?:ReferenceEntry, lost_detail, lost_at?, lost_at_bs?:BsDate, lost_by?:UserBrief, stage_before_loss, converted_at?, converted_at_bs?:BsDate, converted_by?:UserBrief, converted_applicant_id?, converted_journey_id? }`
+**Lead (detail shape)** — the list shape plus `{ study_interest?:StudyInterest, language_certificates:[LanguageCertificate], last_followed_up_by?:UserBrief, lost_reason?:ReferenceEntry, lost_detail, lost_at?, lost_at_bs?:BsDate, lost_by?:UserBrief, stage_before_loss, converted_at?, converted_at_bs?:BsDate, converted_by?:UserBrief, converted_applicant_id?, converted_journey_id?, deleted_at?, deleted_at_bs?:BsDate, deleted_by?:UserBrief, delete_reason }`
 
 - The detail shape is returned by retrieve, create, update, **and every lifecycle action**. Only the lead *list* returns the shorter shape.
 - `study_interest` is `null` when the lead has none.
 - The `lost_*` fields are all populated together when `stage` is `lost`, and all cleared together on reopen. `stage_before_loss` is `""` unless the lead is currently lost.
+- The `deleted_*` fields are `null` (and `delete_reason` is `""`) on every lead a Lead Manager can see. Only an Admin ever receives a lead with `deleted_at` set — from `?deleted=true`, a retrieve by id, or the delete response.
 - The `converted_*` fields populate together at conversion and are **never** cleared — not even by reopen. `converted_applicant_id` and `converted_journey_id` are bare id strings; fetch the records from the `applicants` and `applicant_journeys` modules.
 
-**LeadNote** — `{ id, body, author:UserBrief, created_at }`
+**LeadNote** — `{ id, category:[enum], body, noted_at, noted_at_bs:BsDate, is_backdated:bool, author:UserBrief, updated_by?:UserBrief, created_at, updated_at }`
+
+- `noted_at` is **when it happened**, set by the user — it may be backdated (a visit written up the next day). `created_at` is when it was saved. `is_backdated` is `true` when `created_at` is more than 15 minutes after `noted_at`.
+- `author` is who wrote it (the frontend's `created_by`); `updated_by` is `null` until someone edits it.
 
 **HistoryEntry** — `{ id, action:[enum], actor_type:[enum], actor_id?, actor_label, summary, reason, changes:json, metadata:json, created_at, created_at_bs:BsDate }`
 
@@ -154,6 +167,11 @@
     "budget_currency": "NPR",
     "scholarship_interest": true,
     "highest_qualification": "BSc CSIT",
+    "highest_qualification_level": "bachelor",
+    "academic_score": "3.45",
+    "academic_score_type": "gpa",
+    "pass_year": 2080,
+    "pass_year_calendar": "bs",
     "language_test_status": "preparing",
     "interest_notes": "Prefers Melbourne."
   },
@@ -225,9 +243,15 @@
 ```json
 {
   "id": "e1e2e3e4-9999-8888-7777-666655554444",
-  "body": "Wants Australia, needs IELTS.",
+  "category": "visit",
+  "body": "Visited the office with her father. Wants Australia, needs IELTS.",
+  "noted_at": "2026-07-22T09:30:00Z",
+  "noted_at_bs": { "year": 2083, "month": 4, "day": 6, "month_name": "Shrawan", "display": "2083 Shrawan 6" },
+  "is_backdated": true,
   "author": { "id": "aaaa1111-2222-3333-4444-555566667777", "username": "leadmgr", "display_name": "Leadmgr" },
-  "created_at": "2026-07-23T04:05:00Z"
+  "updated_by": null,
+  "created_at": "2026-07-23T04:05:00Z",
+  "updated_at": "2026-07-23T04:05:00Z"
 }
 ```
 
@@ -260,9 +284,14 @@
 - `Lead.stage_before_loss`: same set as `Lead.stage`, plus `""` when the lead has never been lost.
 - `ContactNumber.label`: `mobile` | `home` | `work` | `whatsapp` | `viber` | `other`
 - `StudyInterest.study_level`: `school` | `certificate` | `diploma` | `bachelors` | `postgraduate_diploma` | `masters` | `phd` | `other` | `""`
-- `StudyInterest.language_test_status`: `not_taken` | `preparing` | `booked` | `taken` | `not_required` | `""`
+- `StudyInterest.language_test_status`: `not_taken` | `preparing` | `booked` | `taken` | `not_required` | `""` (the frontend's `not_started` is `not_taken`, its `completed` is `taken`)
+- `StudyInterest.highest_qualification_level`: `see` (SEE / SLC) | `plus_two` (+2 / NEB) | `diploma` | `bachelor` | `master` | `phd` | `other` | `""`
+- `StudyInterest.academic_score_type`: `gpa` (0–4) | `percentage` (0–100) | `""`
+- `StudyInterest.pass_year_calendar`: `bs` (2000…this BS year+1) | `ad` (1950…this year+1) | `""`
+- `LanguageCertificate.test_type`: `ielts` | `pte` | `toefl` | `duolingo` | `other`
 - `HistoryEntry.actor_type`: `superadmin` | `admin` | `lead_manager` | `system` | `ai`
-- `HistoryEntry.action`: `lead_created` | `lead_updated` | `lead_source_changed` | `lead_contact_changed` | `lead_interest_changed` | `lead_stage_changed` | `lead_followup_recorded` | `lead_marked_lost` | `lead_reopened` | `lead_note_added` | `lead_converted` | `lead_applicant_created`. The last two are always emitted together, by the conversion endpoint.
+- `LeadNote.category`: `general` | `visit` (shared with applicant notes; may gain values, e.g. `call` — render unknown values as their raw string)
+- `HistoryEntry.action`: `lead_created` | `lead_updated` | `lead_source_changed` | `lead_contact_changed` | `lead_interest_changed` | `lead_stage_changed` | `lead_followup_recorded` | `lead_marked_lost` | `lead_reopened` | `lead_note_added` | `lead_note_updated` | `lead_note_deleted` | `lead_deleted` | `lead_restored` | `lead_converted` | `lead_applicant_created`. The last two are always emitted together, by the conversion endpoint.
 - `LeadSource.code` / `LossReason.code`: **not a fixed enum** — these are runtime-configurable rows created by an Admin. Never hardcode a code; always populate pickers from the list endpoints.
 
 ## 6. Dependency order
@@ -271,7 +300,7 @@
 - `Lead` needs an authenticated Admin or Lead Manager account *(other app: `authenticate`)`* — the caller becomes the permanent owner.
 - `ContactNumber` needs `Lead` — sent nested inside the lead payload, never created on its own.
 - `StudyInterest` needs `Lead` — sent nested inside the lead payload, never created on its own.
-- `LeadNote` needs `Lead`.
+- `LeadNote` needs a live, unconverted `Lead` to be written; it can be read on any lead in scope.
 - Marking a lead lost needs `LossReason` — a reason is always mandatory.
 - `HistoryEntry` needs `Lead` and is never created by a client; the server writes it on every mutation.
 - Converting needs an **Admin** account and a lead in an active stage. It produces an `Applicant` *(other module: `applicants`)* and an `ApplicantJourney` *(other module: `applicant_journeys`)* — neither needs to exist beforehand; conversion creates both.
@@ -334,15 +363,17 @@
 - `POST /api/v1/leads/` — record a new enquiry (permission: `leads.lead.create`, risk: medium)
 - `GET /api/v1/leads/<lead_id>/` — retrieve one lead (permission: `leads.lead.read`, risk: low)
 - `PATCH /api/v1/leads/<lead_id>/` — correct a lead (permission: `leads.lead.update`, risk: medium)
+- `DELETE /api/v1/leads/<lead_id>/` — soft-delete a lead, Admin only (permission: `leads.lead.delete`, risk: high) — see its own block below
 
 **Send (create/update):**
-- create: `full_name` (required), `full_name`, `email`, `address`, `source` (required, a lead-source id), `source_detail`, `contact_numbers` (required, at least one), `study_interest` (optional object)
+- create: `full_name` (required), `email`, `address`, `source` (required, a lead-source id), `source_detail`, `contact_numbers` (required, at least one), `study_interest` (optional object), `language_certificates` (optional list)
+- `language_certificates[]`: `test_type` (required), `overall_score`, `listening_score`, `reading_score`, `writing_score`, `speaking_score` (each optional; IELTS 0–9 in 0.5 steps, PTE 10–90, TOEFL 0–120, Duolingo 10–160, other ≥0), `test_date` (not in the future), `certificate_number`, `expiry_date` (after `test_date`). At most 10.
 - update: any subset of the same fields, all optional
 
 **Returns:** Lead (detail shape) for create, retrieve, and update; list[Lead (list shape)] for the list, paginated.
-**Requires state:** at least one active `LeadSource` must exist before a lead can be created. The caller must be an Admin or Lead Manager.
+**Requires state:** at least one active `LeadSource` must exist before a lead can be created. The caller must be an Admin or Lead Manager. `PATCH` needs a lead that is not deleted.
 **Side effects:**
-- create — appends `lead_created` to the audit log; the caller becomes the lead's permanent owner.
+- create — appends `lead_created` to the audit log; the caller becomes the lead's permanent owner. Raises a `lead_created` notification *(cross-app: `notifications`)* to every active Admin except the caller, after commit.
 - update — appends `lead_updated` (or `lead_source_changed` if the source moved); additionally `lead_contact_changed` when `contact_numbers` was sent and `lead_interest_changed` when `study_interest` was sent. A `PATCH` that changes nothing writes no event.
 
 **Notes:**
@@ -351,10 +382,14 @@
 - `stage` is **not** writable through `PATCH`. Sending it is ignored, not rejected. Use the stage, follow-up, lost, or reopen actions instead.
 - `full_name` is generated server-side from `full_name`; sending it has no effect.
 - Sending `contact_numbers` **replaces the entire set** — always send the complete list the lead should end up with, never a delta. The same number cannot appear twice on one lead.
-- Sending `study_interest` upserts the single interest record; a lead never has more than one.
+- Sending `study_interest` upserts the single interest record; a lead never has more than one. The score/type and year/calendar pairs are checked against the record **after** the update, so `PATCH {"study_interest": {"academic_score": "3.9"}}` is fine when the type is already stored.
+- Sending `language_certificates` **replaces the whole set**, like `contact_numbers`; `[]` clears it; omitting the key leaves it untouched.
+- **List filters (added):** `highest_qualification_level`, `language_test_status` (both from the study interest), `language_test_type` — leads holding at least one certificate of that type, each lead once.
 - A new lead always starts at `stage: "new"`.
 - `search` matches the lead's name, and also the `email` and any contact number. A lead is very often a number in a call log before anyone has agreed how to spell the name.
 - **A `search` result set is relevance-ordered, not newest-first.** See §3 for the scoring. Every other list in this module is newest-first.
+- **Deleted leads are hidden from the list** for everyone. An Admin lists them — and only them — with `?deleted=true`; a Lead Manager sending it gets 403 `LEADS_ACTOR_FORBIDDEN`. A deleted lead also disappears from global search and every dashboard figure.
+- Retrieving a deleted lead: an Admin gets 200 with `deleted_at` set; a Lead Manager gets 404, even for their own lead.
 
 **Errors:**
 - `LEADS_ACTOR_FORBIDDEN` (403) — the caller is a Superadmin
@@ -362,6 +397,52 @@
 - `LEADS_SOURCE_INACTIVE` (400) — the chosen source has been retired
 - `LEADS_SOURCE_DETAIL_REQUIRED` (400) — the chosen source has `requires_detail` but `source_detail` was blank
 - `LEADS_CONTACT_REQUIRED` (400) — no contact number was supplied
+- `LEADS_STUDY_INTEREST_INVALID` (400) — a score without its type (or the reverse), a year without its calendar, or a value out of range; `error.details.fields` maps `study_interest.<field>` to a message
+- `LEADS_CERTIFICATE_INVALID` (400) — a certificate score out of range for its test, a future `test_date`, or an `expiry_date` not after it; `error.details.fields` maps `language_certificates[i].<field>`
+- `LEADS_CERTIFICATE_LIMIT` (400) — more than 10 certificates
+- `LEADS_LEAD_DELETED` (409) — `PATCH` on a deleted lead
+- `VALIDATION_ERROR` (400) — e.g. `?deleted=maybe`
+
+### Lead delete — `DELETE /api/v1/leads/<lead_id>/`
+
+**Use it when:** an Admin removes a lead that should not be worked — a duplicate, spam, a test entry.
+**Methods:**
+- `DELETE /api/v1/leads/<lead_id>/` — soft-delete the lead (permission: `leads.lead.delete`, risk: high)
+
+**Send (create/update):**
+- `reason` (required, ≤500 characters) — sent as the JSON body of the `DELETE`
+
+**Returns:** Lead (detail shape) with `deleted_at`, `deleted_at_bs`, `deleted_by`, and `delete_reason` set. HTTP 200.
+**Requires state:** the caller is an **Admin**. The lead is not already deleted and was **never converted** (it is an applicant's origin record).
+**Side effects:** appends `lead_deleted` with the reason. The lead leaves every list, search result, and dashboard figure; Lead Managers — the owner included — can no longer see it. Nothing is erased: the lead, its notes, contact numbers, and history are kept, and every write on it returns 409 until it is restored. Raises a `lead_deleted` notification *(cross-app: `notifications`)* to the lead's owner and every active Admin, except the caller.
+**Notes:**
+- This is not "lost". A lost lead is a closed enquiry that stays visible and reportable; a deleted lead should never have counted.
+- There is no hard delete anywhere in the API.
+
+**Errors:**
+- `LEADS_ACTOR_FORBIDDEN` (403) — the caller is not an Admin (a Lead Manager on their own lead)
+- `LEADS_LEAD_NOT_FOUND` (404) — no such lead, or another Lead Manager's
+- `LEADS_LEAD_ALREADY_CONVERTED` (409) — converted leads cannot be deleted
+- `LEADS_LEAD_DELETED` (409) — already deleted
+- `VALIDATION_ERROR` (400) — `reason` missing, blank, or too long
+
+### Lead restore — `POST /api/v1/leads/<lead_id>/restore/`
+
+**Use it when:** an Admin undoes a lead deletion, from the Admin "deleted leads" view.
+**Methods:**
+- `POST /api/v1/leads/<lead_id>/restore/` — bring a deleted lead back (permission: `leads.lead.restore`, risk: high)
+
+**Send (create/update):**
+- `reason` (optional, ≤2000 characters)
+
+**Returns:** Lead (detail shape) with the `deleted_*` fields cleared.
+**Requires state:** the caller is an **Admin** and the lead is deleted (find it with `GET /api/v1/leads/?deleted=true`).
+**Side effects:** appends `lead_restored` (with the reason, if given). The lead returns to lists, search, dashboards, and its owner exactly as it was — stage, notes, and history untouched. Raises a `lead_restored` notification *(cross-app: `notifications`)* to the lead's owner and every active Admin, except the caller.
+
+**Errors:**
+- `LEADS_ACTOR_FORBIDDEN` (403) — the caller is not an Admin
+- `LEADS_LEAD_NOT_FOUND` (404) — no such lead (a Lead Manager always gets this for a deleted lead)
+- `LEADS_LEAD_NOT_DELETED` (409) — the lead is not deleted
 
 ### Lead stage change — `POST /api/v1/leads/<lead_id>/stage/`
 
@@ -382,6 +463,7 @@
 **Errors:**
 - `LEADS_STAGE_NOT_EDITABLE` (409) — the lead is lost or converted
 - `LEADS_STAGE_INVALID_TRANSITION` (400) — a terminal stage was requested
+- `LEADS_LEAD_DELETED` (409) — the lead is deleted
 
 ### Lead follow-up — `POST /api/v1/leads/<lead_id>/follow-up/`
 
@@ -404,6 +486,8 @@
 **Errors:**
 - `LEADS_STAGE_NOT_EDITABLE` (409) — the lead is lost or converted
 - `LEADS_STAGE_INVALID_TRANSITION` (400) — a terminal stage was requested
+- `LEADS_LEAD_ALREADY_CONVERTED` (409) — a `note` was sent for a converted (since reopened) lead; notes continue on the applicant
+- `LEADS_LEAD_DELETED` (409) — the lead is deleted
 
 ### Lead mark lost — `POST /api/v1/leads/<lead_id>/lost/`
 
@@ -428,6 +512,7 @@
 - `LEADS_LOSS_REASON_REQUIRED` (400) — no reason supplied
 - `LEADS_LOSS_REASON_INACTIVE` (400) — the chosen reason has been retired
 - `LEADS_LOSS_DETAIL_REQUIRED` (400) — the reason requires an explanation but `detail` was blank
+- `LEADS_LEAD_DELETED` (409) — the lead is deleted
 
 ### Lead reopen — `POST /api/v1/leads/<lead_id>/reopen/`
 
@@ -449,6 +534,7 @@
 **Errors:**
 - `LEADS_LEAD_NOT_LOST` (409) — the lead is already active
 - `LEADS_STAGE_INVALID_TRANSITION` (400) — a terminal stage was requested as the target
+- `LEADS_LEAD_DELETED` (409) — the lead is deleted
 
 ### Lead convert — `POST /api/v1/leads/<lead_id>/convert/`
 
@@ -459,15 +545,15 @@
 **Send (create/update):** none — the payload is empty. Everything is taken from the lead.
 **Returns:** an object with three keys: `lead` (the Lead detail shape, now at `stage: "converted"`), `applicant_id`, and `journey_id`. HTTP 201.
 **Requires state:** the caller must be an **Admin** — a Lead Manager gets 403. The lead must be in an **active** stage; a lost or already-converted lead must be reopened first. Any active stage is acceptable — `ready_for_conversion` signals readiness but is not a precondition.
-**Side effects:** creates one applicant *(cross-app: `applicants`)* and one journey *(cross-app: `applicant_journeys`)*, each with `creation_source: "lead_conversion"`. Sets the lead's `converted_applicant`, `converted_journey`, `converted_at`, and `converted_by`, and moves it to the terminal `converted` stage. Appends both `lead_converted` and `lead_applicant_created` to this lead's history, plus `applicant_created` and `journey_created` to the new records' own histories.
+**Side effects:** creates one applicant *(cross-app: `applicants`)* and one journey *(cross-app: `applicant_journeys`)*, each with `creation_source: "lead_conversion"`, and **copies every live note** onto the applicant *(cross-app: `applicants`)* with the same category, text, author, `noted_at`, and original `created_at`, plus `source_lead_id`; one `applicant_notes_imported` event lands on the applicant's history. Sets the lead's `converted_applicant`, `converted_journey`, `converted_at`, and `converted_by`, and moves it to the terminal `converted` stage. Appends both `lead_converted` and `lead_applicant_created` to this lead's history, plus `applicant_created` and `journey_created` to the new records' own histories. **The new applicant is assigned to the lead's owner** (`created_by`) *(cross-app: `applicants`)* — or left unassigned if that person is no longer an active Admin or Lead Manager; assignment routes the applicant's notifications and never limits access. After commit, raises a `lead_converted` notification *(cross-app: `notifications`)* to the lead's owner and every active Admin, except the caller.
 **Notes:**
 - **Idempotent.** A repeat call returns 409 and creates nothing. This is guaranteed twice over: a service-level guard, and a database one-to-one constraint that makes a second applicant per lead structurally impossible.
 - **Atomic.** The applicant and the journey are created together or not at all — a mid-way failure leaves no orphan applicant, and the lead stays exactly as it was.
-- **What is copied to the applicant:** name (all three forms), email, contact numbers, and the address as a `permanent` address. Nothing else — a lead carries no date of birth, passport, or family.
+- **What is copied to the applicant:** name, email, contact numbers, the address as a `permanent` address, the notes, and — when `highest_qualification_level` is set — **one education record** (level; `highest_qualification` as the qualification; the score and its type, with `grading_system` "GPA (4.0)" or "Percentage"; `completed`; the pass year and its calendar as the completion year), plus **one language test per certificate**, field for field. Each carries `source_lead_id`. A lead carries no date of birth, passport, or family.
 - **What is copied to the journey:** six of the ten preliminary study-interest fields map directly — `study_level`, `field_of_study`, `preferred_intake`, `budget_amount`, `budget_currency`, `scholarship_interest`.
 - **`interested_countries` is a list but a journey targets one country.** Exactly one entry is copied to `target_country`; **two or more leaves it blank** and records the full list in the journey's `notes` for a human to resolve. Expect to prompt the user to complete the journey after converting such a lead.
-- **`highest_qualification` and `language_test_status` have no journey column** — they belong to the `education` and `test_scores` modules, which do not exist. Both are appended to the journey's `notes` rather than dropped, along with `interest_notes`.
-- Converting does **not** delete or alter the lead. Its notes, contact numbers, and full history survive, and it remains readable at `GET /api/v1/leads/<lead_id>/`.
+- **What still lands in the journey's `notes`:** `language_test_status` (a status, not a result — actual results travel as certificates), `interest_notes`, multiple interested countries, and a `highest_qualification` **only when it has no level** (older leads) — so nothing is lost, but that text is prose from then on.
+- Converting does **not** delete or alter the lead. Its notes, contact numbers, and full history survive, and it remains readable at `GET /api/v1/leads/<lead_id>/`. Its notes stay readable here but are **read-only** from now on — write further notes on the applicant (`/api/v1/applicants/<applicant_id>/notes/`), where the copies already sit.
 - A converted lead can be reopened, but that never undoes the conversion — see the reopen block above.
 
 **Errors:**
@@ -475,26 +561,44 @@
 - `LEADS_LEAD_NOT_FOUND` (404) — no such lead, or it belongs to another Lead Manager
 - `LEADS_LEAD_ALREADY_CONVERTED` (409) — this lead already produced an applicant; fetch it via `converted_applicant` rather than retrying
 - `LEADS_CONVERSION_NOT_READY` (409) — the lead is lost or converted; reopen it first
+- `LEADS_LEAD_DELETED` (409) — the lead is deleted
 
 ### Lead Note — `/api/v1/leads/<lead_id>/notes/`
 
-**Use it when:** the notes panel on the lead detail page.
+**Use it when:** the notes panel on the lead detail page — a "General" tab and a "Visit" tab.
 **Methods:**
-- `GET /api/v1/leads/<lead_id>/notes/` — list notes, newest first (permission: `leads.note.list`, risk: low)
-- `POST /api/v1/leads/<lead_id>/notes/` — append a note (permission: `leads.note.create`, risk: low)
+- `GET /api/v1/leads/<lead_id>/notes/` — list notes (permission: `leads.note.list`, risk: low)
+- `POST /api/v1/leads/<lead_id>/notes/` — write a note (permission: `leads.note.create`, risk: low)
+- `PATCH /api/v1/leads/<lead_id>/notes/<note_id>/` — correct a note (permission: `leads.note.update`, risk: medium)
+- `DELETE /api/v1/leads/<lead_id>/notes/<note_id>/` — remove a note (permission: `leads.note.delete`, risk: medium)
 
 **Send (create/update):**
-- create: `body` (required)
+- create: `body` (required, ≤10 000 characters, not blank), `category` (`general` default, or `visit`), `noted_at` (optional ISO 8601 datetime, default now; may be in the past, never more than 5 minutes in the future)
+- update: any subset of `category`, `body`, `noted_at` — same rules
 
-**Returns:** `LeadNote` | list[`LeadNote`], paginated
-**Requires state:** the lead must be in the caller's scope.
-**Side effects:** `POST` appends `lead_note_added` to the audit log, carrying only the note's id — the note text is never copied into the audit payload.
+**Returns:** `LeadNote` for create and update; list[`LeadNote`], paginated, for the list; `data: null` for delete.
+**Requires state:**
+- read: the lead is in the caller's scope (any stage, converted included).
+- write: the lead is **not deleted** and **not converted**. Update and delete also need the caller to be the note's **author or an Admin**.
+
+**Side effects:**
+- appends `lead_note_added`, `lead_note_updated` (with `changes` per field; `body` shows only `<changed>`), or `lead_note_deleted`, each with `metadata: { note_id, category, noted_at, is_backdated }`. The note text is never copied into the audit log. Delete is soft — the note leaves the list and cannot be fetched again, but the row and its history remain.
+- creating a **`visit`** note raises a `visit_note_added` notification *(cross-app: `notifications`)* to the lead's owner, unless the owner wrote it. The alert carries the note id, never its text. `general` notes (including a follow-up's note), edits, and deletes raise nothing.
 **Notes:**
-- Notes are **append-only**. There is no edit and no delete, and none will be added — `PUT`, `PATCH`, and `DELETE` on this path return 405. Build the UI without edit/delete affordances.
-- Notes can be added to a lead at any stage, including a lost or converted one.
+- **List params:** `category` (`general`|`visit`), `ordering` (`-noted_at` default, `noted_at`, `-created_at`), `page`, `page_size`.
+- **`meta.counts`** — `{ "general": n, "visit": n }` on every list response, counting the lead's live notes regardless of the `category` filter, so both tab badges come from one request.
+- **Send `noted_at` with a UTC offset.** A value without one (`2026-07-22T15:15`) is read as **Nepal time** (Asia/Kathmandu, +05:45), never UTC.
+- A follow-up with a `note` creates a `general` note dated now.
+- Notes on a lost lead can still be written; a lost lead can be reopened.
 
 **Errors:**
-- `LEADS_LEAD_NOT_FOUND` (404) — no such lead, or it belongs to another Lead Manager
+- `LEADS_LEAD_NOT_FOUND` (404) — no such lead, or another Lead Manager's (or deleted, for a Lead Manager)
+- `LEADS_NOTE_NOT_FOUND` (404) — no such note on this lead, or it was deleted
+- `LEADS_NOTE_FORBIDDEN` (403) — editing or deleting someone else's note without Admin authority
+- `LEADS_NOTE_FUTURE_DATE` (400) — `noted_at` is later than now (+5 min)
+- `LEADS_LEAD_ALREADY_CONVERTED` (409) — any write on a converted lead's notes
+- `LEADS_LEAD_DELETED` (409) — any write while the lead is deleted
+- `VALIDATION_ERROR` (400) — blank or over-long `body`, unknown `category` or `ordering`
 
 ### Lead History — `/api/v1/leads/<lead_id>/history/`
 
@@ -504,7 +608,7 @@
 
 **Send (create/update):** none
 **Returns:** list[`HistoryEntry`], paginated, newest first
-**Requires state:** the lead must be in the caller's scope.
+**Requires state:** the lead must be in the caller's scope. A deleted lead's history is readable by an Admin only.
 **Side effects:** none — this is a read.
 **Notes:**
 - History is written by the server on every mutation; a client never creates entries.
@@ -533,10 +637,11 @@
    - `LEADS_ACTOR_FORBIDDEN`: the caller is a Lead Manager. Only an Admin converts; hide the button for others.
    - `LEADS_CONVERSION_NOT_READY`: the lead is lost. Reopen it first, then retry.
    - `LEADS_LEAD_ALREADY_CONVERTED`: someone converted it already. Read `converted_applicant_id` off the lead and navigate there instead of retrying.
-3. `GET /api/v1/applicants/<applicant_id>/` *(other module: `applicants`)* → name, email, contact numbers, and address were copied across. Prompt the user to add what a lead never held: date of birth, passport, family, emergency contacts.
+3. `GET /api/v1/applicants/<applicant_id>/` *(other module: `applicants`)* → name, email, contact numbers, and address were copied across; `assigned_to` is the lead's owner (or `null` if they are no longer an active Admin or Lead Manager). The owner and the other Admins received a `lead_converted` notification. Prompt the user to add what a lead never held: date of birth, passport, family, emergency contacts.
 4. `GET /api/v1/journeys/<journey_id>/` *(other module: `applicant_journeys`)* → the objective was seeded from the lead's study interest.
    - If the lead named more than one country, `target_country` is **blank** and the list sits in `notes`. Prompt the user to pick one.
-5. `GET /api/v1/leads/<lead.id>/` → now `stage: "converted"`, with both link ids populated. The lead, its notes, and its full history are all intact.
+5. `GET /api/v1/leads/<lead.id>/` → now `stage: "converted"`, with both link ids populated. The lead, its notes, and its full history are all intact; the notes are now read-only here.
+6. `GET /api/v1/applicants/<applicant_id>/notes/` *(other module: `applicants`)* → the lead's notes, copied, with `source_lead_id` set. Continue writing notes there.
 
 **Close an enquiry that will not proceed**
 1. `GET /api/v1/leads/loss-reasons/` → capture the chosen `reason.id`
@@ -556,6 +661,22 @@
 2. `GET /api/v1/leads/<lead.id>/history/` → every action, newest first. Entries originate in the central audit log owned by the `audit` module; this endpoint is a scoped view of it.
 3. `GET /api/v1/leads/<lead.id>/notes/` → the free text the Lead Manager wrote. Note bodies live only here, never in history entries, so a complete picture needs both calls.
 
+**Write and correct notes**
+1. `POST /api/v1/leads/<lead.id>/notes/` with `{"category": "visit", "body": "Came in with her father.", "noted_at": "2026-07-22T15:15:00+05:45"}` → capture `note.id`; `is_backdated` is `true` if that was more than 15 minutes ago.
+   - `LEADS_NOTE_FUTURE_DATE`: `noted_at` is in the future — fix the date picker.
+   - `LEADS_LEAD_ALREADY_CONVERTED`: the lead was converted; post on the applicant instead.
+2. `GET /api/v1/leads/<lead.id>/notes/?category=visit` → the Visit tab; `meta.counts` feeds both tab badges.
+3. `PATCH /api/v1/leads/<lead.id>/notes/<note.id>/` with `{"body": "…"}` to fix a typo.
+   - `LEADS_NOTE_FORBIDDEN`: only the author or an Admin may — show edit/delete only on the caller's own notes (Admins: on all).
+4. `DELETE /api/v1/leads/<lead.id>/notes/<note.id>/` → the note leaves the list; `lead_note_deleted` stays in history.
+
+**Delete and restore a lead** *(Admin only)*
+1. `DELETE /api/v1/leads/<lead.id>/` with `{"reason": "Duplicate of an existing enquiry."}` → `deleted_at` set.
+   - `LEADS_LEAD_ALREADY_CONVERTED`: converted leads are applicant origin records and cannot be deleted.
+2. The lead vanishes from `GET /api/v1/leads/`, global search, and dashboards; its owner gets 404 on it.
+3. `GET /api/v1/leads/?deleted=true` → the Admin's "deleted leads" view.
+4. `POST /api/v1/leads/<lead.id>/restore/` with `{"reason": "Not a duplicate."}` → back exactly as it was.
+
 **Configure the pickers** *(Admin only)*
 1. `POST /api/v1/leads/sources/` with `{"code": "tiktok", "name": "TikTok"}` → capture `source.id`
    - `LEADS_ACTOR_FORBIDDEN`: the caller is a Lead Manager or Superadmin; only an Admin may configure.
@@ -565,15 +686,16 @@
 
 ## 9. Gaps
 
-- **Conversion loses two study-interest fields into free text.** `highest_qualification` and `language_test_status` have no column on a journey — they belong to the `education` and `test_scores` modules, which are specified but not built. Both are appended to the journey's `notes` rather than dropped, but they are prose from that point on and cannot be queried.
+- **Two study-interest values still convert to free text:** `language_test_status`, and a `highest_qualification` recorded without a level. Set `highest_qualification_level` before converting to get a real education record on the applicant.
 - **A multi-country lead converts to a journey with no target country.** `interested_countries` holds a list while a journey targets one country, so two or more entries leaves `target_country` blank with the list recorded in `notes`. This is deliberate — only a human can pick — but a client should prompt the user to complete the journey after such a conversion.
 - **Direct applicant creation is not in this module.** `concepts/leads.txt` mentions an Admin creating an applicant with no lead; that endpoint lives in the `applicants` module (`POST /api/v1/applicants/`), not here.
 - **401 body shape is not specified here.** Unauthenticated and expired-token responses are produced by the authentication framework, not by this module. Consult the `authenticate` module's contract for their exact shape.
 - **`LeadSource.code` and `LossReason.code` values are not fixed.** They are runtime-configured rows and vary per installation. The codes used in the examples above (`walk_in`, `no_response`, `other`) are illustrative only — always populate pickers from the list endpoints and never branch on a hardcoded code.
 - **`HistoryEntry.metadata` keys are per-action and not exhaustively specified.** Observed keys include `source`, `stage`, `count`, `followed_up_at`, `loss_reason`, `has_detail`, `note_id`, and `reopened_from_converted`. Treat the object as advisory display data; render `summary` as the primary label.
 - **No bulk operations.** There is no bulk create, bulk stage change, or bulk close. Each lead is acted on individually.
-- **No lead deletion or archival.** By design — a lead's availability is expressed entirely through its stage. Do not expect a delete endpoint to appear.
-- **`updated_at` on `LeadNote` is present in the model but not exposed** in the note response shape, because notes are never edited.
+- **No hard delete.** `DELETE /leads/<id>/` is a soft delete; nothing in the API erases a lead or a note.
+- **No duplicate detection on lead create**, so there is nothing for deleted leads to be excluded from. A deleted lead with the same phone number does not block or warn on a new one.
+- **A converted lead cannot be deleted**, and its notes are read-only. A converted lead that was reopened still counts as converted for both rules.
 - **There is no way to filter leads by country of interest.** `study_interest.interested_countries` is returned on the detail shape but is not a filter, so "every lead interested in Australia" cannot be answered by this API. The values are stored in a JSON array whose containment lookup is PostgreSQL-only and could not be covered by the project's test suite, so it was deliberately not built rather than shipped untested. The equivalent filter **does** exist one stage later, on `GET /api/v1/applicants/?country_code=` *(other module: `applicants`)*.
 - **Search is substring-based, not fuzzy.** A misspelt or differently transliterated name matches nothing, and there is no did-you-mean, no similarity threshold, and no minimum query length — a one-character `search` will match a large fraction of the caller's leads.
 - **The relevance score is not returned.** Only the ordering reflects it, so a client cannot show match quality or apply its own cut-off.

@@ -49,7 +49,7 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "documents.document.list",
         "operation_type": "list",
         "display_name": "List Documents",
-        "description": "List document working records across applicants and standalone documents. Admin only.",
+        "description": "List document working records across applicants and standalone documents; archived ones only on request. Admin only.",
         "http_method": "GET",
         "route_pattern": "/api/v1/documents/",
         "view_import_path": "documents.views.DocumentListCreateView",
@@ -60,8 +60,14 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
                 "A session must be established by login before this endpoint is usable.",
             )
         ],
-        "change_summary": "Initial registration of the document list endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Archived documents are hidden unless status=archived or include_archived=true.",
+        "change_reason": (
+            "Removed (archived) documents kept coming back in an applicant's list, so users believed "
+            "remove did not work. In-place default-filter change on /api/v1/ approved by the product "
+            "owner 2026-10-29 (§29); archived documents stay reachable through both parameters."
+        ),
     },
     # 2. Open a new working record.
     {
@@ -76,8 +82,16 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "documents.views.DocumentListCreateView",
         "risk_level": "medium",
         "dependencies": [_dep("documents.document.list", "Creating documents requires the ability to list them.")],
-        "change_summary": "Initial registration of the document create endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Accepts template_version; validates student-certificate content keys.",
+        "change_reason": (
+            "The frontend needs the layout version stored per document (Woda letters moved to layout 2) "
+            "and asked for the expanded student-certificate form to be checked. Additive: template_version "
+            "defaults to 1; certificate checks are lenient (nothing required, unknown keys kept); other "
+            "templates unchanged. Failures use the existing DOCUMENTS_CONTENT_INVALID with a new "
+            "details.fields map."
+        ),
     },
     # 3. The landing table — applicants with live document work.
     {
@@ -86,14 +100,19 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "documents.document.list_workspaces",
         "operation_type": "list",
         "display_name": "List Document Workspaces",
-        "description": "List applicants with live documents, each with a count and the most recent edit.",
+        "description": "List applicants with documents, each with live and archived counts and the most recent edit.",
         "http_method": "GET",
         "route_pattern": "/api/v1/documents/workspaces/",
         "view_import_path": "documents.views.WorkspaceListView",
         "risk_level": "medium",
         "dependencies": [_dep("documents.document.list", "The workspace summary is an aggregate of the list.")],
-        "change_summary": "Initial registration of the document workspaces endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Adds archived_count; applicants whose documents are all archived keep a row.",
+        "change_reason": (
+            "Removed documents must stay reachable from the workspace screen. Additive field; the row set "
+            "widens to applicants with only archived documents (document_count 0)."
+        ),
     },
     # 4. Read one document — the only endpoint that returns a body, and the
     #    dependency root for every per-document action.
@@ -109,8 +128,10 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "documents.views.DocumentDetailView",
         "risk_level": "high",
         "dependencies": [_dep("documents.document.list", "Reading a document requires list access.")],
-        "change_summary": "Initial registration of the document read endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Response gains template_version.",
+        "change_reason": ("The frontend renders with the layout the document was authored for. Additive field (§22)."),
     },
     # 5. Save the workspace. High risk: this is the write path for the body.
     {
@@ -119,14 +140,19 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "documents.document.update",
         "operation_type": "update",
         "display_name": "Edit Document",
-        "description": "Save the workspace — label, body, notes. Owner, family, template, and status are unaffected.",
+        "description": "Save the workspace — label, body, notes, layout version. Owner, family, template, and status are unaffected.",
         "http_method": "PATCH",
         "route_pattern": "/api/v1/documents/<document_id>/",
         "view_import_path": "documents.views.DocumentDetailView",
         "risk_level": "high",
         "dependencies": _REQUIRES_READ,
-        "change_summary": "Initial registration of the document update endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Accepts template_version; validates student-certificate content keys.",
+        "change_reason": (
+            "As for create. template_version is PATCH-able like the label; archived documents stay frozen. "
+            "status_before_archive is rejected like the other status fields."
+        ),
     },
     # 6. Move between the two working statuses.
     {
@@ -141,8 +167,9 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "documents.views.DocumentStatusView",
         "risk_level": "medium",
         "dependencies": _REQUIRES_READ,
-        "change_summary": "Initial registration of the document status endpoint.",
-        "change_reason": _PHASE,
+        "version": "1.1.0",
+        "change_summary": "Moving a document to ready now raises a document_ready notification to the other Admins.",
+        "change_reason": "Document notifications (frontend updates.md §4, 2026-10-29). Additive side effect.",
     },
     # 7. Retire from active work. The nearest thing to a delete this app has.
     {
@@ -167,7 +194,7 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "permission_key": "documents.document.restore",
         "operation_type": "custom",
         "display_name": "Restore Document",
-        "description": "Return an archived document to draft so it can be edited again.",
+        "description": "Return an archived document to the status it held before archiving (draft if unknown).",
         "http_method": "POST",
         "route_pattern": "/api/v1/documents/<document_id>/restore/",
         "view_import_path": "documents.views.DocumentRestoreView",
@@ -176,8 +203,14 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
             _dep("documents.document.read", "The document must be readable before it can be restored."),
             _dep("documents.document.archive", "Restoring only applies to a document that was archived."),
         ],
-        "change_summary": "Initial registration of the document restore endpoint.",
-        "change_reason": _PHASE,
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Restores the status held before archiving; accepts an optional reason.",
+        "change_reason": (
+            "Always returning draft demoted finished documents, and read to users as the restore not working. "
+            "Documents archived before the prior status was stored still return draft. Optional reason is "
+            "recorded on the audit event. Same route, same codes."
+        ),
     },
     # 9. The document's history. Records that the body changed, never what it said.
     {
@@ -201,5 +234,29 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
             "Adding the field is backward compatible (§22, §29). Body content is still never "
             "included — only the fact that the body changed."
         ),
+    },
+    # --- 2026-10-29: document prefill -------------------------------------------
+    {
+        **_BASE,
+        "model_key": "document_prefill",
+        "model_display_name": "Document Prefill",
+        "endpoint_key": "document-prefill",
+        "permission_key": "documents.prefill.read",
+        "operation_type": "read",
+        "display_name": "Read Document Prefill",
+        "description": (
+            "The applicant's names, identity numbers, addresses, parents and grandparents, education, "
+            "language tests, and current photo, shaped for document forms. Admin only; read-only."
+        ),
+        "http_method": "GET",
+        "route_pattern": "/api/v1/documents/prefill/<applicant_id>/",
+        "view_import_path": "documents.views.DocumentPrefillView",
+        "risk_level": "high",
+        "dependencies": [
+            _dep("documents.document.list", "Prefill serves the document workspace."),
+            _dep("applicants.applicant.read", "Prefill is a projection of the applicant record."),
+        ],
+        "change_summary": "Initial registration of the document prefill endpoint.",
+        "change_reason": "Typed prefill for Woda letters and certificates (frontend updates.md §7.2, 2026-10-29).",
     },
 ]

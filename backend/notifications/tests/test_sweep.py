@@ -348,7 +348,10 @@ class SweepQueryCostTests(TransactionTestCase):
         Notification.objects.all().delete()
         with CaptureQueriesContext(connection) as captured:
             sweep(only_type=NotificationType.PASSPORT_EXPIRING)
-        return sum(1 for query in captured.captured_queries if "authenticate_user" in query["sql"])
+        # Matched on the ``FROM`` clause, not the table name anywhere: since
+        # 2026-10-29 the passport selector *joins* the user table to carry each
+        # applicant's assignee, and that one join is not an Admin lookup.
+        return sum(1 for query in captured.captured_queries if 'FROM "authenticate_user"' in query["sql"])
 
     def test_admin_fan_out_is_resolved_once_per_run(self) -> None:
         self._add_expiring_passports(2)

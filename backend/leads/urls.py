@@ -9,8 +9,10 @@ from leads.views import (
     LeadHistoryView,
     LeadListCreateView,
     LeadMarkLostView,
+    LeadNoteDetailView,
     LeadNoteListCreateView,
     LeadReopenView,
+    LeadRestoreView,
     LeadSourceDetailView,
     LeadSourceListCreateView,
     LeadStageView,
@@ -37,5 +39,7 @@ urlpatterns = [
     path("<uuid:lead_id>/reopen/", LeadReopenView.as_view(), name="lead-reopen"),
     path("<uuid:lead_id>/convert/", LeadConvertView.as_view(), name="lead-convert"),
     path("<uuid:lead_id>/notes/", LeadNoteListCreateView.as_view(), name="lead-note-list"),
+    path("<uuid:lead_id>/notes/<uuid:note_id>/", LeadNoteDetailView.as_view(), name="lead-note-detail"),
+    path("<uuid:lead_id>/restore/", LeadRestoreView.as_view(), name="lead-restore"),
     path("<uuid:lead_id>/history/", LeadHistoryView.as_view(), name="lead-history"),
 ]

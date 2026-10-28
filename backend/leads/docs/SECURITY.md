@@ -1,7 +1,7 @@
 # Security — Leads
 
 **Owner app:** `leads`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -12,6 +12,7 @@ This document is required per project rulebook §19 (Documentation Requirements)
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial security documentation |
+| 1.1.0 | 2026-10-29 | AI (Claude Opus 5.5) | §1: Admin-only soft delete/restore, deleted leads invisible to Lead Managers; author-or-Admin note edits. §5: note edits/deletes audited with a body marker. §7: corrected the stale "conversion is not built" limitation |
 
 ---
 
@@ -21,17 +22,21 @@ CLAUDE.md §9's interim pattern (`is_authenticated` + `is_staff`) cannot express
 
 | Authority | Leads | Sources / loss reasons |
 |---|---|---|
-| Lead Manager | read + write **only** rows where `created_by` is themselves | list only |
-| Admin | read + write all rows | list, create, edit, deactivate |
+| Lead Manager | read + write **only** rows where `created_by` is themselves and that are **not deleted** | list only |
+| Admin | read + write all rows; **soft-delete and restore**; sees deleted leads (by id or `?deleted=true`) | list, create, edit, deactivate |
 | Superadmin | **denied — 403** | **denied — 403** |
 | Unauthenticated | 401 | 401 |
 
 Two helpers enforce the authority half:
 
 - `require_lead_actor(user)` — allows Admin and Lead Manager; raises `ActorNotPermittedError` otherwise, which views translate to 403 `LEADS_ACTOR_FORBIDDEN`.
-- `require_admin(user)` — allows Admin only; used for reference configuration and, in Phase 4, conversion.
+- `require_admin(user)` — allows Admin only; used for reference configuration, conversion, and lead delete/restore.
 
 Every view calls one of the two before touching data. There is no endpoint in this app that skips the check.
+
+**Deleted leads (2026-10-29).** Scoping excludes soft-deleted leads for a Lead Manager in `get_lead_for_actor` and for everyone in `get_leads_for_actor`, so a deleted lead is a 404 to its own owner and absent from every list, search result, and dashboard figure. `?deleted=true` is refused (403) to a Lead Manager rather than ignored, so a mis-built "deleted" tab fails loudly. Delete and restore are Admin-only because they hide a record from the person who owns it.
+
+**Notes (2026-10-29).** Anyone who can see the lead may read and write its notes, as before. **Editing or deleting** a note is limited to its author or an Admin (`services._assert_may_change_note`, 403 `LEADS_NOTE_FORBIDDEN`) — the first per-row authorship rule in this app. Delete is soft and audited, so a Lead Manager still cannot erase lead history; they can only hide their own wording.
 
 ### Why Superadmin is denied
 
@@ -79,7 +84,7 @@ Constraints observed (§17):
 
 - No passwords, tokens, session identifiers, or MFA material is ever passed in. This app handles none of them.
 - No full record dumps. `changes` carries only fields that actually moved; `metadata` carries small scalars (a count, a note id, an ISO timestamp).
-- Free-text the user wrote — note bodies, loss explanations, addresses — is **not** copied into audit payloads. The event records that a note was added and its id, not its contents. Note bodies live in `LeadNote` and are readable only through the owner-scoped notes endpoint.
+- Free-text the user wrote — note bodies, loss explanations, addresses — is **not** copied into audit payloads. The event records that a note was added, edited, or deleted with its id, category, and `noted_at`, not its contents; an edited body appears in `changes` only as the `<changed>` marker. A delete reason **is** recorded (it is an administrative justification, written to be read). Note bodies live in `LeadNote` and are readable only through the owner-scoped notes endpoint.
 - `AuditEvent` blocks `delete()` at both the queryset and instance level, so history cannot be rewritten by application code.
 
 The history endpoint reads through the same owner-scoped resolution as every other per-lead route, so a Lead Manager cannot read the audit trail of a lead they do not own even though the underlying `audit` table is global.
@@ -99,4 +104,4 @@ The history endpoint reads through the same owner-scoped resolution as every oth
 
 - **No object-level permission framework.** This is the interim inline pattern of §9, not the `permissions` app. When `check_permission()` is wired into the request path, the `require_*` helpers and the selector scoping should be replaced by declared `permission_key`s on the views; the registry entries needed for that already exist (`leads.lead.*`, `leads.source.*`, `leads.loss_reason.*`, `leads.note.*`). That wiring requires its own session and a §28 item 5 approval.
 - **No rate limiting beyond project defaults.** Every endpoint here is authenticated and none is expensive enough to warrant a custom throttle scope today. The name-search endpoint is the one to watch as lead volume grows.
-- **Conversion is not built.** `leads.lead.convert` does not exist yet. When it lands it will be Admin-only and must be idempotent, since a repeat call must not create a second applicant (§15).
+- **A soft-deleted note's body stays in the database** and is readable through the Django admin by staff with admin access. That is the point of soft delete (history is kept), but it means "delete" is not a redaction tool — sensitive text written by mistake must be corrected by an edit, which also keeps the old text out of every API response, though not out of database backups.

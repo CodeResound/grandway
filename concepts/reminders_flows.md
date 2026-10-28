@@ -24,7 +24,8 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    `POST /api/v1/reminders/` (`reminders.reminder.create`)
    - **Requires state:** the owning record exists; the due date is Nepal's today or later.
    - **Side effects:** one `reminder_created` audit event; from the due date onward, the nightly
-     sweep raises a `custom_reminder` alert to every active Admin (cross-app: `notifications`).
+     sweep raises a `custom_reminder` alert to every active Admin, and — for an applicant reminder — to the
+     applicant's assignee when one is set (cross-app: `notifications`).
    - *Failure — `VALIDATION_ERROR`:* inline field errors (past date, blank note).
    - *Failure — `REMINDERS_OWNER_NOT_FOUND`:* the record id is stale — refresh the record screen.
 3. **Reminders panel** — refresh the list to show the new entry →

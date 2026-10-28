@@ -37,7 +37,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from applicants.selectors import get_expiring_passports
+from applicants.selectors import get_expiring_language_tests, get_expiring_passports
 from checklists.selectors import (
     get_checklists_with_pending_documents,
     get_due_soon_checklist_items,
@@ -51,6 +51,8 @@ from notifications import services
 from notifications.constants import (
     DEFAULT_DUE_WITHIN_DAYS,
     DEFAULT_PASSPORT_HORIZON_DAYS,
+    DEFAULT_RETENTION_DAYS,
+    DEFAULT_TEST_SCORE_HORIZON_DAYS,
     SWEEP_TYPES,
     GenerationSource,
     NotificationType,
@@ -86,6 +88,22 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--test-score-horizon-days",
+            type=int,
+            default=DEFAULT_TEST_SCORE_HORIZON_DAYS,
+            help=f"How far ahead to look for expiring language-test results (default {DEFAULT_TEST_SCORE_HORIZON_DAYS}).",
+        )
+        parser.add_argument(
+            "--retention-days",
+            type=int,
+            default=DEFAULT_RETENTION_DAYS,
+            help=(
+                f"Delete event alerts and resolved alerts older than this many days (default {DEFAULT_RETENTION_DAYS}; "
+                "0 disables the purge). Dismissed and active deadline alerts are always kept, so they never "
+                "come back. Skipped under --dry-run and --limit."
+            ),
+        )
+        parser.add_argument(
             "--limit",
             type=int,
             help=(
@@ -113,16 +131,24 @@ class Command(BaseCommand):
         only_type: str | None = options.get("only_type")
         due_within_days: int = options["due_within_days"]
         passport_horizon: int = options["passport_horizon_days"]
+        test_score_horizon: int = options["test_score_horizon_days"]
+        retention_days: int = options["retention_days"]
         limit: int | None = options.get("limit")
         dry_run: bool = options["dry_run"]
         no_resolve: bool = options["no_resolve"]
 
-        if due_within_days < 1 or passport_horizon < 1:
+        if due_within_days < 1 or passport_horizon < 1 or test_score_horizon < 1:
             raise CommandError("Horizons must be at least one day.")
+        if retention_days < 0:
+            raise CommandError("--retention-days must be 0 (off) or more.")
         if limit is not None and limit < 1:
             raise CommandError("--limit must be at least 1.")
 
-        generators = self._generators(due_within_days=due_within_days, passport_horizon=passport_horizon)
+        generators = self._generators(
+            due_within_days=due_within_days,
+            passport_horizon=passport_horizon,
+            test_score_horizon=test_score_horizon,
+        )
         if only_type:
             generators = {only_type: generators[only_type]}
 
@@ -173,9 +199,17 @@ class Command(BaseCommand):
 
             resolved = get_sweep_candidates_to_resolve(types=tuple(examined)).exclude(dedupe_key__in=live_keys).count()
 
+        # Retention runs last, and only on a full, writing run: a dry run writes
+        # nothing, and a limited run is a cautious first pass, not housekeeping.
+        purged = 0
+        if retention_days and not dry_run and limit is None:
+            purged = services.purge_expired(older_than_days=retention_days)
+
         total = sum(raised.values())
         prefix = "[dry run] " if dry_run else ""
-        self.stdout.write(self.style.SUCCESS(f"{prefix}Sweep complete: {total} raised, {resolved} resolved."))
+        self.stdout.write(
+            self.style.SUCCESS(f"{prefix}Sweep complete: {total} raised, {resolved} resolved, {purged} purged.")
+        )
         if len(examined) < len(generators):
             # Never let a partial run report as a clean one — a silent gap here
             # is indistinguishable from a quiet night.
@@ -192,6 +226,7 @@ class Command(BaseCommand):
         *,
         due_within_days: int,
         passport_horizon: int,
+        test_score_horizon: int = DEFAULT_TEST_SCORE_HORIZON_DAYS,
     ) -> dict[str, Callable[..., tuple[int, set[str]]]]:
         """One callable per sweep type, keyed by the type it raises.
 
@@ -232,16 +267,28 @@ class Command(BaseCommand):
             NotificationType.PASSPORT_EXPIRING: lambda **kw: self._run(
                 get_expiring_passports(within_days=passport_horizon),
                 services.build_passport_alert,
-                lambda _passport: services.recipients_for_admins(),
+                lambda passport: services.recipients_for_applicant(passport.applicant),
+                **kw,
+            ),
+            # Admins plus the applicant's assignee, like passports (2026-10-29).
+            NotificationType.TEST_SCORE_EXPIRING: lambda **kw: self._run(
+                get_expiring_language_tests(within_days=test_score_horizon),
+                services.build_language_test_alert,
+                lambda test: services.recipients_for_applicant(test.applicant),
                 **kw,
             ),
             # No horizon parameter: a reminder is due the day its date arrives
-            # and stays due while it remains active. Admin-only routing is the
-            # concept's rule — staff set reminders, Admins receive the alert.
+            # and stays due while it remains active. Admin routing is the
+            # concept's rule — staff set reminders, Admins receive the alert —
+            # plus, since 2026-10-29, the assignee of an applicant reminder.
             NotificationType.CUSTOM_REMINDER: lambda **kw: self._run(
                 get_due_reminders(),
                 services.build_reminder_alert,
-                lambda _reminder: services.recipients_for_admins(),
+                lambda reminder: (
+                    services.recipients_for_applicant(reminder.applicant)
+                    if reminder.applicant is not None
+                    else services.recipients_for_admins()
+                ),
                 **kw,
             ),
         }
