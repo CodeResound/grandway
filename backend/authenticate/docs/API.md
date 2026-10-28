@@ -1,10 +1,10 @@
 # API Documentation — Authenticate
 
 **App:** `authenticate`
-**Version:** 1.3.0
+**Version:** 1.4.0
 **Base prefix:** `/api/v1/auth/`
 **Auth:** Mixed. `login`/`refresh` are public; `logout`/`me`/`password/change` require a Bearer access token validated by `authenticate.authentication.SessionBoundJWTAuthentication` (see `SECURITY.md` §1). No `is_staff` gate — the three protected endpoints are self-service (any authenticated user acting on their own account).
-**Throttle:** Custom scopes — `login` uses `LoginIPThrottle` + `LoginUsernameThrottle` (`auth_login_ip` 20/min, `auth_login_user` 10/min); `refresh` uses `RefreshThrottle` (`auth_refresh` 60/min). Stateful account lockout is handled by django-axes (see `SECURITY.md` §3), not DRF.
+**Throttle:** Custom scopes — `login` uses `LoginIPThrottle` + `LoginUsernameThrottle` (`auth_login_ip` 20/min, `auth_login_user` 10/min); `refresh` uses `RefreshThrottle` (`auth_refresh`, per IP, `AUTH_REFRESH_RATE`, default 300/min) + `RefreshTokenThrottle` (`auth_refresh_token`, per presented refresh token, 10/min). Stateful account lockout is handled by django-axes (see `SECURITY.md` §3), not DRF.
 **Access level:** Public (`login`, `refresh`) + authenticated self-service (`logout`, `me`, `password/change`).
 
 ---
@@ -17,6 +17,7 @@
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — 3 mfa endpoints, login `otp_code` + MFA errors, `me` mfa fields |
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account management (users CRUD + block/restore + admin password/MFA reset), session management, auth-activity review |
 | 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (User `full_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.4.0 | 2026-10-28 | AI (Claude Opus 5.5) | Refresh reuse grace window; `access_expires_at` on login/refresh; `error.details.reason` on `AUTH_REFRESH_INVALID`; per-token refresh throttle; persistent refresh cookie with configurable `SameSite`/`Domain`; own-session revoke no longer clears the caller's cookie when only other sessions go. Non-breaking |
 
 ---
 
@@ -46,7 +47,7 @@
 ```json
 { "username": "ramesh.admin", "password": "…", "device_id": "web-9f3a-uuid", "device_name": "Chrome/macOS", "otp_code": "123456" }
 ```
-**Response:** `data` = `{ access, must_change_password, mfa_enrollment_required, user }` (+ `refresh` in the body in development only; HttpOnly cookie in production). `user` is the **User** read shape — see `DATA_CONTRACT.md §1`.
+**Response:** `data` = `{ access, access_expires_at, must_change_password, mfa_enrollment_required, user }` (+ `refresh` in the body in development only; HttpOnly cookie in production). `access_expires_at` is the access token's `exp` as ISO 8601 UTC (`…Z`); refresh ahead of it. The cookie (`grandway_refresh`, `Path=/api/v1/auth/`, `HttpOnly`, `Secure`, `SameSite` = `AUTH_REFRESH_COOKIE_SAMESITE` default `Lax`, `Domain` = `AUTH_REFRESH_COOKIE_DOMAIN` default host-only) expires with the session's absolute lifetime (7 days), so it survives a browser restart. `user` is the **User** read shape — see `DATA_CONTRACT.md §1`.
 **Validation rules:** `username`, `password`, `device_id` required; `device_name`, `otp_code` optional.
 **Error codes:**
 - `AUTH_CREDENTIALS_INVALID` (401) — wrong password, unknown user, blocked, or axes lockout (uniform, no enumeration).
@@ -61,11 +62,12 @@
 **Policy key(s):** `authenticate.session.refresh` (risk: medium)
 **Access:** Public (credential is the refresh token itself).
 **Request:** `{ "refresh": "…" }` in development; in production the token comes from the `grandway_refresh` HttpOnly cookie and the body is empty.
-**Response:** `data` = `{ access, must_change_password }` (+ rotated `refresh` via body/cookie).
+**Response:** `data` = `{ access, access_expires_at, must_change_password }` (+ rotated `refresh` via body/cookie — **absent** on a grace-window answer, see business rules).
+**Throttle:** `auth_refresh` per IP (default 300/min, `AUTH_REFRESH_RATE`) and `auth_refresh_token` per presented token (10/min) → `RATE_LIMIT_EXCEEDED` (429).
 **Error codes:**
-- `AUTH_REFRESH_INVALID` (401) — missing, unknown, or expired (idle 12h / absolute 7d) refresh credential.
-- `AUTH_REFRESH_REUSED` (401) — a retired (already-rotated) token was replayed; the whole device family is revoked.
-**Business rules:** Rotation — a new session row is created in the same `family_id` with `previous_session` set; the old row is retired (`revoked_reason=rotated`). Reuse detection keys off the retired row.
+- `AUTH_REFRESH_INVALID` (401) — the credential cannot be used. `error.details.reason` says why: `missing` (none sent), `not_found` (unknown token), `expired` (idle 12h / absolute 7d), `blocked` (account inactive), or the revoked session's reason — `logout`, `password_change`, `replaced_same_device` (this `device_id` logged in again), `rotated_reuse`, `admin_revoked`, `mfa_change`, `device_limit`. Every rejection with a token writes a `refresh_rejected` `AuthEvent`.
+- `AUTH_REFRESH_REUSED` (401) — a retired (already-rotated) token was replayed **outside** the grace window; the whole device family is revoked.
+**Business rules:** Rotation — a new session row is created in the same `family_id` with `previous_session` set; the old row is retired (`revoked_reason=rotated`). Reuse detection keys off the retired row. **Reuse grace window:** a rotated token presented within `AUTH_REFRESH_REUSE_GRACE_SECONDS` (default 30) of its rotation, while its family still has a live session for an active user, is a concurrent refresh (two tabs, a burst of 401s), not reuse: the response is 200 with an access token for the family's *current* session, no new refresh token and no `Set-Cookie` (the winning request already set it); audited as `session_refreshed` with reason `grace_window`. An expired session is revoked with `revoked_reason=expired` (previously mislabelled `admin_revoked`, and rolled back so it stayed active).
 
 ### 1.3 Logout — `POST /api/v1/auth/logout/`
 
@@ -197,4 +199,4 @@ Cross-user account administration. Authorized by an inline authority hierarchy (
 **Request:** `{ session_id?, others_only? }` — one, all-but-current, or (omit both) all.
 **Response:** `{ revoked:int }`.
 **Error codes:** `AUTH_SESSION_NOT_FOUND` (404) — `session_id` not one of yours.
-**Business rules:** revokes selected sessions (`revoked_reason=logout`); clears the refresh cookie. Revoking the current session ends it (re-login required).
+**Business rules:** revokes selected sessions (`revoked_reason=logout`). The refresh cookie is cleared only when the caller's own session is among them (omit both fields, or `session_id` = the current session); `others_only=true` or another session's id leaves the caller signed in. Revoking the current session ends it (re-login required).

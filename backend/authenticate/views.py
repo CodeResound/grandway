@@ -7,6 +7,7 @@ logic lives here.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from core.network import client_ip
@@ -22,7 +23,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from authenticate import services
-from authenticate.constants import ErrorCode
+from authenticate.constants import ErrorCode, RefreshRejectReason
 from authenticate.exceptions import (
     DeviceLimitError,
     InvalidAuthorityError,
@@ -61,7 +62,7 @@ from authenticate.serializers import (
     RevokeTargetSessionsSerializer,
     SessionSerializer,
 )
-from authenticate.throttling import LoginIPThrottle, LoginUsernameThrottle, RefreshThrottle
+from authenticate.throttling import LoginIPThrottle, LoginUsernameThrottle, RefreshThrottle, RefreshTokenThrottle
 
 
 def _client_ip(request: Request) -> str | None:
@@ -74,12 +75,18 @@ def _user_agent(request: Request) -> str:
     return request.META.get("HTTP_USER_AGENT", "")[:2000]
 
 
-def _emit_refresh(response: Response, raw_token: str) -> None:
-    """Return the refresh token via HttpOnly cookie (prod) or response body (dev)."""
+def _emit_refresh(response: Response, raw_token: str, expires_at: datetime) -> None:
+    """Return the refresh token via HttpOnly cookie (prod) or response body (dev).
+
+    The cookie expires with the session's absolute lifetime, so it survives a
+    browser restart; the server still enforces the idle timeout on every refresh.
+    """
     if settings.AUTH_REFRESH_COOKIE_ENABLED:
         response.set_cookie(
             settings.AUTH_REFRESH_COOKIE_NAME,
             raw_token,
+            expires=expires_at,
+            domain=settings.AUTH_REFRESH_COOKIE_DOMAIN,
             secure=settings.AUTH_REFRESH_COOKIE_SECURE,
             httponly=settings.AUTH_REFRESH_COOKIE_HTTPONLY,
             samesite=settings.AUTH_REFRESH_COOKIE_SAMESITE,
@@ -90,10 +97,13 @@ def _emit_refresh(response: Response, raw_token: str) -> None:
 
 
 def _clear_refresh_cookie(response: Response) -> None:
+    # Domain and SameSite must match the set cookie, or the browser keeps it.
     if settings.AUTH_REFRESH_COOKIE_ENABLED:
         response.delete_cookie(
             settings.AUTH_REFRESH_COOKIE_NAME,
             path=settings.AUTH_REFRESH_COOKIE_PATH,
+            domain=settings.AUTH_REFRESH_COOKIE_DOMAIN,
+            samesite=settings.AUTH_REFRESH_COOKIE_SAMESITE,
         )
 
 
@@ -155,13 +165,14 @@ class LoginView(APIView):
         response = success_response(
             data={
                 "access": result["access"],
+                "access_expires_at": result["access_expires_at"],
                 "must_change_password": result["must_change_password"],
                 "mfa_enrollment_required": result["mfa_enrollment_required"],
                 "user": CurrentUserSerializer(result["user"]).data,
             },
             message="Login successful.",
         )
-        _emit_refresh(response, result["refresh"])
+        _emit_refresh(response, result["refresh"], result["session"].expires_at)
         return response
 
 
@@ -170,7 +181,7 @@ class RefreshView(APIView):
 
     authentication_classes: list = []
     permission_classes = [AllowAny]
-    throttle_classes = [RefreshThrottle]
+    throttle_classes = [RefreshThrottle, RefreshTokenThrottle]
 
     def post(self, request: Request) -> Response:
         serializer = RefreshSerializer(data=request.data)
@@ -181,6 +192,7 @@ class RefreshView(APIView):
             return error_response(
                 ErrorCode.REFRESH_INVALID,
                 "No refresh credential supplied.",
+                details={"reason": RefreshRejectReason.MISSING},
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -198,10 +210,11 @@ class RefreshView(APIView):
             )
             _clear_refresh_cookie(response)
             return response
-        except InvalidRefreshTokenError:
+        except InvalidRefreshTokenError as exc:
             response = error_response(
                 ErrorCode.REFRESH_INVALID,
                 "Refresh credential is invalid or expired.",
+                details={"reason": exc.reason},
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
             _clear_refresh_cookie(response)
@@ -210,11 +223,15 @@ class RefreshView(APIView):
         response = success_response(
             data={
                 "access": result["access"],
+                "access_expires_at": result["access_expires_at"],
                 "must_change_password": result["must_change_password"],
             },
             message="Token refreshed.",
         )
-        _emit_refresh(response, result["refresh"])
+        # No refresh on a grace-window answer: the concurrent request that won the
+        # rotation already set the newer cookie, and overwriting it would undo that.
+        if result["refresh"] is not None:
+            _emit_refresh(response, result["refresh"], result["session"].expires_at)
         return response
 
 
@@ -673,13 +690,14 @@ class OwnSessionRevokeView(APIView):
         serializer = RevokeOwnSessionsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         session_id = serializer.validated_data.get("session_id")
+        others_only = serializer.validated_data.get("others_only", False)
         current = getattr(request.user, "auth_session", None)
         try:
             count = services.revoke_own_sessions(
                 user=request.user,
                 session_id=str(session_id) if session_id else None,
                 current_session_id=str(current.id) if current else None,
-                others_only=serializer.validated_data.get("others_only", False),
+                others_only=others_only,
             )
         except SessionNotFoundError:
             return error_response(
@@ -688,5 +706,12 @@ class OwnSessionRevokeView(APIView):
                 http_status=status.HTTP_404_NOT_FOUND,
             )
         response = success_response(data={"revoked": count}, message="Sessions revoked.")
-        _clear_refresh_cookie(response)
+        # Clear the cookie only when this device's own session went: clearing it on
+        # "log out other devices" signed the caller out at their next refresh.
+        if session_id is None:
+            revoked_current = not others_only
+        else:
+            revoked_current = current is not None and str(session_id) == str(current.id)
+        if revoked_current:
+            _clear_refresh_cookie(response)
         return response

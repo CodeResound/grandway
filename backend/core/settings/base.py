@@ -364,7 +364,12 @@ REST_FRAMEWORK = {
         # per-username handled by a dedicated scope on the login view).
         "auth_login_ip": "20/minute",
         "auth_login_user": "10/minute",
-        "auth_refresh": "60/minute",
+        # Per IP. Everyone behind one office's shared public IP shares this
+        # bucket, so it is a ceiling, not the working limit; the per-session
+        # limit is auth_refresh_token below. Was 60/minute.
+        "auth_refresh": config("AUTH_REFRESH_RATE", default="300/minute"),
+        # Per presented refresh token (authenticate.throttling.RefreshTokenThrottle).
+        "auth_refresh_token": "10/minute",
         # Global search: its own per-user bucket rather than the shared "user"
         # rate. One search is up to nine queries across seven apps and is driven
         # keystroke by keystroke, so without a scope of its own an undebounced
@@ -400,6 +405,13 @@ AUTH_SESSION_IDLE_LIFETIME = timedelta(hours=config("AUTH_SESSION_IDLE_HOURS", d
 AUTH_SESSION_ABSOLUTE_LIFETIME = timedelta(days=config("AUTH_SESSION_ABSOLUTE_DAYS", default=7, cast=int))
 AUTH_MAX_ACTIVE_DEVICES = config("AUTH_MAX_ACTIVE_DEVICES", default=3, cast=int)
 
+# How long after a refresh token is rotated away it may still be presented
+# without being treated as reuse. Two tabs, or a burst of 401s, refresh with the
+# same token at once; without this the loser revoked the whole session and
+# signed the user out. Within the window the loser gets an access token for the
+# family's current session instead. Set to 0 to disable.
+AUTH_REFRESH_REUSE_GRACE = timedelta(seconds=config("AUTH_REFRESH_REUSE_GRACE_SECONDS", default=30, cast=int))
+
 # How stale AuthSession.last_used_at may get before an authenticated request
 # refreshes it. The column is shown to users on the "your active sessions"
 # screen, so it has to mean what it says — but writing it on every request would
@@ -415,8 +427,19 @@ AUTH_REFRESH_COOKIE_ENABLED = False
 AUTH_REFRESH_COOKIE_NAME = "grandway_refresh"
 AUTH_REFRESH_COOKIE_SECURE = True
 AUTH_REFRESH_COOKIE_HTTPONLY = True
-AUTH_REFRESH_COOKIE_SAMESITE = "Lax"
 AUTH_REFRESH_COOKIE_PATH = "/api/v1/auth/"
+# Lax suits a frontend and API on the same site (e.g. app.example.com and
+# api.example.com). A cross-site deployment needs None, which browsers accept
+# only with Secure. Domain stays unset (host-only) unless the cookie must be
+# shared across subdomains, e.g. ".example.com".
+AUTH_REFRESH_COOKIE_SAMESITE = config("AUTH_REFRESH_COOKIE_SAMESITE", default="Lax")
+AUTH_REFRESH_COOKIE_DOMAIN = config("AUTH_REFRESH_COOKIE_DOMAIN", default="") or None
+if AUTH_REFRESH_COOKIE_SAMESITE not in {"Lax", "Strict", "None"}:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        f"AUTH_REFRESH_COOKIE_SAMESITE={AUTH_REFRESH_COOKIE_SAMESITE!r} is not one of Lax, Strict, None."
+    )
 
 LOGGING = {
     "version": 1,

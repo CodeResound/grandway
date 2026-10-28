@@ -1,7 +1,7 @@
 # Data Contract — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.3.0
+**Version:** 1.4.0
 **Status:** Active
 **Created:** 2026-07-22
 **Purpose:** Owns platform identity: the login account (`User`), its non-identity security state (`UserSecurityState`), revocable device-bound refresh sessions (`AuthSession`), and an append-only authentication audit log (`AuthEvent`). It establishes *who* is calling and *which authority level* applies. It does NOT own authorization decisions (which leads/applicants/documents a user may touch — those stay with operational apps), the failed-login counter (owned by `django-axes`), or MFA device secrets (owned by `django-otp`, MFA phase).
@@ -16,6 +16,7 @@
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — external `TOTPDevice`, `mfa_change` revocation reason, 4 MFA event types, derived MFA state |
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account/session management: 3 new event types, block metadata usage, account create/reset payloads (no new tables) |
 | 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (User `full_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.4.0 | 2026-10-28 | AI (Claude Opus 5.5) | `AuthSession.revoked_reason` gains `expired` (idle/absolute expiry, previously recorded as `admin_revoked`); `AuthEvent.event_type` gains `refresh_rejected`. Choices-only migration `0006`, no schema change |
 
 ---
 
@@ -127,7 +128,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Purpose:** A server-known, device-bound, revocable refresh session. Its `id` is the `sid` claim carried by every access JWT; the opaque refresh credential is stored only as a hash. Enforces device limits and rotation/reuse detection.
 **Table:** `authenticate_authsession`
-**`revoked_reason` choices:** `logout`, `password_change`, `replaced_same_device`, `rotated`, `rotated_reuse`, `device_limit`, `blocked`, `admin_revoked`, `mfa_change`
+**`revoked_reason` choices:** `logout`, `password_change`, `replaced_same_device`, `rotated`, `rotated_reuse`, `device_limit`, `blocked`, `admin_revoked`, `mfa_change`, `expired`. A session found expired at refresh is revoked with `expired` (rows before 2026-10-28 recorded `admin_revoked`, or were left active by a rollback); one whose user is inactive at refresh is revoked with `blocked`.
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
@@ -176,7 +177,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Purpose:** Immutable, append-only authentication audit trail. One row per security-relevant event, carrying actor, subject, outcome, and source — never any secret.
 **Table:** `authenticate_authevent`
-**`event_type` choices:** `superadmin_bootstrap`, `login_success`, `login_failure`, `forced_password_change`, `password_change`, `logout`, `session_refreshed`, `session_revoked`, `account_created`, `account_updated`, `account_blocked`, `account_restored`, `admin_password_reset`, `mfa_enabled`, `mfa_disabled`, `mfa_verification_failure`, `mfa_reset`
+**`event_type` choices:** `superadmin_bootstrap`, `login_success`, `login_failure`, `forced_password_change`, `password_change`, `logout`, `session_refreshed`, `session_revoked`, `account_created`, `account_updated`, `account_blocked`, `account_restored`, `admin_password_reset`, `mfa_enabled`, `mfa_disabled`, `mfa_verification_failure`, `mfa_reset`, `refresh_rejected`. `refresh_rejected` carries the rejection in `reason` (`not_found`, or the stale session's `revoked_reason`) and the stale session's user as `subject` when known. `session_refreshed` with `reason="grace_window"` marks a concurrent refresh answered without rotation.
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|

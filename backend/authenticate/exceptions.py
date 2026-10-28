@@ -1,5 +1,7 @@
 """Domain exceptions for the authenticate app."""
 
+from authenticate.constants import RefreshRejectReason
+
 
 class ImmutabilityError(Exception):
     """Raised when code attempts to delete or mutate an append-only record.
@@ -71,7 +73,16 @@ class DeviceLimitError(Exception):
 
 
 class InvalidRefreshTokenError(Exception):
-    """Raised when a presented refresh credential is unknown, expired, or revoked."""
+    """Raised when a presented refresh credential is unknown, expired, or revoked.
+
+    ``reason`` is a ``RefreshRejectReason`` or the revoked session's
+    ``SessionRevocationReason``; it is returned to the client as
+    ``error.details.reason`` and recorded on the ``refresh_rejected`` event.
+    """
+
+    def __init__(self, reason: str = RefreshRejectReason.NOT_FOUND) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 class RefreshTokenReuseError(Exception):

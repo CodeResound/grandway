@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from django.db.models import Exists, OuterRef, QuerySet
+from datetime import datetime
+from typing import Any
+
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from authenticate.constants import AuthorityType
@@ -117,6 +120,15 @@ def get_session_by_refresh_hash(refresh_hash: str) -> AuthSession | None:
     return AuthSession.objects.filter(refresh_token_hash=refresh_hash).first()
 
 
+def get_active_session_in_family(family_id: Any) -> AuthSession | None:
+    """The live session of a rotation family (at most one per device), or None."""
+    return (
+        AuthSession.objects.select_related("user", "user__security_state")
+        .filter(family_id=family_id, is_active=True)
+        .first()
+    )
+
+
 def get_session_by_id(session_id: str) -> AuthSession | None:
     """Session by primary key (the JWT ``sid``), or None."""
     return AuthSession.objects.select_related("user", "user__security_state").filter(pk=session_id).first()
@@ -190,3 +202,27 @@ def get_user_session_by_id(user: User, session_id: str) -> AuthSession | None:
 def get_events_for_user(user: User) -> QuerySet[AuthEvent]:
     """Authentication audit events where ``user`` is the subject, newest first."""
     return AuthEvent.objects.filter(subject=user).select_related("actor").order_by("-created_at")
+
+
+def get_auth_event_counts_for_user(user: User, since: datetime) -> list[dict[str, Any]]:
+    """``AuthEvent`` counts about ``user`` since ``since``, grouped by type/reason/outcome.
+
+    Matches on ``subject_username`` as well as ``subject`` because failed logins
+    are recorded by username alone. Feeds the ``auth_session_report`` command.
+    """
+    return list(
+        AuthEvent.objects.filter(Q(subject=user) | Q(subject_username=user.username), created_at__gte=since)
+        .values("event_type", "reason", "success")
+        .annotate(count=Count("id"))
+        .order_by("event_type", "reason", "success")
+    )
+
+
+def get_session_revocation_counts_for_user(user: User, since: datetime) -> list[dict[str, Any]]:
+    """``AuthSession`` rows of ``user`` revoked since ``since``, counted per ``revoked_reason``."""
+    return list(
+        AuthSession.objects.filter(user=user, revoked_at__gte=since)
+        .values("revoked_reason")
+        .annotate(count=Count("id"))
+        .order_by("revoked_reason")
+    )

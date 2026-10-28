@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -80,6 +82,10 @@ class TestIssueSession(TestCase):
         self.assertEqual(AuthSession.objects.filter(user=user, is_active=True).count(), 3)
 
 
+# Replays the rotated token immediately, which since the reuse grace window is
+# a *concurrent refresh*, not reuse. Disabling the window pins the reuse path
+# these assertions are about; test_refresh_grace.py covers the window itself.
+@override_settings(AUTH_REFRESH_REUSE_GRACE=timedelta(0))
 class TestRefreshRotation(TestCase):
     def test_refresh_rotates_and_retires_old_token(self) -> None:
         user = make_user()

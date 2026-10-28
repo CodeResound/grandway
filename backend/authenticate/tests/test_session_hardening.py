@@ -77,8 +77,13 @@ class RefreshRotationLockTests(TestCase):
         self.assertIsNotNone(found)
         self.assertEqual(found.pk, session.pk)
 
+    @override_settings(AUTH_REFRESH_REUSE_GRACE=timedelta(0))
     def test_second_rotation_of_one_token_is_refused(self):
-        """A token already rotated away is reuse, never a second new session."""
+        """A token already rotated away is reuse, never a second new session.
+
+        Outside the reuse grace window (disabled here); inside it the replay is
+        answered without a rotation, which test_refresh_grace.py covers.
+        """
         user = make_user()
         _, raw = services.issue_session(user=user, device_id="dev-1")
 

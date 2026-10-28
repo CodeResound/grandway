@@ -1,7 +1,7 @@
 # FLOWS — Authenticate
 
 **Owner app:** `authenticate`
-**Updated:** 2026-07-22
+**Updated:** 2026-10-28
 **Purpose:** The user-flow binding layer for this app — connects the product intent in
 `concepts/authenticate.txt` to the callable endpoints in `backend/authenticate/docs/INTEGRATION.md`.
 Authored and updated by the backend author in the same commit as any endpoint change (CLAUDE.md §36).
@@ -19,7 +19,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 1. **Login screen** — submit username + password + the device's stored `device_id` →
    `POST /api/v1/auth/login/` (`authenticate.session.login`)
    - **Requires state:** the account exists and is active; the `(username, ip)` pair is not locked; fewer than 3 active devices unless reusing an existing `device_id`.
-   - **Side effects:** creates a session (replacing this device's prior session if any); sets `last_login`; issues an access token + refresh credential (cookie in prod, body in dev).
+   - **Side effects:** creates a session (replacing this device's prior session if any); sets `last_login`; issues an access token (with `access_expires_at`) + refresh credential (cookie in prod — persists across browser restarts — body in dev).
    - *Failure — `AUTH_CREDENTIALS_INVALID`:* inline non-specific "invalid username or password" under the form (never reveal which field or that the account is locked).
    - *Failure — `AUTH_DEVICE_LIMIT_REACHED`:* blocking dialog — "You're signed in on the maximum number of devices"; offer to continue to the Session management screen.
 2. **Current-user load** — after login, hydrate the signed-in user →
@@ -57,12 +57,13 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 
 **Steps:**
 
-1. **Any authenticated screen** — when a protected call returns 401, silently rotate →
+1. **Any authenticated screen** — shortly before `access_expires_at`, or when any protected call returns 401 (`AUTHENTICATION_FAILED` for an expired token, or `AUTHENTICATION_REQUIRED`), silently rotate and retry the call once →
    `POST /api/v1/auth/refresh/` (`authenticate.session.refresh`)
    - **Requires state:** a currently-active session whose refresh credential the client holds (cookie in prod; stored token in dev); not past idle (12h) / absolute (7d) limits.
-   - **Side effects:** issues a new access token and rotates the refresh credential; the old refresh token is retired.
-   - *Failure — `AUTH_REFRESH_INVALID`:* redirect to the Login screen.
-   - *Failure — `AUTH_REFRESH_REUSED`:* the device family was revoked (possible token theft) — redirect to the Login screen and surface a "you were signed out for security" notice.
+   - **Side effects:** issues a new access token and rotates the refresh credential; the old refresh token is retired. Other tabs or requests refreshing at the same moment also succeed (grace window, 30 s) and receive an access token without a new refresh credential.
+   - *Failure — `RATE_LIMIT_EXCEEDED`:* back off and retry; the session is intact — do not sign out.
+   - *Failure — `AUTH_REFRESH_INVALID`:* redirect to the Login screen; word the notice from `error.details.reason` — `replaced_same_device` → "signed out because this account signed in again on this device"; `expired` → "your session expired"; `password_change`/`blocked`/`admin_revoked` → "you were signed out"; otherwise a generic notice.
+   - *Failure — `AUTH_REFRESH_REUSED`:* the device family was revoked (an old token replayed more than 30 s after rotation — possible token theft) — redirect to the Login screen and surface a "you were signed out for security" notice.
 2. **Any authenticated screen** — sign out →
    `POST /api/v1/auth/logout/` (`authenticate.session.logout`)
    - **Requires state:** a valid access token.
@@ -154,7 +155,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    `GET /api/v1/auth/sessions/` (`authenticate.session.list`).
 2. **My sessions screen** — revoke one, all-others, or all →
    `POST /api/v1/auth/sessions/revoke/` (`authenticate.session.revoke`) with `{ session_id }` or `{ others_only: true }` or empty.
-   - **Side effects:** selected sessions end; revoking the current one requires re-login.
+   - **Side effects:** selected sessions end. `{ others_only: true }` or another device's `session_id` keeps this device signed in; empty, or this device's own `session_id`, ends the current session and requires re-login (the refresh cookie is cleared only then).
    - *Failure — `AUTH_SESSION_NOT_FOUND`:* the `session_id` isn't yours.
 
 ---

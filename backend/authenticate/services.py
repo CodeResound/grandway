@@ -10,6 +10,7 @@ import base64
 import hashlib
 import logging
 import secrets
+from datetime import UTC, datetime
 from typing import Any
 
 from core.nepal.text import normalize_unicode
@@ -24,10 +25,12 @@ from authenticate.constants import (
     CLAIM_AUTHORITY_TYPE,
     CLAIM_MUST_CHANGE_PASSWORD,
     CLAIM_SESSION_ID,
+    REFRESH_GRACE_EVENT_REASON,
     REFRESH_TOKEN_BYTES,
     AuthEventType,
     AuthorityType,
     ProvisionedVia,
+    RefreshRejectReason,
     SessionRevocationReason,
 )
 from authenticate.exceptions import (
@@ -51,6 +54,7 @@ from authenticate.models import AuthEvent, AuthSession, User, UserSecurityState
 from authenticate.selectors import (
     TOTP_DEVICE_NAME,
     get_active_session_by_refresh_hash_for_update,
+    get_active_session_in_family,
     get_active_sessions_for_user,
     get_confirmed_totp_device,
     get_confirmed_totp_devices,
@@ -247,13 +251,22 @@ def _session_lifetimes() -> tuple[Any, Any]:
 
 def build_access_token(user: User, session: AuthSession, must_change_password: bool) -> str:
     """Build a signed access JWT bound to a session (carries sid + authority claims)."""
+    return issue_access_token(user, session, must_change_password)[0]
+
+
+def issue_access_token(user: User, session: AuthSession, must_change_password: bool) -> tuple[str, datetime]:
+    """As ``build_access_token``, plus the instant the token expires (its ``exp`` claim).
+
+    The expiry is returned to clients as ``access_expires_at`` so they can refresh
+    ahead of it instead of waiting for a protected call to 401.
+    """
     from rest_framework_simplejwt.tokens import AccessToken
 
     token = AccessToken.for_user(user)
     token[CLAIM_SESSION_ID] = str(session.id)
     token[CLAIM_AUTHORITY_TYPE] = user.authority_type
     token[CLAIM_MUST_CHANGE_PASSWORD] = must_change_password
-    return str(token)
+    return str(token), datetime.fromtimestamp(token["exp"], tz=UTC)
 
 
 def revoke_session(session: AuthSession, reason: str) -> None:
@@ -408,8 +421,10 @@ def login(
         user_agent=user_agent,
         device_id=device_id,
     )
+    access, access_expires_at = issue_access_token(user, session, must_change)
     return {
-        "access": build_access_token(user, session, must_change),
+        "access": access,
+        "access_expires_at": access_expires_at,
         "refresh": raw_token,
         "session": session,
         "user": user,
@@ -426,9 +441,16 @@ def refresh_session(
 ) -> dict[str, Any]:
     """Rotate a refresh session: issue a new access + refresh, retire the old.
 
-    Reuse of a retired token revokes the whole family (``RefreshTokenReuseError``).
+    Reuse of a retired token revokes the whole family (``RefreshTokenReuseError``),
+    except within ``AUTH_REFRESH_REUSE_GRACE`` of its rotation: that is a
+    concurrent refresh, answered with an access token for the family's current
+    session and ``refresh: None`` (the client already holds the newer token).
+    Any other rejection raises ``InvalidRefreshTokenError`` carrying a reason.
     """
     token_hash = hash_refresh_token(raw_token)
+    rotated: tuple[AuthSession, AuthSession, str] | None = None
+    grace_session: AuthSession | None = None
+    rejection: InvalidRefreshTokenError | None = None
 
     # The rotation runs inside one transaction holding a row lock on the session
     # (see ``get_active_session_by_refresh_hash_for_update``). The audit write
@@ -437,10 +459,22 @@ def refresh_session(
     # a device behind an ``AuthEvent`` insert.
     with transaction.atomic():
         session = get_active_session_by_refresh_hash_for_update(token_hash)
-        if session is None:
-            rotated = _handle_missing_active_session(token_hash)
-        else:
-            rotated = _rotate_locked_session(session, ip_address=ip_address, user_agent=user_agent)
+        try:
+            if session is None:
+                grace_session = _handle_missing_active_session(token_hash)
+            else:
+                rotated = _rotate_locked_session(session, ip_address=ip_address, user_agent=user_agent)
+        except InvalidRefreshTokenError as exc:
+            # Re-raised only once the block has committed. Raising inside it rolled
+            # back the revoke of an expired session, which then stayed active.
+            rejection = exc
+
+    if rejection is not None:
+        _record_refresh_rejected(token_hash, rejection.reason, ip_address=ip_address, user_agent=user_agent)
+        raise rejection
+
+    if grace_session is not None:
+        return _grace_refresh(grace_session, ip_address=ip_address, user_agent=user_agent)
 
     if rotated is None:
         # ``_handle_missing_active_session`` decided this is a reuse; the family
@@ -472,8 +506,10 @@ def refresh_session(
         user_agent=user_agent,
         device_id=old_session.device_id,
     )
+    access, access_expires_at = issue_access_token(new_session.user, new_session, must_change)
     return {
-        "access": build_access_token(new_session.user, new_session, must_change),
+        "access": access,
+        "access_expires_at": access_expires_at,
         "refresh": new_raw,
         "session": new_session,
         "user": new_session.user,
@@ -481,20 +517,79 @@ def refresh_session(
     }
 
 
-def _handle_missing_active_session(token_hash: str) -> None:
-    """Classify a token with no active session: reuse, or simply invalid.
+def _grace_refresh(session: AuthSession, *, ip_address: str | None, user_agent: str) -> dict[str, Any]:
+    """Answer a concurrent refresh: a new access token for ``session``, no rotation."""
+    must_change = _get_or_create_security_state(session.user).must_change_password
+    record_auth_event(
+        event_type=AuthEventType.SESSION_REFRESHED,
+        actor=session.user,
+        subject=session.user,
+        subject_username=session.user.username,
+        success=True,
+        reason=REFRESH_GRACE_EVENT_REASON,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_id=session.device_id,
+    )
+    access, access_expires_at = issue_access_token(session.user, session, must_change)
+    return {
+        "access": access,
+        "access_expires_at": access_expires_at,
+        "refresh": None,
+        "session": session,
+        "user": session.user,
+        "must_change_password": must_change,
+    }
 
-    Returns ``None`` to mean "reuse — the family has been revoked, the caller
-    should raise ``RefreshTokenReuseError``", and raises
-    ``InvalidRefreshTokenError`` otherwise. Reuse detection fires only for a
-    *rotated* (retired-by-refresh) token: a session revoked for any other reason
-    (logout, block, a prior family kill) is simply invalid, not a fresh reuse.
+
+def _record_refresh_rejected(token_hash: str, reason: str, *, ip_address: str | None, user_agent: str) -> None:
+    """Audit a rejected refresh, attributed to the token's user when it is known."""
+    stale = get_session_by_refresh_hash(token_hash)
+    record_auth_event(
+        event_type=AuthEventType.REFRESH_REJECTED,
+        subject=stale.user if stale else None,
+        subject_username=stale.user.username if stale else "",
+        success=False,
+        reason=reason,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_id=stale.device_id if stale else "",
+    )
+
+
+def _handle_missing_active_session(token_hash: str) -> AuthSession | None:
+    """Classify a token with no active session: concurrent refresh, reuse, or invalid.
+
+    - Rotated within ``AUTH_REFRESH_REUSE_GRACE`` while its family still has a
+      live session: returns that session. Two tabs, or a burst of 401s, present
+      the same token at once; the loser of the row lock lands here and must not
+      log the user out. The window is short, so real replay is still caught.
+    - Rotated otherwise: revokes the family and returns ``None`` — the caller
+      raises ``RefreshTokenReuseError``.
+    - Anything else raises ``InvalidRefreshTokenError`` with the revocation
+      reason. Reuse detection fires only for a *rotated* (retired-by-refresh)
+      token: a session revoked for any other reason (logout, block, a prior
+      family kill) is simply invalid, not a fresh reuse.
     """
     stale = get_session_by_refresh_hash(token_hash)
-    if stale is not None and not stale.is_active and stale.revoked_reason == SessionRevocationReason.ROTATED:
-        revoke_family(stale.family_id, SessionRevocationReason.ROTATED_REUSE)
-        return None
-    raise InvalidRefreshTokenError
+    if stale is None or stale.is_active:
+        raise InvalidRefreshTokenError(RefreshRejectReason.NOT_FOUND)
+    if stale.revoked_reason != SessionRevocationReason.ROTATED:
+        raise InvalidRefreshTokenError(stale.revoked_reason or RefreshRejectReason.NOT_FOUND)
+
+    now = timezone.now()
+    if stale.revoked_at is not None and now - stale.revoked_at < settings.AUTH_REFRESH_REUSE_GRACE:
+        current = get_active_session_in_family(stale.family_id)
+        if (
+            current is not None
+            and current.user.is_active
+            and now < current.expires_at
+            and now < current.idle_expires_at
+        ):
+            return current
+
+    revoke_family(stale.family_id, SessionRevocationReason.ROTATED_REUSE)
+    return None
 
 
 def _rotate_locked_session(
@@ -508,9 +603,12 @@ def _rotate_locked_session(
     Returns ``(old_session, new_session, raw_refresh_token)``.
     """
     now = timezone.now()
-    if now >= session.expires_at or now >= session.idle_expires_at or not session.user.is_active:
-        revoke_session(session, SessionRevocationReason.ADMIN_REVOKED)
-        raise InvalidRefreshTokenError
+    if not session.user.is_active:
+        revoke_session(session, SessionRevocationReason.BLOCKED)
+        raise InvalidRefreshTokenError(SessionRevocationReason.BLOCKED)
+    if now >= session.expires_at or now >= session.idle_expires_at:
+        revoke_session(session, SessionRevocationReason.EXPIRED)
+        raise InvalidRefreshTokenError(SessionRevocationReason.EXPIRED)
 
     # Retire the old session FIRST so the one-active-session-per-device unique
     # constraint is never momentarily violated by two active rows.

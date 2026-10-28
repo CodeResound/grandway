@@ -1,7 +1,7 @@
 # Integration — Grandway Backend
 
 **Owner app:** `core`
-**Version:** 1.14.0
+**Version:** 1.15.0
 **Status:** Active
 **Created:** 2026-07-21
 **Purpose:** The entry point for anyone — human or AI — integrating a client against this backend from outside the repository. Read this file first, then the per-app `INTEGRATION.md` for each app you consume.
@@ -28,6 +28,7 @@
 | 1.12.0 | 2026-08-02 | AI (Claude Opus 5) | Added `search` (`/api/v1/search/`) to the inventory (§6) and dependency graph (§7) — **the second app that owns no table and writes nothing**, which falsified the standing claim that `dashboards` was the only one; that row is corrected here rather than left to be discovered. §7's "`dashboards` inverts the shape of every other edge" note now covers both apps, and its scoping consequence records that `search` inherits per-app scoping the same way — its `lead` bucket is owner-scoped and its `uploaded_file` bucket applies that app's visibility rule, while its other seven buckets are not narrowed, **and unlike `dashboards` nothing in the response marks which is which**. Also fixes a stale header: this file read `**Version:** 1.10.0` while its change history already recorded 1.11.0 |
 | 1.13.0 | 2026-08-17 | AI (Claude) | Added `reminders` (`/api/v1/reminders/`) to the inventory (§6) and dependency graph (§7) — staff-set, date-only follow-up notes against an applicant or client, surfaced as Admin-only alerts by the notifications nightly sweep. The `notifications` edge in §7 gains its fourth sweep-read (`reminders` — the first whose rows exist *only* to be swept), and `clients` **is no longer the graph's only island**: a reminder may hold a `PROTECT` FK to a client, the first business-app edge `clients` has ever had — that §7 note is corrected here rather than left to be discovered. A §19.5 consumer review of the new contract then caught this file repeating a documented past defect — `reminders` absent from §10's access table (the same omission v1.11.0 logged for `notifications`) and from §10's immutable-field bullet; both fixed in this same version |
 | 1.14.0 | 2026-09-10 | AI (Claude Opus 5) | No new app. `uploaded_files` gained a **sixth owner type**, `signatory`, so `document_templates` can store real signature images — which falsified five standing claims in §7/§10 and one in §6, all corrected here: that `document_templates` holds "no database relation to anything", that "exactly one module points back at" a file, that `document_templates.signature_image_url` "was deliberately not migrated … there is nowhere to attach [it] even by hand", that `checklists`' `evidence_file` was "the first hard constraint of its kind", and that `document_templates` publishes no `SECURITY.md` (it now does — the first artefact in the project whose threat model is forgery rather than disclosure). §7 also records the project's **first mutual edge**. The `signatory` owner type is Admin-only in the ledger, extending §10's per-record visibility rule from two owner types to three |
+| 1.15.0 | 2026-10-28 | AI (Claude Opus 5.5) | §3: added `AUTHENTICATION_FAILED` (401) to the global codes — an expired or revoked access token returns it, not `AUTHENTICATION_REQUIRED`. §4: refresh on any 401, `access_expires_at`, concurrent refreshes are safe, persistent refresh cookie |
 
 ---
 
@@ -92,7 +93,7 @@ Every app follows these unless its own `INTEGRATION.md` §3 explicitly states a 
 }
 ```
 
-**Error codes.** `APP_RESOURCE_REASON` in upper snake case (e.g. `LISTINGS_LISTING_NOT_FOUND`). Codes are stable — treat them as part of the contract. Global codes: `AUTHENTICATION_REQUIRED` (401), `PERMISSION_DENIED` (403), `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `METHOD_NOT_ALLOWED` (405), `RATE_LIMIT_EXCEEDED` (429), `INTERNAL_SERVER_ERROR` (500).
+**Error codes.** `APP_RESOURCE_REASON` in upper snake case (e.g. `LISTINGS_LISTING_NOT_FOUND`). Codes are stable — treat them as part of the contract. Global codes: `AUTHENTICATION_REQUIRED` (401, no access token sent), `AUTHENTICATION_FAILED` (401, access token expired, malformed, or bound to a revoked session), `PERMISSION_DENIED` (403), `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `METHOD_NOT_ALLOWED` (405), `RATE_LIMIT_EXCEEDED` (429), `INTERNAL_SERVER_ERROR` (500).
 
 > **An app may replace a global code with its own — do not write a single global handler and assume it fires.** The clearest case is 403: `institutions` returns `INSTITUTIONS_ACTOR_FORBIDDEN` for every authority refusal and never returns `PERMISSION_DENIED`, so a handler keyed only on the global code will miss every one of them. Check each app's `INTEGRATION.md` §3 for the codes it actually emits, and branch on `error.code` per app rather than globally.
 
@@ -157,10 +158,17 @@ See `authenticate/docs/INTEGRATION.md` for the full contract. Access tokens are 
 the server re-validates the underlying session on every request, so blocking, logout, and password
 change revoke access immediately regardless of token lifetime.
 
-- Access token lifetime: 15 minutes (24 hours in development).
+- Access token lifetime: 15 minutes (24 hours in development). `login` and `refresh` return its expiry
+  as `access_expires_at`; refresh shortly before it.
+- **Refresh on any 401 from a protected endpoint** (`AUTHENTICATION_FAILED` or
+  `AUTHENTICATION_REQUIRED`), then retry the call once. An expired access token is
+  `AUTHENTICATION_FAILED`; a client that refreshes only on `AUTHENTICATION_REQUIRED` signs users out at
+  every expiry.
 - Refresh credential: opaque, server-stored, rotated on use, with reuse detection (7-day absolute /
-  12-hour idle lifetime). In production it is a `Secure; HttpOnly; SameSite` cookie; in development it
-  is returned in the login/refresh response body.
+  12-hour idle lifetime). Concurrent refreshes with the same credential (several tabs) are safe for
+  30 s after a rotation. In production it is a `Secure; HttpOnly; SameSite=Lax` cookie that persists
+  across browser restarts — send refresh requests with credentials included; in development it is
+  returned in the login/refresh response body.
 
 **Getting a token today.** Create the initial superadmin with
 `python backend/manage.py bootstrap_superadmin --username <name>`, then `POST /api/v1/auth/login/`.

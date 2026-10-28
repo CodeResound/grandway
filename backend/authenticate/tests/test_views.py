@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -175,6 +178,7 @@ class TestSessionLifecycleEndpoints(APITestCase):
         self.assertIn("access", resp.data["data"])
         self.assertNotEqual(resp.data["data"]["refresh"], self.refresh)
 
+    @override_settings(AUTH_REFRESH_REUSE_GRACE=timedelta(0))  # outside the grace window
     def test_refresh_reuse_detected(self) -> None:
         self.client.post(reverse("v1:auth:refresh"), {"refresh": self.refresh}, format="json")
         resp = self.client.post(reverse("v1:auth:refresh"), {"refresh": self.refresh}, format="json")
