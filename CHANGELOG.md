@@ -8,6 +8,40 @@ Release tags are immutable: a released version is never rewritten, only supersed
 
 ## [Unreleased]
 
+### Deferred
+
+Findings recorded during release preparation that were triaged as not blocking. Each carries the version bump it would require. This registry is reviewed at every release: an item either ships, stays deferred, or is retired with a reason — it is never silently dropped.
+
+- **Static files are not served by the application** (MINOR) — no whitenoise, so with `DEBUG=False` nothing in the application serves `STATIC_ROOT`. (The `STORAGES` block added in 1.1.1 governs the permissions `collectstatic` writes; it does not serve anything.) The only consumer is the OTP-gated Django admin, which renders unstyled without a reverse proxy serving it. Deferred because adding whitenoise is a new dependency requiring approval, and because serving static is the deployment layer's job — `deploy/nginx.sample.conf` ships the block instead. Documented in `deploy.md` §9 (Reverse proxy contract) and §22 (Gaps).
+- **No CVE scanner in the toolchain** (PATCH) — the release audit requires a vulnerability pass over every
+  pinned runtime dependency, and nothing in `requirements/` can perform one, so the check is currently a
+  manual version comparison. Deferred because adding `pip-audit` is a new dependency requiring approval
+  (§28 item 1). Mitigation until then: Django is held at the newest patch of its LTS line (5.2.17) and the
+  pins are reviewed at every release.
+- **The rotating file log handler is not multiprocess-safe** (MINOR) — under multi-worker gunicorn, plus the nightly cron writing to the same file, a 10 MB rollover can race: renames overwrite one another and a whole segment can be lost. The stdout stream gunicorn captures is the reliable source. Documented in `deploy.md` §10 (Process model).
+- **No dependency lock file or hashes** (MINOR) — direct dependencies are pinned exactly, but transitive ones resolve fresh at install time, so a deploy-day install may not match what CI tested. Mitigation until fixed: build once and promote the same artifact. Documented in `deploy.md` §4 (Runtime requirements).
+- **`psycopg[binary]` is used in production** (MINOR) — psycopg's own documentation recommends `psycopg[c]` or a system build for production. Deferred because the change requires build tooling in whatever image is chosen, and the packaging target is not yet decided. Documented in `deploy.md` §4 (Runtime requirements).
+- **The test suite runs on SQLite, not PostgreSQL** (MINOR) — `select_for_update` is a no-op, failed statements do not abort transactions, and `pg_trgm` behaviour is untested. The `policy` CI stage is the only one touching real PostgreSQL. This gap has already masked real defects.
+- **`sweep_notifications` exits 0 on partial failure** (PATCH) — individual alert generators that raise are reported to stderr but do not change the exit status, so cron cannot detect a partially failed night. Documented in `deploy.md` §13 (Scheduled jobs).
+- **`/ready/` does not check the cache backend** (PATCH) — readiness opens a database connection only. In production the cache is the rate-limit store, so a failed Redis leaves throttling degraded without the readiness probe reporting it. Documented in `deploy.md` §14 (Health and observability).
+- **Runtime dependencies trail their latest releases** (MINOR) — found by the 2.0.0 audit: `gunicorn` 23.0.0 → 26.2.0,
+  `psycopg` 3.2.13 → 3.3.6, `djangorestframework` 3.17.2 → 3.18.3, `django-otp` 1.7.0 → 1.7.5. No advisory is known
+  against the pinned versions; deferred because each is a behaviour-bearing upgrade that needs its own change and
+  test pass, and `gunicorn` crosses three major versions.
+
+## [2.0.0] - 2026-10-29
+
+> **MAJOR release.** Four behaviours change in place on `/api/v1/` — the API prefix does not change
+> (§41.1: the application version and the API prefix move independently). Clients must be updated with it:
+>
+> - `GET /documents/` no longer returns archived documents unless `status=archived` or `include_archived=true` is sent.
+> - `POST /applicants/<id>/status/` can no longer move an applicant out of `archived` (409
+>   `APPLICANTS_APPLICANT_ARCHIVED`); un-archiving is the Admin-only `POST /applicants/<id>/restore/`.
+> - Writes to a converted lead's notes return 409; write on the applicant instead.
+> - The refresh cookie persists for the session's 7-day absolute lifetime instead of ending at browser close.
+>
+> All nine migrations are additive. Upgrade notes: `deploy.md` §16 (Upgrade sequence).
+
 ### Fixed
 
 - **Users were signed out every 15–20 minutes** (PATCH) — when the access token expired, concurrent
@@ -32,6 +66,12 @@ Release tags are immutable: a released version is never rewritten, only supersed
   document held before archiving. Documents archived before this release still restore to draft.
 - **Converted leads stranded their notes** (MINOR) — conversion now copies a lead's notes onto the new
   applicant (same author, category, and dates; `source_lead_id` set). The lead keeps its notes, read-only.
+- **`deploy.md` §13 (Scheduled jobs) described the old sweep** (MINOR) — it now lists the
+  `--test-score-horizon-days` and `--retention-days` flags, the `test_score_expiring` type, assignee routing, and
+  the nightly purge of event and resolved alerts older than 90 days. Shipped from the Deferred registry.
+- **`requirements/README.md` documented two commands that do not exist** (PATCH) — the rows for
+  `validate_organization_integrity` and `rebuild_organization_closure` (from the removed `organization` app) are
+  gone, and `reset_dev_data`'s docstring no longer names that app. Shipped from the Deferred registry.
 
 ### Added
 
@@ -122,27 +162,10 @@ Release tags are immutable: a released version is never rewritten, only supersed
 - **Lead conversion assigns the new applicant to the lead's owner**, unless that person is no longer an
   active Admin or Lead Manager (then it is left unassigned).
 
-### Deferred
+### Security
 
-Findings recorded during release preparation that were triaged as not blocking. Each carries the version bump it would require. This registry is reviewed at every release: an item either ships, stays deferred, or is retired with a reason — it is never silently dropped.
-
-- **Static files are not served by the application** (MINOR) — no whitenoise, so with `DEBUG=False` nothing in the application serves `STATIC_ROOT`. (The `STORAGES` block added in 1.1.1 governs the permissions `collectstatic` writes; it does not serve anything.) The only consumer is the OTP-gated Django admin, which renders unstyled without a reverse proxy serving it. Deferred because adding whitenoise is a new dependency requiring approval, and because serving static is the deployment layer's job — `deploy/nginx.sample.conf` ships the block instead. Documented in `deploy.md` §9 (Reverse proxy contract) and §22 (Gaps).
-- **No CVE scanner in the toolchain** (PATCH) — the release audit requires a vulnerability pass over every
-  pinned runtime dependency, and nothing in `requirements/` can perform one, so the check is currently a
-  manual version comparison. Deferred because adding `pip-audit` is a new dependency requiring approval
-  (§28 item 1). Mitigation until then: Django is held at the newest patch of its LTS line (5.2.17) and the
-  pins are reviewed at every release.
-- **The rotating file log handler is not multiprocess-safe** (MINOR) — under multi-worker gunicorn, plus the nightly cron writing to the same file, a 10 MB rollover can race: renames overwrite one another and a whole segment can be lost. The stdout stream gunicorn captures is the reliable source. Documented in `deploy.md` §10 (Process model).
-- **No dependency lock file or hashes** (MINOR) — direct dependencies are pinned exactly, but transitive ones resolve fresh at install time, so a deploy-day install may not match what CI tested. Mitigation until fixed: build once and promote the same artifact. Documented in `deploy.md` §4 (Runtime requirements).
-- **`psycopg[binary]` is used in production** (MINOR) — psycopg's own documentation recommends `psycopg[c]` or a system build for production. Deferred because the change requires build tooling in whatever image is chosen, and the packaging target is not yet decided. Documented in `deploy.md` §4 (Runtime requirements).
-- **The test suite runs on SQLite, not PostgreSQL** (MINOR) — `select_for_update` is a no-op, failed statements do not abort transactions, and `pg_trgm` behaviour is untested. The `policy` CI stage is the only one touching real PostgreSQL. This gap has already masked real defects.
-- **`sweep_notifications` exits 0 on partial failure** (PATCH) — individual alert generators that raise are reported to stderr but do not change the exit status, so cron cannot detect a partially failed night. Documented in `deploy.md` §13 (Scheduled jobs).
-- **`/ready/` does not check the cache backend** (PATCH) — readiness opens a database connection only. In production the cache is the rate-limit store, so a failed Redis leaves throttling degraded without the readiness probe reporting it. Documented in `deploy.md` §14 (Health and observability).
-- **`deploy.md` §13 (Scheduled jobs) does not describe the new sweep behaviour** (MINOR) — it must list
-  `sweep_notifications`' new `--test-score-horizon-days` and `--retention-days` flags and state that the
-  nightly run now deletes event alerts and resolved alerts older than 90 days. Deferred to the next
-  `/release`, which refreshes `deploy.md`.
-- **`requirements/README.md` documents two commands that do not exist** (PATCH) — `validate_organization_integrity` and `rebuild_organization_closure`, for an `organization` app that was removed. Also referenced in `core/management/commands/reset_dev_data.py`.
+- Django `5.2.17` → `5.2.18`, the newest patch of the 5.2 LTS line — the Deferred registry's stated
+  mitigation for having no CVE scanner is holding Django at that patch.
 
 ## [1.1.1] - 2026-09-14
 
@@ -257,7 +280,8 @@ Carried from the 2026-08-17 security audit and its remediation:
 - Trigram indexes on four fields substring search could not otherwise reach.
 - N+1 queries eliminated in checklists and across core; `decided_at` indexed on offers.
 
-[Unreleased]: https://github.com/CodeResound/grandway/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/CodeResound/grandway/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/CodeResound/grandway/compare/v1.1.1...v2.0.0
 [1.1.1]: https://github.com/CodeResound/grandway/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/CodeResound/grandway/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/CodeResound/grandway/releases/tag/v1.0.0

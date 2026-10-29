@@ -14,14 +14,13 @@ Preserved (never touched):
   detected generically (type(model.objects.all()).delete is not
   django.db.models.QuerySet.delete), not by a hardcoded per-app list. Several
   apps independently implement this same append-only audit-log pattern
-  (authenticate.AuthEvent, organization.OrganizationEventLog, every
-  policy_engine append-only model) and each would raise its own app-specific
+  (authenticate.AuthEvent, every policy_engine append-only model) and each would raise its own app-specific
   ImmutabilityError if a bulk delete were attempted — this command treats
   that as an authoritative "do not touch" signal from the model itself, so it
   never needs updating when a new app adds its own append-only log.
 
 Cleared: everything else — authenticate (including the superadmin User row),
-organization, permissions, and per-session/per-user dev artifacts (axes
+every business app, and per-session/per-user dev artifacts (axes
 lockout tracking, django_otp devices, Django sessions, admin log entries).
 axes.AccessAttempt/AccessLog/AccessFailureLog have no FK to User (tracked by
 username/IP string), so they would not be cleaned up by cascading from User
