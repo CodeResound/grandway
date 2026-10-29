@@ -259,6 +259,28 @@ Settled in V1 (2026-07-24):
   not *strip* a derived value if one is sent — it cannot, without knowing all 42
   shapes — so a stored derived value must never be read back as truth.
 
+Settled 2026-10-29 (frontend request, updates.md §6 and §7.1):
+
+* **Does "remove" hide a document?** Yes. Archive stays the only removal, but
+  archived documents are left out of the default document list; they are
+  listed on request (`status=archived`, `include_archived=true`) and counted
+  separately on the landing table, so flow 4's "no historical document should
+  disappear" still holds — nothing is deleted, only filtered.
+* **Where does a restored document land?** In the status it had when it was
+  archived. Archiving is how staff remove a document, and restoring is undoing
+  that; the earlier always-draft rule demoted finished documents.
+* **Does the backend validate any template's content?** One:
+  `student-certificate`. Its form now covers every printed field and the
+  frontend specified the keys (snake_case) and asked for them to be checked,
+  including that the printed photo is that applicant's own photograph. The
+  check is lenient — nothing required, unknown keys kept — and the body is
+  still stored exactly as sent. Every other template stays opaque.
+* **Is the template layout version stored?** Yes, per document
+  (`template_version`, default "1"), because the frontend renders old
+  documents with the layout they were authored for (Woda letters moved to
+  layout 2). A print snapshot still records what was printed in its own
+  render context.
+
 Still open:
 
 * Should standalone documents have their own list and lifecycle, or live inside

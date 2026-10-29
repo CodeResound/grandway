@@ -42,6 +42,8 @@ from documents.selectors import (
     get_document_by_id,
     get_documents,
     get_history_for_document,
+    get_prefill_applicant,
+    get_prefill_photo_id,
     get_workspace_summaries,
 )
 from documents.serializers import (
@@ -49,8 +51,10 @@ from documents.serializers import (
     DocumentCreateSerializer,
     DocumentDetailSerializer,
     DocumentListSerializer,
+    DocumentPrefillSerializer,
     DocumentSearchSerializer,
     DocumentUpdateSerializer,
+    RestoreSerializer,
     StatusChangeSerializer,
     WorkspaceSummarySerializer,
 )
@@ -59,7 +63,7 @@ from documents.serializers import (
 #: loudly rather than dropped silently: a client that sent `applicant` and got
 #: 200 back would believe a document had been reassigned.
 OWNERSHIP_FIELDS = frozenset({"applicant", "family", "template_key"})
-STATUS_FIELDS = frozenset({"status", "archive_reason", "archived_at", "archived_by"})
+STATUS_FIELDS = frozenset({"status", "status_before_archive", "archive_reason", "archived_at", "archived_by"})
 
 
 def _client_ip(request: Request) -> str | None:
@@ -100,7 +104,13 @@ def _paginated(request: Request, queryset: Any, serializer_class: Any, message: 
 
 
 def _content_error(exc: Exception, code: str) -> Response:
-    return _bad_request(code, str(exc), details={"content": [str(exc)]})
+    details: dict[str, Any] = {"content": [str(exc)]}
+    fields = getattr(exc, "fields", None)
+    if fields:
+        # Per-key failures of a validated template, keyed by content path
+        # (``marking[2].present``) so the form can mark the exact input.
+        details["fields"] = fields
+    return _bad_request(code, str(exc), details=details)
 
 
 class DocumentActorView(APIView):
@@ -191,6 +201,30 @@ class DocumentListCreateView(DocumentActorView):
             message="Document created.",
             http_status=status.HTTP_201_CREATED,
         )
+
+
+class DocumentPrefillView(DocumentActorView):
+    """GET /api/v1/documents/prefill/<applicant_id>/ — the applicant's data, shaped for document forms.
+
+    Admin-only like every documents route: it carries citizenship and passport
+    numbers and family details. Writes nothing.
+    """
+
+    def get(self, request: Request, applicant_id: str) -> Response:
+        err = self.check_actor(request)
+        if err:
+            return err
+        applicant = get_prefill_applicant(str(applicant_id))
+        if applicant is None:
+            return error_response(
+                ErrorCode.APPLICANT_NOT_FOUND,
+                "Applicant not found.",
+                http_status=status.HTTP_404_NOT_FOUND,
+            )
+        data = DocumentPrefillSerializer(
+            applicant, context={"photo_media_id": get_prefill_photo_id(str(applicant.id))}
+        ).data
+        return success_response(data=data, message="Prefill retrieved.")
 
 
 class WorkspaceListView(DocumentActorView):
@@ -318,16 +352,19 @@ class DocumentArchiveView(DocumentScopedView):
 
 
 class DocumentRestoreView(DocumentScopedView):
-    """POST /api/v1/documents/<id>/restore/ — return an archived document to draft."""
+    """POST /api/v1/documents/<id>/restore/ — return an archived document to its prior status."""
 
     def post(self, request: Request, document_id: str) -> Response:
         document, err = self.resolve(request, document_id)
         if err:
             return err
+        serializer = RestoreSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
         try:
             updated = services.restore_document(
                 actor=request.user,
                 document=document,
+                reason=serializer.validated_data.get("reason", ""),
                 ip_address=_client_ip(request),
             )
         except DocumentNotArchivedError as exc:

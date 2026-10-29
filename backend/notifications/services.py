@@ -29,13 +29,13 @@ import logging
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from audit.constants import ActorType
 from audit.services import record_event
-from authenticate.selectors import get_active_admins
+from authenticate.selectors import get_active_admins, get_active_lead_actors
 from core.nepal.calendar import nepal_today
 from django.db import transaction
 from django.utils import timezone
@@ -43,11 +43,13 @@ from django.utils import timezone
 from notifications.constants import (
     AUDIT_APP_LABEL,
     AUDIT_ENTITY_NOTIFICATION,
+    TYPE_CATEGORY,
     TYPE_PRIORITY,
     DeliveryChannel,
     DeliveryState,
     GenerationSource,
     NotificationAuditAction,
+    NotificationCategory,
     NotificationStatus,
     NotificationType,
     Priority,
@@ -55,7 +57,7 @@ from notifications.constants import (
     SourceEntityType,
 )
 from notifications.exceptions import AlreadyTerminalError
-from notifications.models import Notification
+from notifications.models import Notification, NotificationPreference
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,11 @@ class AlertSpec:
     ``source_api_path`` is the nearest *retrievable* endpoint for the source, not
     always the entity itself — an expiring passport has no endpoint of its own,
     so its spec points at the applicant that holds it.
+
+    ``applicant_id`` and ``assignee_id`` (2026-10-29) say which applicant the
+    alert is about and who, if anyone, is assigned to them — ``dispatch`` needs
+    both to honour the ``assigned_only`` preference. ``payload`` is copied onto
+    the row as-is and must hold only non-sensitive plain values.
     """
 
     notification_type: str
@@ -99,6 +106,9 @@ class AlertSpec:
     source_entity_id: Any
     source_api_path: str = ""
     due_at: datetime | None = None
+    applicant_id: Any = None
+    assignee_id: Any = None
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -126,12 +136,16 @@ def dispatch(
 
     Returns the created rows so callers can report how many alerts are genuinely
     new. A caller that ignores the return value still gets correct behaviour.
+
+    **Preferences are applied here**, the one place every alert passes through:
+    a recipient who muted this type's category, or who wants only their own
+    applicants' alerts and is not this one's assignee, gets no row at all.
     """
     created: list[Notification] = []
     priority = TYPE_PRIORITY.get(spec.notification_type, Priority.NORMAL)
     now = timezone.now()
 
-    for recipient in recipients:
+    for recipient in _apply_preferences(spec, list(recipients)):
         notification, was_created = Notification.objects.get_or_create(
             recipient=recipient,
             dedupe_key=spec.dedupe_key,
@@ -145,6 +159,8 @@ def dispatch(
                 "source_entity_id": spec.source_entity_id,
                 "source_api_path": spec.source_api_path[:255],
                 "due_at": spec.due_at,
+                "applicant_id": spec.applicant_id,
+                "payload": spec.payload,
                 "generated_by": generated_by,
                 # In-app delivery completes the moment the row exists: there is
                 # nothing between writing it and the feed being able to return
@@ -159,6 +175,30 @@ def dispatch(
             created.append(notification)
 
     return created
+
+
+def _apply_preferences(spec: AlertSpec, recipients: list[Any]) -> list[Any]:
+    """Drop the recipients whose preferences say they should not get this alert.
+
+    One query for the whole recipient list. A user with no preference row keeps
+    the defaults — everything on.
+    """
+    if not recipients:
+        return recipients
+    category = TYPE_CATEGORY.get(spec.notification_type)
+    preferences = {
+        pref.user_id: pref for pref in NotificationPreference.objects.filter(user_id__in=[r.id for r in recipients])
+    }
+
+    def wanted(user: Any) -> bool:
+        pref = preferences.get(user.id)
+        if pref is None:
+            return True
+        if category in (pref.muted_categories or []):
+            return False
+        return not (pref.assigned_only and spec.applicant_id is not None and spec.assignee_id != user.id)
+
+    return [user for user in recipients if wanted(user)]
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +314,44 @@ def recipients_for_admins(*, exclude_actor: Any = None) -> list[Any]:
     own as ownership is introduced elsewhere, with no change here.
     """
     return _finalize(_admins(), exclude_actor=exclude_actor)
+
+
+def recipients_for_users(users: Iterable[Any], *, exclude_actor: Any = None) -> list[Any]:
+    """Exactly these people, minus the actor and anyone deactivated."""
+    return _finalize(users, exclude_actor=exclude_actor)
+
+
+def recipients_for_applicant(
+    applicant: Any,
+    *,
+    exclude_actor: Any = None,
+    include_admins: bool = True,
+    fallback_all: bool = False,
+) -> list[Any]:
+    """Who hears about something that happened to one applicant (2026-10-29).
+
+    Assignment is optional, so there are two cases:
+
+    * **Assigned** — the assignee, plus every Admin when ``include_admins``.
+    * **Unassigned** — every Admin and Lead Manager when ``fallback_all`` (the
+      new event alerts: status, restore, visit notes), otherwise every Admin
+      when ``include_admins`` (the older alerts — journeys, passports,
+      reminders — which kept their Admin routing and only gained the assignee).
+
+    The applicant should arrive with ``assigned_to`` joined. A deactivated
+    assignee counts as nobody: the file falls back to the unassigned routing
+    rather than to an inbox no one can open.
+    """
+    assignee = getattr(applicant, "assigned_to", None)
+    if assignee is not None and not assignee.is_active:
+        assignee = None
+    if assignee is not None:
+        candidates = [assignee, *(_admins() if include_admins else [])]
+    elif fallback_all:
+        candidates = list(get_active_lead_actors())
+    else:
+        candidates = _admins() if include_admins else []
+    return _finalize(candidates, exclude_actor=exclude_actor)
 
 
 def recipients_for_file(uploaded_file: Any, *, exclude_actor: Any = None) -> list[Any]:
@@ -469,6 +547,8 @@ def build_passport_alert(passport: Any) -> AlertSpec:
         # nearest retrievable record.
         source_api_path=f"/api/v1/applicants/{passport.applicant_id}/",
         due_at=_nepal_midnight(expiry),
+        applicant_id=passport.applicant_id,
+        assignee_id=passport.applicant.assigned_to_id,
     )
 
 
@@ -506,6 +586,8 @@ def build_reminder_alert(reminder: Any) -> AlertSpec:
         source_entity_id=reminder.id,
         source_api_path=f"/api/v1/reminders/{reminder.id}/",
         due_at=_nepal_midnight(reminder.due_date),
+        applicant_id=reminder.applicant_id,
+        assignee_id=reminder.applicant.assigned_to_id if reminder.applicant is not None else None,
     )
 
 
@@ -603,6 +685,9 @@ def build_journey_alert(journey: Any, *, closed: bool) -> AlertSpec:
         source_entity_id=journey.id,
         source_api_path=f"/api/v1/journeys/{journey.id}/",
         due_at=None,
+        applicant_id=journey.applicant_id,
+        assignee_id=journey.applicant.assigned_to_id,
+        payload={"stage": journey.stage},
     )
 
 
@@ -626,6 +711,213 @@ def build_offer_decided_alert(offer: Any) -> AlertSpec:
         source_entity_id=offer.id,
         source_api_path=f"/api/v1/offers/{offer.id}/",
         due_at=None,
+    )
+
+
+def build_language_test_alert(test: Any) -> AlertSpec:
+    """Alert for a language test whose result has expired or soon will (2026-10-29).
+
+    Mirrors ``build_passport_alert``: the expiry date is the discriminator, so a
+    retake with a new expiry raises a fresh alert, and deleting or replacing the
+    test clears the old one on the next sweep. The score is never copied out.
+    """
+    applicant = _applicant_name(test.applicant)
+    expiry = test.expiry_date
+    days = _days_between(expiry, nepal_today())
+    test_label = test.get_test_type_display()
+
+    if days < 0:
+        title = f"{test_label} result expired: {applicant}"
+        timing = f"expired {abs(days)} day{'s' if abs(days) != 1 else ''} ago"
+    else:
+        title = f"{test_label} result expiring: {applicant}"
+        timing = f"expires in {days} day{'s' if days != 1 else ''}"
+
+    return AlertSpec(
+        notification_type=NotificationType.TEST_SCORE_EXPIRING,
+        dedupe_key=_key(NotificationType.TEST_SCORE_EXPIRING, SourceEntityType.LANGUAGE_TEST, test.id, str(expiry)),
+        title=title,
+        body=f"The {test_label} result on file {timing}. An application relying on it needs a valid score.",
+        source_app="applicants",
+        source_entity_type=SourceEntityType.LANGUAGE_TEST,
+        source_entity_id=test.id,
+        # A language test has no endpoint of its own; the applicant carries it.
+        source_api_path=f"/api/v1/applicants/{test.applicant_id}/",
+        due_at=_nepal_midnight(expiry),
+        applicant_id=test.applicant_id,
+        assignee_id=test.applicant.assigned_to_id,
+        payload={"test_type": test.test_type},
+    )
+
+
+# --- Event alerts (2026-10-29) -----------------------------------------------
+#
+# Raised from ``core.events`` domain events. Each one records something that
+# *happened*, so the event's own id is the discriminator: the same lead deleted
+# twice is two alerts. Bodies name who acted, never what they wrote — note text,
+# delete reasons, and identity numbers stay in the app that owns them.
+
+
+def _who(actor: Any) -> str:
+    return getattr(actor, "display_name", "") or getattr(actor, "username", "") or "Someone"
+
+
+_LEAD_TITLES = {
+    NotificationType.LEAD_CREATED: "New lead: {name}",
+    NotificationType.LEAD_CONVERTED: "Lead converted: {name}",
+    NotificationType.LEAD_DELETED: "Lead deleted: {name}",
+    NotificationType.LEAD_RESTORED: "Lead restored: {name}",
+}
+_LEAD_VERBS = {
+    NotificationType.LEAD_CREATED: "Added",
+    NotificationType.LEAD_CONVERTED: "Converted into an applicant",
+    NotificationType.LEAD_DELETED: "Deleted",
+    NotificationType.LEAD_RESTORED: "Restored",
+}
+
+
+def build_lead_alert(
+    lead: Any,
+    *,
+    notification_type: str,
+    event_id: Any,
+    actor: Any,
+    applicant: Any = None,
+) -> AlertSpec:
+    """A lead was created, converted, deleted, or restored.
+
+    A converted lead's alert also carries the new applicant, so the client can
+    link straight to the file and the ``assigned_only`` preference can match it.
+    """
+    payload: dict[str, Any] = {}
+    if applicant is not None:
+        payload["applicant_id"] = str(applicant.id)
+    return AlertSpec(
+        notification_type=notification_type,
+        dedupe_key=_key(notification_type, SourceEntityType.LEAD, lead.id, str(event_id)),
+        title=_LEAD_TITLES[notification_type].format(name=lead.full_name),
+        body=f"{_LEAD_VERBS[notification_type]} by {_who(actor)}.",
+        source_app="leads",
+        source_entity_type=SourceEntityType.LEAD,
+        source_entity_id=lead.id,
+        source_api_path=f"/api/v1/leads/{lead.id}/",
+        applicant_id=getattr(applicant, "id", None),
+        assignee_id=getattr(applicant, "assigned_to_id", None),
+        payload=payload,
+    )
+
+
+def build_applicant_status_alert(
+    applicant: Any,
+    *,
+    restored: bool,
+    from_status: str,
+    to_status: str,
+    event_id: Any,
+    actor: Any,
+) -> AlertSpec:
+    """An applicant's status changed, or an archived applicant was restored.
+
+    The payload carries the originating lead (when the applicant came from one)
+    so the client can show the enquiry-to-applicant trail.
+    """
+    notification_type = NotificationType.APPLICANT_RESTORED if restored else NotificationType.APPLICANT_STATUS_CHANGED
+    name = _applicant_name(applicant)
+    title = f"Applicant restored: {name}" if restored else f"{name} is now {to_status}"
+    lead = getattr(applicant, "originating_lead", None)
+    return AlertSpec(
+        notification_type=notification_type,
+        dedupe_key=_key(notification_type, SourceEntityType.APPLICANT, applicant.id, str(event_id)),
+        title=title,
+        body=f"Moved from {from_status} to {to_status} by {_who(actor)}.",
+        source_app="applicants",
+        source_entity_type=SourceEntityType.APPLICANT,
+        source_entity_id=applicant.id,
+        source_api_path=f"/api/v1/applicants/{applicant.id}/",
+        applicant_id=applicant.id,
+        assignee_id=applicant.assigned_to_id,
+        payload={
+            "from": from_status,
+            "to": to_status,
+            "originating_lead_id": str(lead.id) if lead else None,
+        },
+    )
+
+
+def build_applicant_assignment_alert(
+    applicant: Any, *, assigned: bool, recipient: Any, event_id: Any, actor: Any
+) -> AlertSpec:
+    """An applicant was assigned to the recipient, or taken off them.
+
+    ``assignee_id`` is the *recipient*, not the applicant's current assignee:
+    the alert is about them personally, so an ``assigned_only`` preference must
+    never filter out the "no longer yours" notice to the person losing the file.
+    """
+    notification_type = NotificationType.APPLICANT_ASSIGNED if assigned else NotificationType.APPLICANT_UNASSIGNED
+    name = _applicant_name(applicant)
+    return AlertSpec(
+        notification_type=notification_type,
+        dedupe_key=_key(notification_type, SourceEntityType.APPLICANT, applicant.id, str(event_id)),
+        title=f"Assigned to you: {name}" if assigned else f"No longer assigned to you: {name}",
+        body=f"By {_who(actor)}.",
+        source_app="applicants",
+        source_entity_type=SourceEntityType.APPLICANT,
+        source_entity_id=applicant.id,
+        source_api_path=f"/api/v1/applicants/{applicant.id}/",
+        applicant_id=applicant.id,
+        assignee_id=recipient.id,
+    )
+
+
+def build_visit_note_alert(
+    *,
+    owner_type: str,
+    owner: Any,
+    note_id: Any,
+    event_id: Any,
+    actor: Any,
+) -> AlertSpec:
+    """Somebody recorded a visit on a lead or an applicant.
+
+    The note's text is not copied — the feed is not where staff notes are read.
+    The link is the owner's notes feed: a single note has no ``GET`` of its own,
+    so ``payload.note_id`` is how a client picks the note out of that list.
+    """
+    is_lead = owner_type == SourceEntityType.LEAD
+    name = owner.full_name
+    path = f"/api/v1/leads/{owner.id}/notes/" if is_lead else f"/api/v1/applicants/{owner.id}/notes/"
+    return AlertSpec(
+        notification_type=NotificationType.VISIT_NOTE_ADDED,
+        dedupe_key=_key(NotificationType.VISIT_NOTE_ADDED, owner_type, owner.id, str(event_id)),
+        title=f"Visit recorded: {name}",
+        body=f"{_who(actor)} added a visit note.",
+        source_app="leads" if is_lead else "applicants",
+        source_entity_type=owner_type,
+        source_entity_id=owner.id,
+        source_api_path=path,
+        applicant_id=None if is_lead else owner.id,
+        assignee_id=None if is_lead else owner.assigned_to_id,
+        payload={"note_id": str(note_id)},
+    )
+
+
+def build_document_ready_alert(document: Any, *, event_id: Any, actor: Any) -> AlertSpec:
+    """A document was marked ready. Admin-only, like documents themselves."""
+    applicant = document.applicant
+    whose = f" for {_applicant_name(applicant)}" if applicant is not None else ""
+    label = document.label or document.get_family_display()
+    return AlertSpec(
+        notification_type=NotificationType.DOCUMENT_READY,
+        dedupe_key=_key(NotificationType.DOCUMENT_READY, SourceEntityType.DOCUMENT, document.id, str(event_id)),
+        title=f"Document ready: {label}{whose}",
+        body=f"Marked ready by {_who(actor)}.",
+        source_app="documents",
+        source_entity_type=SourceEntityType.DOCUMENT,
+        source_entity_id=document.id,
+        source_api_path=f"/api/v1/documents/{document.id}/",
+        applicant_id=document.applicant_id,
+        assignee_id=applicant.assigned_to_id if applicant is not None else None,
+        payload={"family": document.family},
     )
 
 
@@ -675,7 +967,7 @@ def mark_unread(notification: Notification) -> Notification:
     return notification
 
 
-def mark_all_read(user: Any) -> int:
+def mark_all_read(user: Any, *, category: str | None = None) -> int:
     """Mark every unread notification on this user's feed read. Returns how many.
 
     One ``UPDATE``, deliberately: a loop calling ``mark_read`` would be a query
@@ -684,10 +976,17 @@ def mark_all_read(user: Any) -> int:
 
     Not narrowed to ``active``. Clearing the badge must actually leave nothing
     unread, or the number the user just cleared returns on their next page load.
+
+    ``category`` narrows the clear to one category's types (2026-10-29) — the
+    per-tab "mark all read" a categorised inbox needs.
     """
+    from notifications.constants import types_in_categories
     from notifications.selectors import get_unread
 
-    return get_unread(user).update(read_at=timezone.now(), updated_at=timezone.now())
+    unread = get_unread(user)
+    if category:
+        unread = unread.filter(notification_type__in=types_in_categories([category]))
+    return unread.update(read_at=timezone.now(), updated_at=timezone.now())
 
 
 @transaction.atomic
@@ -796,3 +1095,60 @@ def record_generation_failure(notification_type: str, error: Exception) -> None:
         summary=f"Notification generation failed for {notification_type}.",
         metadata={"notification_type": notification_type, "error": type(error).__name__},
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. Retention (2026-10-29)
+# ---------------------------------------------------------------------------
+
+
+def purge_expired(*, older_than_days: int) -> int:
+    """Delete notifications that are old **and** safe to forget. Returns how many.
+
+    Two kinds qualify once older than ``older_than_days``:
+
+    * **Event alerts** (``generated_by = signal``) — they record something that
+      happened; nothing will ever raise them again, so forgetting one loses
+      only history the feed no longer shows.
+    * **Resolved sweep alerts** — their condition cleared. If it comes back,
+      a new alert is the right outcome.
+
+    **Dismissed and still-active sweep alerts are kept, however old.** Their row
+    is what stops tonight's sweep from raising the same condition again — a
+    dismissed passport alert deleted after 90 days would reappear the next
+    morning. One ``DELETE``.
+    """
+    from notifications.selectors import get_purgeable
+
+    deleted, _ = get_purgeable(before=timezone.now() - timedelta(days=older_than_days)).delete()
+    return deleted
+
+
+# ---------------------------------------------------------------------------
+# 7. Preferences (2026-10-29)
+# ---------------------------------------------------------------------------
+
+
+def update_preferences(
+    user: Any,
+    *,
+    in_app: dict[str, bool] | None = None,
+    assigned_only: bool | None = None,
+) -> NotificationPreference:
+    """Change what this user is told. Only the categories and keys supplied change.
+
+    ``in_app`` maps a category to whether it is delivered; categories left out
+    keep their current setting. Takes effect for alerts raised from now on —
+    nothing already in the feed is hidden or deleted. The muted list is stored
+    in vocabulary order so it is stable.
+    """
+    preference, _ = NotificationPreference.objects.get_or_create(user=user)
+    if in_app:
+        muted = set(preference.muted_categories or [])
+        for category, enabled in in_app.items():
+            (muted.discard if enabled else muted.add)(category)
+        preference.muted_categories = [c for c in NotificationCategory.values if c in muted]
+    if assigned_only is not None:
+        preference.assigned_only = assigned_only
+    preference.save()
+    return preference

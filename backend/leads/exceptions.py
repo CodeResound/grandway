@@ -82,3 +82,51 @@ class ConversionNotReadyError(Exception):
     A lost lead must be reopened first — converting a closed enquiry would
     produce an applicant with no coherent lead history behind it.
     """
+
+
+class LeadDeletedError(Exception):
+    """Raised when writing to a soft-deleted lead.
+
+    A deleted lead is frozen until an Admin restores it, so "deleted, then
+    edited" is always two visible events rather than a silent amendment.
+    """
+
+
+class LeadNotDeletedError(Exception):
+    """Raised when restoring a lead that is not deleted."""
+
+
+class DeleteReasonRequiredError(Exception):
+    """Raised when deleting a lead without saying why."""
+
+
+class NoteFutureDateError(Exception):
+    """Raised when a note's ``noted_at`` is later than now (beyond clock skew)."""
+
+
+class NoteBodyRequiredError(Exception):
+    """Raised when a note body is blank once normalized."""
+
+
+class NoteNotPermittedError(Exception):
+    """Raised when someone other than the author or an Admin edits or deletes a note."""
+
+
+class StudyInterestInvalidError(Exception):
+    """Raised when the study interest breaks a pairing or range rule. ``fields`` maps path to message."""
+
+    def __init__(self, fields: dict[str, str]) -> None:
+        super().__init__("The study interest is invalid.")
+        self.fields = fields
+
+
+class CertificateInvalidError(Exception):
+    """Raised when a language certificate breaks a rule. ``fields`` maps ``language_certificates[i].field``."""
+
+    def __init__(self, fields: dict[str, str]) -> None:
+        super().__init__("One or more language certificates are invalid.")
+        self.fields = fields
+
+
+class CertificateLimitError(Exception):
+    """Raised when a lead would hold more than ``MAX_LANGUAGE_CERTIFICATES`` certificates."""

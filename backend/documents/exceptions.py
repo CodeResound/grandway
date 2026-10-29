@@ -47,11 +47,17 @@ class TemplateKeyInvalidError(Exception):
 
 
 class ContentInvalidError(Exception):
-    """Raised when ``content`` is not a JSON object.
+    """Raised when ``content`` is not a JSON object, or breaks its template's rules.
 
     An array or scalar body would break every template, all of which expect a
-    keyed shape.
+    keyed shape. ``fields`` maps a content path (``marking[2].present``) to its
+    message when a validated template rejects specific keys; it is returned to
+    the client as ``error.details.fields``.
     """
+
+    def __init__(self, message: str, fields: dict[str, str] | None = None) -> None:
+        super().__init__(message)
+        self.fields = fields or {}
 
 
 class ContentTooLargeError(Exception):

@@ -10,6 +10,7 @@ import base64
 import hashlib
 import logging
 import secrets
+from datetime import UTC, datetime
 from typing import Any
 
 from core.nepal.text import normalize_unicode
@@ -17,20 +18,33 @@ from django.conf import settings
 from django.contrib.auth import authenticate as django_authenticate
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from authenticate.constants import (
+    AUDIT_APP_LABEL,
+    AUDIT_ENTITY_CLIPBOARD_CATEGORY,
+    AUDIT_ENTITY_CLIPBOARD_ENTRY,
     CLAIM_AUTHORITY_TYPE,
     CLAIM_MUST_CHANGE_PASSWORD,
     CLAIM_SESSION_ID,
+    MAX_CLIPBOARD_CATEGORIES,
+    MAX_CLIPBOARD_ENTRIES,
+    REFRESH_GRACE_EVENT_REASON,
     REFRESH_TOKEN_BYTES,
     AuthEventType,
     AuthorityType,
+    ClipboardAuditAction,
     ProvisionedVia,
+    RefreshRejectReason,
     SessionRevocationReason,
 )
 from authenticate.exceptions import (
+    ClipboardCategoryInvalidError,
+    ClipboardCategoryLimitError,
+    ClipboardCategoryNameTakenError,
+    ClipboardLimitError,
     DeviceLimitError,
     InvalidAuthorityError,
     InvalidCredentialsError,
@@ -47,10 +61,13 @@ from authenticate.exceptions import (
     UsernameTakenError,
 )
 from authenticate.managers import UserManager
-from authenticate.models import AuthEvent, AuthSession, User, UserSecurityState
+from authenticate.models import AuthEvent, AuthSession, ClipboardCategory, ClipboardEntry, User, UserSecurityState
 from authenticate.selectors import (
     TOTP_DEVICE_NAME,
+    count_own_clipboard_categories,
+    count_own_clipboard_entries,
     get_active_session_by_refresh_hash_for_update,
+    get_active_session_in_family,
     get_active_sessions_for_user,
     get_confirmed_totp_device,
     get_confirmed_totp_devices,
@@ -60,6 +77,7 @@ from authenticate.selectors import (
     get_user_session_by_id,
     has_confirmed_mfa,
     managed_tier_for,
+    own_clipboard_category_name_exists,
 )
 from authenticate.validators import validate_password_strength
 
@@ -247,13 +265,22 @@ def _session_lifetimes() -> tuple[Any, Any]:
 
 def build_access_token(user: User, session: AuthSession, must_change_password: bool) -> str:
     """Build a signed access JWT bound to a session (carries sid + authority claims)."""
+    return issue_access_token(user, session, must_change_password)[0]
+
+
+def issue_access_token(user: User, session: AuthSession, must_change_password: bool) -> tuple[str, datetime]:
+    """As ``build_access_token``, plus the instant the token expires (its ``exp`` claim).
+
+    The expiry is returned to clients as ``access_expires_at`` so they can refresh
+    ahead of it instead of waiting for a protected call to 401.
+    """
     from rest_framework_simplejwt.tokens import AccessToken
 
     token = AccessToken.for_user(user)
     token[CLAIM_SESSION_ID] = str(session.id)
     token[CLAIM_AUTHORITY_TYPE] = user.authority_type
     token[CLAIM_MUST_CHANGE_PASSWORD] = must_change_password
-    return str(token)
+    return str(token), datetime.fromtimestamp(token["exp"], tz=UTC)
 
 
 def revoke_session(session: AuthSession, reason: str) -> None:
@@ -408,8 +435,10 @@ def login(
         user_agent=user_agent,
         device_id=device_id,
     )
+    access, access_expires_at = issue_access_token(user, session, must_change)
     return {
-        "access": build_access_token(user, session, must_change),
+        "access": access,
+        "access_expires_at": access_expires_at,
         "refresh": raw_token,
         "session": session,
         "user": user,
@@ -426,9 +455,16 @@ def refresh_session(
 ) -> dict[str, Any]:
     """Rotate a refresh session: issue a new access + refresh, retire the old.
 
-    Reuse of a retired token revokes the whole family (``RefreshTokenReuseError``).
+    Reuse of a retired token revokes the whole family (``RefreshTokenReuseError``),
+    except within ``AUTH_REFRESH_REUSE_GRACE`` of its rotation: that is a
+    concurrent refresh, answered with an access token for the family's current
+    session and ``refresh: None`` (the client already holds the newer token).
+    Any other rejection raises ``InvalidRefreshTokenError`` carrying a reason.
     """
     token_hash = hash_refresh_token(raw_token)
+    rotated: tuple[AuthSession, AuthSession, str] | None = None
+    grace_session: AuthSession | None = None
+    rejection: InvalidRefreshTokenError | None = None
 
     # The rotation runs inside one transaction holding a row lock on the session
     # (see ``get_active_session_by_refresh_hash_for_update``). The audit write
@@ -437,10 +473,22 @@ def refresh_session(
     # a device behind an ``AuthEvent`` insert.
     with transaction.atomic():
         session = get_active_session_by_refresh_hash_for_update(token_hash)
-        if session is None:
-            rotated = _handle_missing_active_session(token_hash)
-        else:
-            rotated = _rotate_locked_session(session, ip_address=ip_address, user_agent=user_agent)
+        try:
+            if session is None:
+                grace_session = _handle_missing_active_session(token_hash)
+            else:
+                rotated = _rotate_locked_session(session, ip_address=ip_address, user_agent=user_agent)
+        except InvalidRefreshTokenError as exc:
+            # Re-raised only once the block has committed. Raising inside it rolled
+            # back the revoke of an expired session, which then stayed active.
+            rejection = exc
+
+    if rejection is not None:
+        _record_refresh_rejected(token_hash, rejection.reason, ip_address=ip_address, user_agent=user_agent)
+        raise rejection
+
+    if grace_session is not None:
+        return _grace_refresh(grace_session, ip_address=ip_address, user_agent=user_agent)
 
     if rotated is None:
         # ``_handle_missing_active_session`` decided this is a reuse; the family
@@ -472,8 +520,10 @@ def refresh_session(
         user_agent=user_agent,
         device_id=old_session.device_id,
     )
+    access, access_expires_at = issue_access_token(new_session.user, new_session, must_change)
     return {
-        "access": build_access_token(new_session.user, new_session, must_change),
+        "access": access,
+        "access_expires_at": access_expires_at,
         "refresh": new_raw,
         "session": new_session,
         "user": new_session.user,
@@ -481,20 +531,79 @@ def refresh_session(
     }
 
 
-def _handle_missing_active_session(token_hash: str) -> None:
-    """Classify a token with no active session: reuse, or simply invalid.
+def _grace_refresh(session: AuthSession, *, ip_address: str | None, user_agent: str) -> dict[str, Any]:
+    """Answer a concurrent refresh: a new access token for ``session``, no rotation."""
+    must_change = _get_or_create_security_state(session.user).must_change_password
+    record_auth_event(
+        event_type=AuthEventType.SESSION_REFRESHED,
+        actor=session.user,
+        subject=session.user,
+        subject_username=session.user.username,
+        success=True,
+        reason=REFRESH_GRACE_EVENT_REASON,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_id=session.device_id,
+    )
+    access, access_expires_at = issue_access_token(session.user, session, must_change)
+    return {
+        "access": access,
+        "access_expires_at": access_expires_at,
+        "refresh": None,
+        "session": session,
+        "user": session.user,
+        "must_change_password": must_change,
+    }
 
-    Returns ``None`` to mean "reuse — the family has been revoked, the caller
-    should raise ``RefreshTokenReuseError``", and raises
-    ``InvalidRefreshTokenError`` otherwise. Reuse detection fires only for a
-    *rotated* (retired-by-refresh) token: a session revoked for any other reason
-    (logout, block, a prior family kill) is simply invalid, not a fresh reuse.
+
+def _record_refresh_rejected(token_hash: str, reason: str, *, ip_address: str | None, user_agent: str) -> None:
+    """Audit a rejected refresh, attributed to the token's user when it is known."""
+    stale = get_session_by_refresh_hash(token_hash)
+    record_auth_event(
+        event_type=AuthEventType.REFRESH_REJECTED,
+        subject=stale.user if stale else None,
+        subject_username=stale.user.username if stale else "",
+        success=False,
+        reason=reason,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_id=stale.device_id if stale else "",
+    )
+
+
+def _handle_missing_active_session(token_hash: str) -> AuthSession | None:
+    """Classify a token with no active session: concurrent refresh, reuse, or invalid.
+
+    - Rotated within ``AUTH_REFRESH_REUSE_GRACE`` while its family still has a
+      live session: returns that session. Two tabs, or a burst of 401s, present
+      the same token at once; the loser of the row lock lands here and must not
+      log the user out. The window is short, so real replay is still caught.
+    - Rotated otherwise: revokes the family and returns ``None`` — the caller
+      raises ``RefreshTokenReuseError``.
+    - Anything else raises ``InvalidRefreshTokenError`` with the revocation
+      reason. Reuse detection fires only for a *rotated* (retired-by-refresh)
+      token: a session revoked for any other reason (logout, block, a prior
+      family kill) is simply invalid, not a fresh reuse.
     """
     stale = get_session_by_refresh_hash(token_hash)
-    if stale is not None and not stale.is_active and stale.revoked_reason == SessionRevocationReason.ROTATED:
-        revoke_family(stale.family_id, SessionRevocationReason.ROTATED_REUSE)
-        return None
-    raise InvalidRefreshTokenError
+    if stale is None or stale.is_active:
+        raise InvalidRefreshTokenError(RefreshRejectReason.NOT_FOUND)
+    if stale.revoked_reason != SessionRevocationReason.ROTATED:
+        raise InvalidRefreshTokenError(stale.revoked_reason or RefreshRejectReason.NOT_FOUND)
+
+    now = timezone.now()
+    if stale.revoked_at is not None and now - stale.revoked_at < settings.AUTH_REFRESH_REUSE_GRACE:
+        current = get_active_session_in_family(stale.family_id)
+        if (
+            current is not None
+            and current.user.is_active
+            and now < current.expires_at
+            and now < current.idle_expires_at
+        ):
+            return current
+
+    revoke_family(stale.family_id, SessionRevocationReason.ROTATED_REUSE)
+    return None
 
 
 def _rotate_locked_session(
@@ -508,9 +617,12 @@ def _rotate_locked_session(
     Returns ``(old_session, new_session, raw_refresh_token)``.
     """
     now = timezone.now()
-    if now >= session.expires_at or now >= session.idle_expires_at or not session.user.is_active:
-        revoke_session(session, SessionRevocationReason.ADMIN_REVOKED)
-        raise InvalidRefreshTokenError
+    if not session.user.is_active:
+        revoke_session(session, SessionRevocationReason.BLOCKED)
+        raise InvalidRefreshTokenError(SessionRevocationReason.BLOCKED)
+    if now >= session.expires_at or now >= session.idle_expires_at:
+        revoke_session(session, SessionRevocationReason.EXPIRED)
+        raise InvalidRefreshTokenError(SessionRevocationReason.EXPIRED)
 
     # Retire the old session FIRST so the one-active-session-per-device unique
     # constraint is never momentarily violated by two active rows.
@@ -1092,3 +1204,205 @@ def _get_or_create_security_state(user: User) -> UserSecurityState:
         defaults={"provisioned_via": ProvisionedVia.ADMIN_CREATED},
     )
     return state
+
+
+# ---------------------------------------------------------------------------
+# Personal clipboard (2026-10-29, frontend updates.md §5)
+# ---------------------------------------------------------------------------
+#
+# Owner-only by construction: every function takes the owning user and every
+# lookup in ``selectors`` starts from it. The text and the label may hold an
+# identity number, so neither ever reaches the audit trail — events carry ids,
+# the field key, and nothing a person typed.
+
+
+def _record_clipboard_event(*, user: User, action: str, entity_type: str, entity_id: Any, **kw: Any) -> None:
+    from audit.services import record_event
+
+    record_event(
+        app_label=AUDIT_APP_LABEL,
+        action=action,
+        actor_type=user.authority_type,
+        actor_id=str(user.id),
+        actor_label=user.username,
+        entity_type=entity_type,
+        entity_id=str(entity_id),
+        source="authenticate",
+        **kw,
+    )
+
+
+def _clean_clipboard_text(value: str) -> str:
+    return normalize_unicode(value or "").strip()
+
+
+def _assert_own_category(user: User, category: Any) -> None:
+    if category is not None and category.user_id != user.id:
+        raise ClipboardCategoryInvalidError("That category is not one of yours.")
+
+
+@transaction.atomic
+def create_clipboard_entry(
+    *,
+    user: User,
+    label: str,
+    text: str,
+    field_key: str = "",
+    category: Any = None,
+    ip_address: str | None = None,
+) -> Any:
+    """Save a snippet to the caller's clipboard. Refused once they hold ``MAX_CLIPBOARD_ENTRIES``."""
+
+    _assert_own_category(user, category)
+    # Lock the owner row so two concurrent saves cannot both slip under the cap.
+    User.objects.select_for_update().filter(pk=user.pk).first()
+    if count_own_clipboard_entries(user) >= MAX_CLIPBOARD_ENTRIES:
+        raise ClipboardLimitError(f"A clipboard holds at most {MAX_CLIPBOARD_ENTRIES} entries.")
+
+    entry = ClipboardEntry.objects.create(
+        user=user,
+        label=_clean_clipboard_text(label),
+        text=_clean_clipboard_text(text),
+        field_key=field_key or "",
+        category=category,
+    )
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.ENTRY_CREATED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_ENTRY,
+        entity_id=entry.id,
+        ip_address=ip_address,
+        summary="Clipboard entry saved.",
+        metadata={"field_key": entry.field_key},
+    )
+    return entry
+
+
+@transaction.atomic
+def update_clipboard_entry(
+    *,
+    user: User,
+    entry: Any,
+    fields: dict[str, Any],
+    ip_address: str | None = None,
+) -> Any:
+    """Change any of ``label``, ``text``, ``field_key``, ``category`` (``None`` uncategorizes)."""
+
+    if "category" in fields:
+        _assert_own_category(user, fields["category"])
+    changed: list[str] = []
+    for name in ("label", "text", "field_key", "category"):
+        if name not in fields:
+            continue
+        value = fields[name]
+        if name in ("label", "text"):
+            value = _clean_clipboard_text(value)
+        elif name == "field_key":
+            value = value or ""
+        if getattr(entry, name) != value:
+            setattr(entry, name, value)
+            changed.append(name)
+    if not changed:
+        return entry
+
+    entry.save(update_fields=[*changed, "updated_at"])
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.ENTRY_UPDATED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_ENTRY,
+        entity_id=entry.id,
+        ip_address=ip_address,
+        summary="Clipboard entry changed.",
+        # Which fields moved, never their values.
+        metadata={"fields": changed, "field_key": entry.field_key},
+    )
+    return entry
+
+
+@transaction.atomic
+def delete_clipboard_entry(*, user: User, entry: Any, ip_address: str | None = None) -> None:
+    """Remove a snippet for good. Nothing else refers to it."""
+
+    entry_id, field_key = entry.id, entry.field_key
+    entry.delete()
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.ENTRY_DELETED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_ENTRY,
+        entity_id=entry_id,
+        ip_address=ip_address,
+        summary="Clipboard entry deleted.",
+        metadata={"field_key": field_key},
+    )
+
+
+def use_clipboard_entry(entry: Any) -> Any:
+    """Count one copy of this entry. One ``UPDATE``; not audited — it is a ranking signal, not an act."""
+
+    ClipboardEntry.objects.filter(pk=entry.pk).update(
+        usage_count=F("usage_count") + 1, last_used_at=timezone.now(), updated_at=timezone.now()
+    )
+    entry.refresh_from_db()
+    return entry
+
+
+@transaction.atomic
+def create_clipboard_category(*, user: User, name: str, ip_address: str | None = None) -> Any:
+    """Make a new group for the caller's entries. Names are unique per account, ignoring case."""
+
+    cleaned = _clean_clipboard_text(name)
+    User.objects.select_for_update().filter(pk=user.pk).first()
+    if own_clipboard_category_name_exists(user, cleaned):
+        raise ClipboardCategoryNameTakenError("You already have a category with that name.")
+    if count_own_clipboard_categories(user) >= MAX_CLIPBOARD_CATEGORIES:
+        raise ClipboardCategoryLimitError(f"A clipboard holds at most {MAX_CLIPBOARD_CATEGORIES} categories.")
+
+    category = ClipboardCategory.objects.create(user=user, name=cleaned)
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.CATEGORY_CREATED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_CATEGORY,
+        entity_id=category.id,
+        ip_address=ip_address,
+        summary="Clipboard category created.",
+    )
+    return category
+
+
+@transaction.atomic
+def rename_clipboard_category(*, user: User, category: Any, name: str, ip_address: str | None = None) -> Any:
+    cleaned = _clean_clipboard_text(name)
+    if cleaned == category.name:
+        return category
+    if own_clipboard_category_name_exists(user, cleaned, exclude_id=category.id):
+        raise ClipboardCategoryNameTakenError("You already have a category with that name.")
+    category.name = cleaned
+    category.save(update_fields=["name", "updated_at"])
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.CATEGORY_UPDATED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_CATEGORY,
+        entity_id=category.id,
+        ip_address=ip_address,
+        summary="Clipboard category renamed.",
+    )
+    return category
+
+
+@transaction.atomic
+def delete_clipboard_category(*, user: User, category: Any, ip_address: str | None = None) -> int:
+    """Delete a group. Its entries stay, uncategorized. Returns how many entries that was."""
+
+    category_id = category.id
+    moved = category.entries.count()
+    category.delete()  # entries: SET_NULL
+    _record_clipboard_event(
+        user=user,
+        action=ClipboardAuditAction.CATEGORY_DELETED,
+        entity_type=AUDIT_ENTITY_CLIPBOARD_CATEGORY,
+        entity_id=category_id,
+        ip_address=ip_address,
+        summary="Clipboard category deleted.",
+        metadata={"entries_uncategorized": moved},
+    )
+    return moved

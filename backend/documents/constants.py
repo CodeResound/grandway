@@ -87,9 +87,24 @@ SELECTABLE_STATUSES: tuple[str, ...] = (
     DocumentStatus.READY,
 )
 
-#: Status a restored document returns to. Never ``ready`` — whoever archived it
-#: may have done so precisely because it was not ready.
+#: Status a restored document returns to when the status it held before
+#: archiving is unknown — documents archived before ``status_before_archive``
+#: existed. Otherwise a restore returns the document to exactly where it was:
+#: "removed" is how staff use archive, and undoing a removal should not demote
+#: a finished document to draft.
 DEFAULT_RESTORE_STATUS: str = DocumentStatus.DRAFT
+
+#: Layout version a document is authored for when the client does not say.
+#: Every document created before the field existed was rendered with layout 1.
+DEFAULT_TEMPLATE_VERSION: str = "1"
+
+#: A template version is an opaque ASCII label the frontend chooses ("1", "2",
+#: "2026.03"). Not checked against a list: layouts are frontend code.
+TEMPLATE_VERSION_PATTERN: str = r"^[A-Za-z0-9._-]{1,20}$"
+
+#: The one template whose ``content`` the backend validates — see
+#: ``validators.validate_template_content``.
+STUDENT_CERTIFICATE_TEMPLATE_KEY: str = "student-certificate"
 
 
 #: Maximum serialized size of ``content``, in bytes.

@@ -3,9 +3,13 @@
 from django.urls import path
 
 from applicants.views import (
+    ApplicantAssignView,
     ApplicantDetailView,
     ApplicantHistoryView,
     ApplicantListCreateView,
+    ApplicantNoteDetailView,
+    ApplicantNoteListCreateView,
+    ApplicantRestoreView,
     ApplicantStatusView,
 )
 
@@ -15,5 +19,13 @@ urlpatterns = [
     path("", ApplicantListCreateView.as_view(), name="applicant-list"),
     path("<uuid:applicant_id>/", ApplicantDetailView.as_view(), name="applicant-detail"),
     path("<uuid:applicant_id>/status/", ApplicantStatusView.as_view(), name="applicant-status"),
+    path("<uuid:applicant_id>/restore/", ApplicantRestoreView.as_view(), name="applicant-restore"),
+    path("<uuid:applicant_id>/assign/", ApplicantAssignView.as_view(), name="applicant-assign"),
+    path("<uuid:applicant_id>/notes/", ApplicantNoteListCreateView.as_view(), name="applicant-note-list"),
+    path(
+        "<uuid:applicant_id>/notes/<uuid:note_id>/",
+        ApplicantNoteDetailView.as_view(),
+        name="applicant-note-detail",
+    ),
     path("<uuid:applicant_id>/history/", ApplicantHistoryView.as_view(), name="applicant-history"),
 ]

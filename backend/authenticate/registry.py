@@ -52,6 +52,38 @@ _SESSION_MGMT: dict[str, Any] = {
     "model_display_name": "Auth Session",
 }
 
+# Personal clipboard (2026-10-29): every authority, own entries only.
+_CLIPBOARD_APP: dict[str, Any] = {
+    "app_key": "authenticate",
+    "app_display_name": "Authenticate",
+    "version": "1.0.0",
+    "is_internal": False,
+    "category_key": "personal_tools",
+    "category_display_name": "Personal Tools",
+}
+_CLIPBOARD_ENTRY: dict[str, Any] = {
+    **_CLIPBOARD_APP,
+    "model_key": "clipboard_entry",
+    "model_display_name": "Clipboard Entry",
+}
+_CLIPBOARD_CATEGORY: dict[str, Any] = {
+    **_CLIPBOARD_APP,
+    "model_key": "clipboard_category",
+    "model_display_name": "Clipboard Category",
+}
+_CLIPBOARD_REASON = "Personal per-account clipboard (frontend updates.md §5, 2026-10-29)."
+_REQUIRES_ENTRY_LIST = _dep(
+    "authenticate.clipboard_entry.list", "An entry id is discovered from the caller's own clipboard list."
+)
+_REQUIRES_CATEGORY_LIST = _dep(
+    "authenticate.clipboard_category.list", "A category id is discovered from the caller's own category list."
+)
+_OPTIONAL_CATEGORY = {
+    **_REQUIRES_CATEGORY_LIST,
+    "enforcement_mode": "warning",
+    "reason": "Filing an entry in a category needs the category list; a category is optional.",
+}
+
 POLICY_ENDPOINTS: list[dict[str, Any]] = [
     # 1. Login — public entry point; establishes a device-bound session. Root dep.
     {
@@ -69,8 +101,14 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "risk_level": "high",
         "is_dependency_root": True,
         "dependencies": [],
-        "change_summary": "Initial registration of the login endpoint.",
-        "change_reason": "authenticate app Phase 1 foundation.",
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Added access_expires_at; the refresh cookie now persists for the session's absolute lifetime.",
+        "change_reason": (
+            "Clients could not schedule a refresh ahead of access-token expiry, and a session cookie "
+            "ended the session whenever the browser closed. Additive response field (§22 non-breaking); "
+            "the cookie lifetime change is an approved auth behaviour change (§28 item 4)."
+        ),
     },
     # 2. Refresh — rotate the session; requires an existing session (login).
     {
@@ -87,8 +125,17 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "view_import_path": "authenticate.views.RefreshView",
         "risk_level": "medium",
         "dependencies": _REQUIRES_LOGIN,
-        "change_summary": "Initial registration of the refresh endpoint.",
-        "change_reason": "authenticate app Phase 1 foundation.",
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.1.0",
+        "change_summary": "Reuse grace window, access_expires_at, error.details.reason, per-token throttle, persistent cookie.",
+        "change_reason": (
+            "Users were signed out every 15-20 minutes: a concurrent refresh presenting the token just "
+            "rotated away was treated as reuse and revoked the session. Within "
+            "AUTH_REFRESH_REUSE_GRACE_SECONDS it now returns an access token for the family's current "
+            "session without rotating. AUTH_REFRESH_INVALID gains details.reason; access_expires_at is "
+            "added; throttling is per token as well as per IP. Backward compatible: same codes, "
+            "additive fields (§22, §29)."
+        ),
     },
     # 3. Logout — revoke the current session.
     {
@@ -425,7 +472,150 @@ POLICY_ENDPOINTS: list[dict[str, Any]] = [
         "dependencies": [
             _dep("authenticate.session.list", "Revoking own sessions requires the ability to list them.")
         ],
-        "change_summary": "Initial registration of the own-session revoke endpoint.",
-        "change_reason": "authenticate app Phase 3 (session management).",
+        # Route and method unchanged; a version bump appends a record (§35 item 10).
+        "version": "1.0.1",
+        "change_summary": "Stopped clearing the caller's refresh cookie when only other sessions are revoked.",
+        "change_reason": (
+            "\"Log out other devices\" (others_only, or another session's id) cleared the caller's own "
+            "refresh cookie, signing them out at their next refresh. Bug fix; no contract change."
+        ),
+    },
+    # --- Personal clipboard (2026-10-29) ------------------------------------
+    # Owner-only for every authority, Superadmin included. Low risk: nobody but
+    # the owner can read or change an entry, and the text never reaches a log.
+    {
+        **_CLIPBOARD_ENTRY,
+        "endpoint_key": "clipboard-entry-list",
+        "permission_key": "authenticate.clipboard_entry.list",
+        "operation_type": "list",
+        "display_name": "List Own Clipboard",
+        "description": "The caller's own clipboard entries, most used first; filter by field key, category, or search.",
+        "http_method": "GET",
+        "route_pattern": "/api/v1/auth/me/clipboard/",
+        "view_import_path": "authenticate.views.ClipboardListView",
+        "risk_level": "low",
+        "dependencies": _REQUIRES_LOGIN,
+        "change_summary": "Initial registration of the clipboard list endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
+    },
+    {
+        **_CLIPBOARD_ENTRY,
+        "endpoint_key": "clipboard-entry-create",
+        "permission_key": "authenticate.clipboard_entry.create",
+        "operation_type": "create",
+        "display_name": "Save Clipboard Entry",
+        "description": "Save a snippet (label, text, optional field key and category) to the caller's own clipboard.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/me/clipboard/",
+        "view_import_path": "authenticate.views.ClipboardListView",
+        "risk_level": "low",
+        "dependencies": [*_REQUIRES_LOGIN, _OPTIONAL_CATEGORY],
+        "change_summary": "Initial registration of the clipboard create endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
+    },
+    {
+        **_CLIPBOARD_ENTRY,
+        "endpoint_key": "clipboard-entry-update",
+        "permission_key": "authenticate.clipboard_entry.update",
+        "operation_type": "update",
+        "display_name": "Update Clipboard Entry",
+        "description": "Change the label, text, field key, or category of one of the caller's own entries.",
+        "http_method": "PATCH",
+        "route_pattern": "/api/v1/auth/me/clipboard/<entry_id>/",
+        "view_import_path": "authenticate.views.ClipboardDetailView",
+        "risk_level": "low",
+        "dependencies": [*_REQUIRES_LOGIN, _REQUIRES_ENTRY_LIST, _OPTIONAL_CATEGORY],
+        "change_summary": "Initial registration of the clipboard update endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
+    },
+    {
+        **_CLIPBOARD_ENTRY,
+        "endpoint_key": "clipboard-entry-delete",
+        "permission_key": "authenticate.clipboard_entry.delete",
+        "operation_type": "delete",
+        "display_name": "Delete Clipboard Entry",
+        "description": "Permanently delete one of the caller's own clipboard entries.",
+        "http_method": "DELETE",
+        "route_pattern": "/api/v1/auth/me/clipboard/<entry_id>/",
+        "view_import_path": "authenticate.views.ClipboardDetailView",
+        "risk_level": "low",
+        "dependencies": [*_REQUIRES_LOGIN, _REQUIRES_ENTRY_LIST],
+        "change_summary": "Initial registration of the clipboard delete endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
+    },
+    {
+        **_CLIPBOARD_ENTRY,
+        "endpoint_key": "clipboard-entry-use",
+        "permission_key": "authenticate.clipboard_entry.use",
+        "operation_type": "custom",
+        "display_name": "Use Clipboard Entry",
+        "description": "Record that the caller copied one of their entries, so the list ranks it higher.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/me/clipboard/<entry_id>/use/",
+        "view_import_path": "authenticate.views.ClipboardUseView",
+        "risk_level": "low",
+        "dependencies": [*_REQUIRES_LOGIN, _REQUIRES_ENTRY_LIST],
+        "change_summary": "Initial registration of the clipboard use endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
+    },
+    {
+        **_CLIPBOARD_CATEGORY,
+        "endpoint_key": "clipboard-category-list",
+        "permission_key": "authenticate.clipboard_category.list",
+        "operation_type": "list",
+        "display_name": "List Own Clipboard Categories",
+        "description": "The caller's own clipboard categories by name, each with its entry count.",
+        "http_method": "GET",
+        "route_pattern": "/api/v1/auth/me/clipboard/categories/",
+        "view_import_path": "authenticate.views.ClipboardCategoryListView",
+        "risk_level": "low",
+        "dependencies": _REQUIRES_LOGIN,
+        "change_summary": "Initial registration of the clipboard category list endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
+    },
+    {
+        **_CLIPBOARD_CATEGORY,
+        "endpoint_key": "clipboard-category-create",
+        "permission_key": "authenticate.clipboard_category.create",
+        "operation_type": "create",
+        "display_name": "Create Clipboard Category",
+        "description": "Create a category on the caller's own clipboard. Names are unique per account, ignoring case.",
+        "http_method": "POST",
+        "route_pattern": "/api/v1/auth/me/clipboard/categories/",
+        "view_import_path": "authenticate.views.ClipboardCategoryListView",
+        "risk_level": "low",
+        "dependencies": _REQUIRES_LOGIN,
+        "change_summary": "Initial registration of the clipboard category create endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
+    },
+    {
+        **_CLIPBOARD_CATEGORY,
+        "endpoint_key": "clipboard-category-update",
+        "permission_key": "authenticate.clipboard_category.update",
+        "operation_type": "update",
+        "display_name": "Rename Clipboard Category",
+        "description": "Rename one of the caller's own clipboard categories.",
+        "http_method": "PATCH",
+        "route_pattern": "/api/v1/auth/me/clipboard/categories/<category_id>/",
+        "view_import_path": "authenticate.views.ClipboardCategoryDetailView",
+        "risk_level": "low",
+        "dependencies": [*_REQUIRES_LOGIN, _REQUIRES_CATEGORY_LIST],
+        "change_summary": "Initial registration of the clipboard category rename endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
+    },
+    {
+        **_CLIPBOARD_CATEGORY,
+        "endpoint_key": "clipboard-category-delete",
+        "permission_key": "authenticate.clipboard_category.delete",
+        "operation_type": "delete",
+        "display_name": "Delete Clipboard Category",
+        "description": "Delete one of the caller's own clipboard categories; its entries are kept, uncategorized.",
+        "http_method": "DELETE",
+        "route_pattern": "/api/v1/auth/me/clipboard/categories/<category_id>/",
+        "view_import_path": "authenticate.views.ClipboardCategoryDetailView",
+        "risk_level": "low",
+        "dependencies": [*_REQUIRES_LOGIN, _REQUIRES_CATEGORY_LIST],
+        "change_summary": "Initial registration of the clipboard category delete endpoint.",
+        "change_reason": _CLIPBOARD_REASON,
     },
 ]

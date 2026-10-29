@@ -20,6 +20,11 @@ class ApplicantStatus(models.TextChoices):
     ARCHIVED = "archived", "Archived"
 
 
+#: Status a restored applicant returns to when the status held before archiving
+#: is unknown (archived before ``status_before_archive`` existed).
+DEFAULT_RESTORE_STATUS = ApplicantStatus.ACTIVE
+
+
 class CreationSource(models.TextChoices):
     """How the applicant record came into existence.
 
@@ -50,7 +55,15 @@ class FamilyRelationship(models.TextChoices):
     SIBLING = "sibling", "Sibling"
     CHILD = "child", "Child"
     GUARDIAN = "guardian", "Guardian"
+    # Ward-office (Woda) letters name the grandparents (2026-10-29).
+    GRANDFATHER = "grandfather", "Grandfather"
+    GRANDMOTHER = "grandmother", "Grandmother"
     OTHER = "other", "Other"
+
+
+class EducationStatus(models.TextChoices):
+    COMPLETED = "completed", "Completed"
+    ONGOING = "ongoing", "Ongoing"
 
 
 class ApplicantAuditAction:
@@ -68,7 +81,20 @@ class ApplicantAuditAction:
     APPLICANT_FAMILY_CHANGED = "applicant_family_changed"
     APPLICANT_EMERGENCY_CONTACT_CHANGED = "applicant_emergency_contact_changed"
     APPLICANT_STATUS_CHANGED = "applicant_status_changed"
+    APPLICANT_RESTORED = "applicant_restored"
+    APPLICANT_NOTE_ADDED = "applicant_note_added"
+    APPLICANT_NOTE_UPDATED = "applicant_note_updated"
+    APPLICANT_NOTE_DELETED = "applicant_note_deleted"
+    APPLICANT_NOTES_IMPORTED = "applicant_notes_imported"
+    APPLICANT_EDUCATION_CHANGED = "applicant_education_changed"
+    APPLICANT_LANGUAGE_TESTS_CHANGED = "applicant_language_tests_changed"
+    APPLICANT_ASSIGNED = "applicant_assigned"
+    APPLICANT_UNASSIGNED = "applicant_unassigned"
 
+
+#: ``?assigned_to=`` literals: the caller, and "nobody".
+ASSIGNED_TO_ME = "me"
+ASSIGNED_TO_NONE = "none"
 
 #: ``audit.AuditEvent.app_label`` value for every event this app records.
 AUDIT_APP_LABEL = "applicants"
@@ -85,3 +111,12 @@ class ErrorCode:
     CONTACT_REQUIRED = "APPLICANTS_CONTACT_REQUIRED"
     STATUS_UNCHANGED = "APPLICANTS_STATUS_UNCHANGED"
     PASSPORT_EXPIRY_INVALID = "APPLICANTS_PASSPORT_EXPIRY_INVALID"
+    APPLICANT_ARCHIVED = "APPLICANTS_APPLICANT_ARCHIVED"
+    APPLICANT_NOT_ARCHIVED = "APPLICANTS_APPLICANT_NOT_ARCHIVED"
+    NOTE_NOT_FOUND = "APPLICANTS_NOTE_NOT_FOUND"
+    NOTE_FORBIDDEN = "APPLICANTS_NOTE_FORBIDDEN"
+    NOTE_FUTURE_DATE = "APPLICANTS_NOTE_FUTURE_DATE"
+    EDUCATION_INVALID = "APPLICANTS_EDUCATION_INVALID"
+    LANGUAGE_TEST_INVALID = "APPLICANTS_LANGUAGE_TEST_INVALID"
+    ASSIGNEE_INVALID = "APPLICANTS_ASSIGNEE_INVALID"
+    ASSIGNMENT_FORBIDDEN = "APPLICANTS_ASSIGNMENT_FORBIDDEN"

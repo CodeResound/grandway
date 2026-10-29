@@ -188,6 +188,15 @@ Notes should preserve:
 * Note content
 * Author
 * Creation date and time
+* When the noted event happened (which may be earlier than when the note was
+  written — a visit written up the next morning)
+* Whether it is a general note or a record of an office visit
+
+The author, or an Admin, may correct or remove a note. Removal hides the note
+from the notes panel but never erases it: the note and every correction stay in
+the history. Once a lead is converted its notes are copied onto the applicant,
+where work continues; on the lead they become read-only.
+(Decided 2026-10-29, frontend updates.md §2.)
 
 Important lead actions should appear in a chronological history, including:
 
@@ -333,7 +342,9 @@ A Lead Manager may not:
 * View another Lead Manager's leads by default
 * Transfer or reassign leads
 * Convert a lead into an applicant
-* Delete lead history
+* Delete lead history (correcting or hiding their own note is allowed; the
+  history of it is kept)
+* Delete or restore a lead
 * Permanently delete a lead
 * Manage global lead-source configuration
 
@@ -350,22 +361,32 @@ An Admin may:
 * Configure available lead sources
 * Configure available loss reasons
 * Review lead history
+* Delete a lead that should not be worked (a duplicate, spam, a test entry),
+  with a reason, and restore it
+* Correct or remove any note
 
 Important Admin actions remain auditable.
 
-## No archive or deletion workflow
+## Deletion (soft) — amended 2026-10-29
 
-Lead Management does not require archive, restore, or ordinary deletion
-functionality in V1.
+V1 originally had no archive, restore, or deletion. The frontend asked for lead
+deletion (updates.md §3.1), and it was added as a **soft delete**:
 
-Leads remain available according to their stage:
+* Only an Admin deletes a lead, and must give a reason. Only an Admin restores.
+* A deleted lead disappears from every list, search, and dashboard, and from
+  its own Lead Manager. Admins can still list and open deleted leads.
+* Nothing is erased. The lead, its notes, and its history are kept, and a
+  deleted lead cannot be changed until it is restored.
+* A converted lead cannot be deleted — it is the origin record of an applicant.
+
+Stages still describe availability for everything that is not deleted:
 
 * Active stages represent leads still being tracked.
 * `Converted` represents leads that entered the applicant lifecycle.
 * `Lost` represents leads that did not proceed.
 
-This preserves the consultancy's lead history without introducing a separate
-archival lifecycle.
+Deletion is not a stage and not a substitute for `lost`: a lost lead is a real
+outcome that stays in reporting; a deleted lead should never have counted.
 
 ## Lifecycle separation
 
@@ -410,7 +431,7 @@ The Lead Management module does not include:
 * Appointment management
 * Task management
 * Lead archival
-* Lead deletion workflows
+* Permanent (hard) lead deletion
 * Applicant academic records
 * Applicant documents or files
 * Offer management

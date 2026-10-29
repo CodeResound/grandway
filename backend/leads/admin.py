@@ -6,6 +6,8 @@ they are set by the service layer, and admin must never bypass it (§13).
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.contrib import admin
 
 from leads.models import (
@@ -65,20 +67,41 @@ class LeadAdmin(admin.ModelAdmin):
         "stage_before_loss",
         "converted_at",
         "converted_by",
+        "deleted_at",
+        "deleted_by",
+        "delete_reason",
         "created_at",
         "updated_at",
     )
     inlines = [LeadContactNumberInline, LeadStudyInterestInline]
     ordering = ("-created_at",)
 
+    def has_delete_permission(self, request: Any, obj: Any = None) -> bool:
+        # Soft delete through DELETE /api/v1/leads/<id>/ is the only removal. A
+        # hard delete here would cascade the lead's notes and erase its history.
+        return False
+
 
 @admin.register(LeadNote)
 class LeadNoteAdmin(admin.ModelAdmin):
-    """Notes are append-only; everything on an existing note is read-only."""
+    """Read-only here: notes are edited and soft-deleted through the API, which audits it."""
 
-    list_display = ("lead", "author", "created_at")
+    list_display = ("lead", "category", "author", "noted_at", "deleted_at")
+    list_filter = ("category",)
     search_fields = ("lead__full_name", "body")
-    readonly_fields = ("id", "lead", "body", "author", "created_at", "updated_at")
+    readonly_fields = (
+        "id",
+        "lead",
+        "category",
+        "body",
+        "noted_at",
+        "author",
+        "updated_by",
+        "deleted_at",
+        "deleted_by",
+        "created_at",
+        "updated_at",
+    )
 
     def has_delete_permission(self, request: object, obj: object | None = None) -> bool:
         return False

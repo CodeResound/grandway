@@ -1,7 +1,7 @@
 # Security — Applicants
 
 **Owner app:** `applicants`
-**Version:** 1.0.1
+**Version:** 1.2.0
 **Status:** Active
 **Created:** 2026-07-23
 
@@ -13,6 +13,8 @@ This document is required per project rulebook §19 because `applicants` makes i
 |---------|------|--------|---------|
 | 1.0.0 | 2026-07-23 | AI (Claude) | Initial security documentation |
 | 1.0.1 | 2026-07-24 | AI (Claude) | No endpoint or schema change. Corrected statements that `uploaded_files` does not exist — it shipped 2026-07-24. Noted where a photograph may now be stored and how its access differs |
+| 1.1.0 | 2026-10-29 | AI (Claude Opus 5.5) | §1: restore is Admin-only (status/ no longer un-archives); applicant notes follow the record's access, edit/delete author-or-Admin. §6: citizenship and national ID numbers are withheld from the audit log; education and language-test events carry a count only |
+| 1.2.0 | 2026-10-29 | AI (Claude Opus 5.5) | New §9: optional assignment is notification routing, **not** an access control — the shared model of §1 is unchanged; the Lead Manager take/release rule. §6: notification payloads raised from this app's events never carry identity numbers, scores, or note text |
 
 ---
 
@@ -20,8 +22,8 @@ This document is required per project rulebook §19 because `applicants` makes i
 
 | Authority | Read / edit applicants | Create an applicant |
 |---|---|---|
-| Lead Manager | **any** applicant | **denied — 403** |
-| Admin | **any** applicant | allowed |
+| Lead Manager | **any** applicant; may archive, may **not** restore | **denied — 403** |
+| Admin | **any** applicant; archive and **restore** | allowed |
 | Superadmin | **denied — 403** | **denied — 403** |
 | Unauthenticated | 401 | 401 |
 
@@ -32,6 +34,12 @@ This document is required per project rulebook §19 because `applicants` makes i
 There is also a practical trap that owner-scoping would spring. Conversion is Admin-only, so a converted applicant's `created_by` is the **Admin who converted**, not the Lead Manager who sourced the enquiry. Under owner-scoping the applicant would become invisible to the person who knows the most about them. Sharing avoids that without needing a special case.
 
 Attribution survives regardless: `leads.Lead.created_by` still names the originating Lead Manager, and `applicant.originating_lead` resolves back to that lead.
+
+**Restore is Admin-only (2026-10-29).** Until then `POST /status/` let anyone move an applicant out of `archived`, contradicting `concepts/applicants.txt` ("Archive and restore" is listed under Admin). Archiving is still open to both — closing a file is routine — but bringing one back now goes through `POST /restore/`, which checks `require_admin`, and `status/` refuses to leave `archived` (409). Approved as a §28 item 5 access change.
+
+**Notes.** Applicant notes follow the applicant's own access: Admins and Lead Managers read and write notes on any applicant. Editing or deleting a note is limited to its author or an Admin (`APPLICANTS_NOTE_FORBIDDEN`), and deletion is soft and audited. Note text never enters the audit log — only id, category, `noted_at`, and whether it was backdated.
+
+**Assignment does not change any of this.** An applicant may name an assignee (2026-10-29); every row of the table above still holds for every applicant, assigned or not. See §9.
 
 ## 2. Creation is Admin-only
 
@@ -63,11 +71,12 @@ This matters because `creation_source` is the only field distinguishing a lead-o
 
 ## 6. Sensitive data handling
 
-This app holds the most sensitive data in the system to date: dates of birth, passport numbers and expiry, home addresses, and family members' names and contact details.
+This app holds the most sensitive data in the system to date: dates of birth, passport numbers and expiry, citizenship and national ID numbers, home addresses, and family members' names, contact details, and citizenship numbers.
 
-- **Nothing sensitive enters the audit log.** Events record *that* a passport or address changed and the count of rows replaced — never the passport number, never the address text, never a family member's name. `changes` is populated only for scalar identity fields on the applicant itself.
+- **Nothing sensitive enters the audit log.** Events record *that* a passport or address changed and the count of rows replaced — never the passport number, never the address text, never a family member's name. `changes` is populated only for scalar identity fields on the applicant itself — and `citizenship_no` / `national_id_no` among those are recorded only as `{"from": "<changed>", "to": "<changed>"}`, the same withholding the passport number gets. Education and language-test events carry only a count, never a score.
 - **No field-level redaction exists.** Every lead actor who can read an applicant reads the whole record, passport included. Whether passport and date of birth should be Admin-only is an open question in `concepts/applicants.txt`; today they are not.
 - **No photograph is stored *by this app***, deliberately (§14) — see `DATA_CONTRACT.md` Deliberate Deviations. A photograph may now be stored **against** an applicant in `uploaded_files`, which owns the whole §14 contract for it (see that app's `docs/SECURITY.md`). Note the access difference: this app's records and that app's files are both readable by any Admin or Lead Manager, but a file's *bytes* leave the system only through an audited download endpoint.
+- **Nothing sensitive enters a notification either (2026-10-29).** This app's domain events (`core.events.emit`) carry ids and enum strings only — the applicant id, a note id and category, a from/to status, assignee ids. The alerts `notifications` builds from them, and the sweep's passport and language-test expiry alerts, carry the applicant's name, the acting staff member's name, a status, a note id, or a test type and expiry timing — **never** a citizenship, national-ID, or passport number, never a test score, and never note text. Assignment audit events record user ids, not names.
 - **No export endpoint.** There is no bulk download of applicant data, which keeps the exposure surface to one record per request.
 
 ## 7. Input handling
@@ -84,3 +93,13 @@ This app holds the most sensitive data in the system to date: dates of birth, pa
 - **No duplicate detection.** Two records for the same person is a real risk and is explicitly out of scope — resolving it needs a merge process that preserves both histories.
 - **Archival hides nothing.** An archived applicant still appears in list and search results unless the caller filters on status. This is deliberate (nothing is hidden from staff) but means archival is not a privacy control.
 - **No rate limiting beyond project defaults.** Every endpoint is authenticated; the name-search endpoint is the one to watch as volume grows.
+
+## 9. Assignment is routing, not access (2026-10-29)
+
+`Applicant.assigned_to` names the one staff member who is **notified** about an applicant. It is optional — small teams can leave every applicant unassigned, and an unassigned applicant's alerts go to the whole team.
+
+- **Not an access control.** No selector, view, or service consults `assigned_to` to decide who may read or write. Every Admin and Lead Manager keeps full access to every applicant (§1); a Lead Manager sees and edits applicants assigned to someone else exactly as before. `?assigned_to=` is a list **filter**, not a scope — an unfiltered list still returns everyone.
+- **Who may assign.** An Admin may assign any active Admin or Lead Manager, reassign, or clear. A Lead Manager may only **take** an unassigned applicant for themselves or **release** one they hold — never assign another person, never take a file someone else holds, never clear someone else's (403 `APPLICANTS_ASSIGNMENT_FORBIDDEN`). This keeps one Lead Manager from moving another's caseload while leaving self-service intact. Superadmins can neither assign nor be assigned.
+- **Eligible assignees only.** The assignee must be an active Admin or Lead Manager (400 `APPLICANTS_ASSIGNEE_INVALID`), so alerts are never routed to an account nobody can log in to, or to a Superadmin who does not work files. Lead conversion passes the lead's owner and silently drops an ineligible one.
+- **Audited.** Every change writes `applicant_assigned` / `applicant_unassigned` with the before/after user ids; a no-op writes nothing.
+- **Why medium risk.** `applicants.applicant.assign` cannot expose or alter applicant data; the worst misuse is misrouting alerts, which the audit trail makes visible and an Admin can undo.

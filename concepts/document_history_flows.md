@@ -1,7 +1,7 @@
 # FLOWS — Document History
 
 **Owner app:** `document_history`
-**Updated:** 2026-07-24
+**Updated:** 2026-10-29
 **Purpose:** The user-flow binding layer for this app — connects the product intent in
 `concepts/document_history.txt` to the callable endpoints in
 `backend/document_history/docs/INTEGRATION.md`.
@@ -175,7 +175,8 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    `POST /api/v1/documents/<document_id>/restore/` (`documents.document.restore`)
    **(cross-app: `documents`)**
    - **Requires state:** the document must be archived.
-   - **Side effects:** returns it to `draft` and clears the archive fields.
+   - **Side effects:** returns it to the status it held before archiving (`draft` for documents
+     archived before 2026-10-29) and clears the archive fields.
    - Then retry step 2.
 
 4. **Document Workspace** — capture again to freeze the recovered state →

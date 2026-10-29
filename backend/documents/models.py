@@ -9,6 +9,8 @@ Three conventions run through this app and are deliberate:
   balances, the automatic interest and tax rows, and amount-in-words are all
   computed by the frontend at render time (``concepts/documents.txt`` —
   "Document input data"). Nothing here calculates, injects, or strips them.
+  One template's body *is* checked on write — ``student-certificate``, see
+  ``validators.validate_template_content`` — but still stored as sent.
 * **Nothing is ever deleted.** There is no delete endpoint and no delete
   service. A document that is no longer current is archived with a reason and
   kept — "No document deletion that erases history. Retire, archive, or restore
@@ -23,7 +25,7 @@ from core.models import BaseModel
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
-from documents.constants import DocumentFamily, DocumentStatus
+from documents.constants import DEFAULT_TEMPLATE_VERSION, DocumentFamily, DocumentStatus
 from documents.validators import validate_template_key
 
 
@@ -38,7 +40,8 @@ class Document(BaseModel):
     ``PROTECT`` foreign keys to this model; the signatory library and the
     template catalogue to ``document_templates``, which now exists and imports
     this app's family enum and key-validation rule; supporting files to
-    ``uploaded_files``, which does not exist.
+    ``uploaded_files``, which now exists — and whose photographs a
+    student certificate's ``photo_media_id`` must name.
 
     Note what ``document_templates`` existing does **not** change here:
     ``template_key`` is still not checked against that catalogue, and
@@ -102,6 +105,16 @@ class Document(BaseModel):
         ),
     )
 
+    template_version = models.CharField(
+        max_length=20,
+        default=DEFAULT_TEMPLATE_VERSION,
+        help_text=(
+            "The layout version this document was authored for, chosen by the frontend "
+            "(e.g. Woda letters moved to '2'). Opaque; not checked against a list. A print "
+            "snapshot records what was actually printed in its own render_context."
+        ),
+    )
+
     # --- Lifecycle ---------------------------------------------------------
     status = models.CharField(
         max_length=20,
@@ -118,6 +131,15 @@ class Document(BaseModel):
 
     # --- Archive state (cleared on restore) --------------------------------
     archive_reason = models.TextField(blank=True)
+    # The status held when archived, so a restore puts the document back where
+    # it was. Blank on documents archived before the field existed; those
+    # restore to ``DEFAULT_RESTORE_STATUS``.
+    status_before_archive = models.CharField(
+        max_length=20,
+        choices=[(s.value, s.label) for s in (DocumentStatus.DRAFT, DocumentStatus.READY)],
+        blank=True,
+        default="",
+    )
     archived_at = models.DateTimeField(null=True, blank=True)
     archived_by = models.ForeignKey(
         "authenticate.User",

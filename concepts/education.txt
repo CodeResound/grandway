@@ -1,8 +1,34 @@
 # EDUCATION — Grandway
 
-> **Status: concept only.** This module is not built. The concept is written now
-> so the boundary between it and the applicant record is settled before either
-> is implemented. Building it requires its own session and the §25/§26 gates.
+> **Status: folded into `applicants` (2026-10-29).** There is no separate
+> education module. A core education record was built as an applicant
+> sub-record (`ApplicantEducation`), written inline in the applicant payload and
+> replaced wholesale like family members — see
+> `backend/applicants/docs/INTEGRATION.md`. The decisions below settle this
+> concept's open questions for V1; everything not built is listed as deferred.
+
+## Settled 2026-10-29 (frontend updates.md §1.5, §7.2)
+
+* **Where it lives:** in `applicants`, not its own module — the requirement was
+  not large enough to justify one.
+* **Qualification levels:** a fixed enum shared with leads — SEE / SLC, +2 / NEB,
+  Diploma, Bachelor, Master, PhD, Other. The programme or stream ("BBS",
+  "Science") is free text alongside it.
+* **Grading:** one score with its type (GPA 0–4 or percentage 0–100) plus a
+  free-text label of how it reads ("GPA (4.0)", "First Division"). Divisions and
+  letter grades are only that label.
+* **Years:** bare start/completion years with their calendar (BS or AD), because
+  a BS year spans two AD years. An ongoing record has no completion year.
+* **Deletion:** records are replaced wholesale with the applicant's list — a
+  wrongly entered qualification is simply removed; the audit history records
+  that the set changed.
+* **From a lead:** a converted lead's highest qualification becomes the
+  applicant's first education record.
+
+Deferred (not built): education gaps, training records, backlogs, medium of
+instruction, institution country as a catalogue reference, a computed
+"highest qualification" on the applicant, and prompts when an ongoing record's
+expected end passes.
 
 ## Purpose
 

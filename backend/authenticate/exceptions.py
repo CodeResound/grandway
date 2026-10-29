@@ -1,5 +1,7 @@
 """Domain exceptions for the authenticate app."""
 
+from authenticate.constants import RefreshRejectReason
+
 
 class ImmutabilityError(Exception):
     """Raised when code attempts to delete or mutate an append-only record.
@@ -71,7 +73,16 @@ class DeviceLimitError(Exception):
 
 
 class InvalidRefreshTokenError(Exception):
-    """Raised when a presented refresh credential is unknown, expired, or revoked."""
+    """Raised when a presented refresh credential is unknown, expired, or revoked.
+
+    ``reason`` is a ``RefreshRejectReason`` or the revoked session's
+    ``SessionRevocationReason``; it is returned to the client as
+    ``error.details.reason`` and recorded on the ``refresh_rejected`` event.
+    """
+
+    def __init__(self, reason: str = RefreshRejectReason.NOT_FOUND) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 class RefreshTokenReuseError(Exception):
@@ -79,3 +90,19 @@ class RefreshTokenReuseError(Exception):
 
     Signals that the whole session family should be revoked.
     """
+
+
+class ClipboardLimitError(Exception):
+    """Raised when an account already holds the maximum number of clipboard entries."""
+
+
+class ClipboardCategoryLimitError(Exception):
+    """Raised when an account already holds the maximum number of clipboard categories."""
+
+
+class ClipboardCategoryNameTakenError(Exception):
+    """Raised when an account already has a clipboard category of that name (any case)."""
+
+
+class ClipboardCategoryInvalidError(Exception):
+    """Raised when an entry names a category that is not one of the caller's own."""

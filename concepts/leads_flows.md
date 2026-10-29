@@ -1,7 +1,7 @@
 # FLOWS — Leads
 
 **Owner app:** `leads`
-**Updated:** 2026-07-23
+**Updated:** 2026-10-29
 **Purpose:** The user-flow binding layer for this app — connects the product intent in
 `concepts/leads.txt` to the callable endpoints in `backend/leads/docs/INTEGRATION.md`.
 Authored and updated by the backend author in the same commit as any endpoint change (CLAUDE.md §36).
@@ -33,11 +33,13 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** the source list from step 1.
    - **Side effects:** none.
 
-3. **New Lead Form** — the user submits name, at least one contact number, and optionally a study interest →
+3. **New Lead Form** — the user submits name, at least one contact number, and optionally a study interest (including the qualification level, score, pass year, and language-test status) and language certificates →
    `POST /api/v1/leads/` (`leads.lead.create`)
    - **Requires state:** at least one active lead source must exist. The caller becomes the lead's permanent owner.
-   - **Side effects:** the lead is created at stage `new`; one history entry (`lead_created`) appears. Refresh the Lead List.
+   - **Side effects:** the lead is created at stage `new`; one history entry (`lead_created`) appears. Every other active Admin receives a `lead_created` notification **(cross-app: `notifications`)**. Refresh the Lead List.
    - *Failure — `LEADS_SOURCE_DETAIL_REQUIRED`:* inline field error under "Please specify."
+   - *Failure — `LEADS_STUDY_INTEREST_INVALID` / `LEADS_CERTIFICATE_INVALID`:* mark each path in `error.details.fields` (`study_interest.academic_score`, `language_certificates[1].overall_score`) on its input. A score needs its type and a pass year its BS/AD calendar — keep each pair together in the UI.
+   - *Failure — `LEADS_CERTIFICATE_LIMIT`:* more than 10 certificates — cap the repeater at 10.
    - *Failure — `LEADS_CONTACT_REQUIRED` or 400 on `contact_numbers`:* inline error on the contact-number repeater; at least one row is mandatory.
    - *Failure — `LEADS_SOURCE_INACTIVE`:* the source was retired while the form was open. Re-fetch the source list and ask the user to re-pick.
 
@@ -82,11 +84,20 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - *Failure — `LEADS_STAGE_NOT_EDITABLE`:* as step 3.
    - *Note:* Grandway does not schedule follow-ups or send reminders — this dialog records that contact already happened. Do not build a "schedule next follow-up" control.
 
-5. **Lead Detail → Notes panel** — the user adds a standalone note →
-   `POST /api/v1/leads/<lead_id>/notes/` (`leads.note.create`)
-   - **Requires state:** the lead must be in the caller's scope.
-   - **Side effects:** the note appears; a `lead_note_added` entry appears in History.
-   - *Note:* notes are append-only. Render no edit or delete affordance — those verbs return 405.
+5. **Lead Detail → Notes panel** — the user adds a note on the General or Visit tab →
+   `POST /api/v1/leads/<lead_id>/notes/` (`leads.note.create`) with `category`, `body`, and an optional `noted_at` (date-time picker, defaults to now; may be in the past)
+   - **Requires state:** the lead is in the caller's scope, not deleted, and not converted.
+   - **Side effects:** the note appears; a `lead_note_added` entry appears in History. A **visit** note written by someone other than the lead's owner sends the owner a `visit_note_added` notification **(cross-app: `notifications`)**; general notes notify nobody. Refresh the tab badges from `meta.counts`.
+   - *Failure — `LEADS_NOTE_FUTURE_DATE` (400):* the picked time is in the future — block it in the picker.
+   - *Failure — `LEADS_LEAD_ALREADY_CONVERTED` (409):* the lead was converted; link to the applicant's notes instead.
+   - *Note:* send `noted_at` with an offset; an offset-less value is read as Nepal time. Show a "backdated" marker when `is_backdated` is true.
+
+6. **Lead Detail → Notes panel → Edit / Delete on a note** →
+   `PATCH /api/v1/leads/<lead_id>/notes/<note_id>/` (`leads.note.update`) or `DELETE …/notes/<note_id>/` (`leads.note.delete`)
+   - **Requires state:** the caller is the note's author or an Admin; the lead is not deleted or converted.
+   - **Side effects:** `lead_note_updated` / `lead_note_deleted` in History; a deleted note leaves the list.
+   - *Failure — `LEADS_NOTE_FORBIDDEN` (403):* render Edit/Delete only on the caller's own notes (all notes for an Admin).
+   - *Note:* say "Remove" in the confirmation — the note leaves the panel but is kept in the record's history.
 
 ---
 
@@ -107,7 +118,7 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 2. **Lead Detail** — the Admin confirms →
    `POST /api/v1/leads/<lead_id>/convert/` (`leads.lead.convert`)
    - **Requires state:** Admin authority, and the lead in an active stage.
-   - **Side effects:** creates an applicant *(cross-app: `applicants`)* **and** an initial journey *(cross-app: `applicant_journeys`)*, links both to the lead permanently, and moves the lead to its terminal `converted` stage. Two entries appear in the lead's history. Refresh the lead and the Lead List.
+   - **Side effects:** creates an applicant *(cross-app: `applicants`)* **and** an initial journey *(cross-app: `applicant_journeys`)*, links both to the lead permanently, and moves the lead to its terminal `converted` stage. Two entries appear in the lead's history. **The new applicant is assigned to the lead's owner** *(cross-app: `applicants`)* — or left unassigned if that person is no longer an active Admin or Lead Manager. The owner and the other Admins receive a `lead_converted` notification **(cross-app: `notifications`)**. Refresh the lead and the Lead List.
    - *Failure — `LEADS_ACTOR_FORBIDDEN`:* the caller is a Lead Manager or Superadmin.
    - *Failure — `LEADS_CONVERSION_NOT_READY`:* the lead is lost. Offer Reopen, then retry.
    - *Failure — `LEADS_LEAD_ALREADY_CONVERTED`:* someone converted it already. Read `converted_applicant_id` off the lead and navigate there — **do not retry**, and do not present this as the user's mistake.
@@ -117,15 +128,16 @@ Authored and updated by the backend author in the same commit as any endpoint ch
    - **Requires state:** conversion must have succeeded.
    - **Side effects:** none.
    - *Note:* only name, email, contact numbers, and address were copied. Date of birth, passport, family, and emergency contacts are blank — prompt the user to complete them.
+   - *Note:* `assigned_to` names the lead's owner (or is `null`). Assignment decides who is notified about the applicant, never who may see it — see `concepts/applicants_flows.md` → "Assign, take, or release an applicant".
 
 4. **Journey Detail** — review the seeded objective →
    `GET /api/v1/journeys/<journey_id>/` (`applicant_journeys.journey.read`) **(cross-app: `applicant_journeys`)**
    - **Requires state:** conversion must have succeeded.
    - **Side effects:** none.
-   - *Note:* if the lead named **more than one** interested country, `target_country` is blank and the full list sits in the journey's `notes`. Surface that as an incomplete-journey prompt. `highest_qualification` and `language_test_status` are also in `notes`, because the `education` and `test_scores` modules do not exist yet.
+   - *Note:* if the lead named **more than one** interested country, `target_country` is blank and the full list sits in the journey's `notes`. Surface that as an incomplete-journey prompt. `language_test_status` is also in `notes` (a status has no applicant record), and so is a qualification recorded **without** a level. A qualification **with** a level becomes the applicant's first education record, and every certificate a language test (cross-app: applicants) — show them on the applicant's file.
 
 5. **Lead Detail** — the lead stays readable at `stage: converted`, with `converted_applicant_id` and `converted_journey_id` for navigation.
-   - *Note:* conversion deletes nothing. Notes, contact numbers, and the full history all survive.
+   - *Note:* conversion deletes nothing. Notes, contact numbers, and the full history all survive. The lead's notes are **copied** to the applicant (`source_lead_id` set) and become read-only here — hide the add/edit controls on a converted lead and link to the applicant's Notes panel (`applicants.note.list`) (cross-app: applicants).
 
 ---
 
@@ -232,6 +244,32 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 
 ---
 
+## Flow: Delete and restore a lead (Admin)
+
+- **Actor:** Admin
+- **Goal:** Remove a lead that should never have counted (duplicate, spam, test), and undo that if it was a mistake.
+- **Entry point:** Lead Detail → Delete
+
+**Steps:**
+
+1. **Lead Detail → Delete dialog** (reason required) →
+   `DELETE /api/v1/leads/<lead_id>/` (`leads.lead.delete`) with `{ "reason": "…" }`
+   - **Requires state:** Admin; the lead is not converted and not already deleted.
+   - **Side effects:** `lead_deleted` in History; the lead disappears from the Lead List, global search, dashboards, and its owner's view. The owner and the other Admins receive a `lead_deleted` notification **(cross-app: `notifications`)**.
+   - *Failure — `LEADS_LEAD_ALREADY_CONVERTED` (409):* converted leads cannot be deleted — hide Delete on them.
+   - *Failure — `LEADS_ACTOR_FORBIDDEN` (403):* a Lead Manager — the Delete action is Admin-only; hide it.
+2. **Lead List → "Deleted" tab** (Admin only) →
+   `GET /api/v1/leads/?deleted=true` (`leads.lead.list`)
+   - *Failure — `LEADS_ACTOR_FORBIDDEN` (403):* never show this tab to a Lead Manager.
+3. **Deleted lead → Restore** →
+   `POST /api/v1/leads/<lead_id>/restore/` (`leads.lead.restore`) with an optional `{ "reason": "…" }`
+   - **Side effects:** `lead_restored` in History; the lead returns to every list exactly as it was. The owner and the other Admins receive a `lead_restored` notification **(cross-app: `notifications`)**.
+   - *Failure — `LEADS_LEAD_NOT_DELETED` (409):* already restored — refresh.
+
+- *Note:* while deleted, every edit, stage, follow-up, lost, reopen, convert, and note action returns 409 `LEADS_LEAD_DELETED`. Render a deleted lead read-only with a "Deleted — restore to edit" banner.
+
+---
+
 ## Endpoint coverage
 
 | `permission_key` | `METHOD /path` | Used by flow(s) | Notes |
@@ -242,22 +280,26 @@ Authored and updated by the backend author in the same commit as any endpoint ch
 | `leads.loss_reason.list` | `GET /api/v1/leads/loss-reasons/` | Close an enquiry; Configure the pickers | |
 | `leads.loss_reason.create` | `POST /api/v1/leads/loss-reasons/` | Configure the pickers | Admin only |
 | `leads.loss_reason.update` | `PATCH /api/v1/leads/loss-reasons/<reason_id>/` | Configure the pickers | Admin only |
-| `leads.lead.list` | `GET /api/v1/leads/` | Work a lead through follow-up | Owner-scoped; also the funnel/search surface. Search spans name, email, and phone and returns relevance-ordered results |
-| `leads.lead.create` | `POST /api/v1/leads/` | Record a new enquiry | |
+| `leads.lead.list` | `GET /api/v1/leads/` | Work a lead through follow-up; Delete and restore (Deleted tab) | Owner-scoped; deleted leads hidden, Admin-only `?deleted=true`. Search spans name, email, and phone and returns relevance-ordered results |
+| `leads.lead.create` | `POST /api/v1/leads/` | Record a new enquiry | Notifies the other Admins |
 | `leads.lead.read` | `GET /api/v1/leads/<lead_id>/` | Work a lead; Close; Revive; Review | |
 | `leads.lead.update` | `PATCH /api/v1/leads/<lead_id>/` | — | `unused by flow — correction path (Edit Lead form), not a journey. Same form as create; replaces contact numbers wholesale.` |
 | `leads.lead.change_stage` | `POST /api/v1/leads/<lead_id>/stage/` | Work a lead through follow-up | Active stages only |
 | `leads.lead.record_followup` | `POST /api/v1/leads/<lead_id>/follow-up/` | Work a lead through follow-up | |
 | `leads.lead.mark_lost` | `POST /api/v1/leads/<lead_id>/lost/` | Close an enquiry that will not proceed | |
 | `leads.lead.reopen` | `POST /api/v1/leads/<lead_id>/reopen/` | Revive a closed enquiry | |
-| `leads.note.list` | `GET /api/v1/leads/<lead_id>/notes/` | Review a lead's full story | |
-| `leads.note.create` | `POST /api/v1/leads/<lead_id>/notes/` | Work a lead through follow-up | Also reachable via the follow-up dialog's `note` field |
+| `leads.note.list` | `GET /api/v1/leads/<lead_id>/notes/` | Review a lead's full story | `?category=` tabs; `meta.counts` badges |
+| `leads.note.create` | `POST /api/v1/leads/<lead_id>/notes/` | Work a lead through follow-up | General/Visit, backdatable; also via the follow-up dialog's `note` field; a visit note notifies the owner |
+| `leads.note.update` | `PATCH /api/v1/leads/<lead_id>/notes/<note_id>/` | Work a lead through follow-up (step 6) | Author or Admin |
+| `leads.note.delete` | `DELETE /api/v1/leads/<lead_id>/notes/<note_id>/` | Work a lead through follow-up (step 6) | Author or Admin; soft |
+| `leads.lead.delete` | `DELETE /api/v1/leads/<lead_id>/` | Delete and restore a lead | Admin only; reason required; soft; notifies owner + Admins |
+| `leads.lead.restore` | `POST /api/v1/leads/<lead_id>/restore/` | Delete and restore a lead | Admin only; notifies owner + Admins |
 | `leads.lead.list_history` | `GET /api/v1/leads/<lead_id>/history/` | Review a lead's full story | Backed by `audit` |
-| `leads.lead.convert` | `POST /api/v1/leads/<lead_id>/convert/` | Convert a lead into a client | Admin only; idempotent; creates records in two other apps |
+| `leads.lead.convert` | `POST /api/v1/leads/<lead_id>/convert/` | Convert a lead into a client | Admin only; idempotent; creates records in two other apps, copies notes, assigns the applicant to the lead owner; notifies owner + Admins |
 
 ## Cross-app dependencies
 
-- **This app references (outbound):** `applicants.applicant.read` and `applicant_journeys.journey.read` in the conversion flow, which creates records in both apps; `leads.lead.list_history` is served from the `audit` module's event log, which every mutating endpoint above writes to. All flows additionally require a session from `authenticate.session.login`.
+- **This app references (outbound):** `applicants.applicant.read`, `applicants.note.list`, and `applicant_journeys.journey.read` in the conversion flow, which creates records in both apps; `leads.lead.list_history` is served from the `audit` module's event log, which every mutating endpoint above writes to. All flows additionally require a session from `authenticate.session.login`.
 - **Referenced by other apps (inbound):** `concepts/applicants_flows.md` — the "Complete a file that arrived from conversion" flow begins where this app's conversion flow ends. `concepts/project_flows.md` — the end-to-end enquiry-to-objective journey delegates its lead-side steps to the flows above.
 
 When an endpoint here is added, changed, or deprecated, grep `concepts/*_flows.md` for its
@@ -267,7 +309,7 @@ not just this file.
 ## Open questions
 
 - **`concepts/leads.txt` has no `UI screens & wireframe notes` section.** Every screen name in this file (Lead List, Lead Detail, New Lead Form, Mark Lost dialog, Record Follow-up dialog, Reopen dialog, Lead Configuration) is proposed by the backend author. They need to be reconciled into the concept file so the frontend and backend share one vocabulary.
-- **Two study-interest fields survive conversion only as prose.** `highest_qualification` and `language_test_status` land in the journey's `notes` because the `education` and `test_scores` modules do not exist. When they ship, conversion should map those fields properly and this flow needs revisiting.
+- **Two study-interest values still survive conversion only as prose:** `language_test_status`, and a qualification typed without its level. Prompt for the level on the lead form so conversion can create a real education record.
 - **A multi-country lead produces an incomplete journey** — `target_country` blank, the list in `notes`. The UI needs an explicit prompt for this; the backend deliberately will not guess.
 - **Direct applicant creation is out of scope for this app.** `concepts/leads.txt` mentions an Admin creating an applicant without a lead; that lives in `concepts/applicants_flows.md`.
 - **No funnel or dashboard flow is defined.** The lead list supports `stage`, `source`, `search`, and `fiscal_year` filters, which is enough to build a funnel view, but reporting belongs to the `dashboards` app and no flow claims it yet.

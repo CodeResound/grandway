@@ -10,6 +10,8 @@ import uuid
 from core.models import BaseModel
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
+from django.db.models import F
+from django.db.models.functions import Lower
 
 from authenticate.constants import (
     AuthEventType,
@@ -175,3 +177,65 @@ class AuthEvent(BaseModel):
 
     def delete(self, *args: object, **kwargs: object) -> None:
         raise ImmutabilityError("AuthEvent is append-only; delete is not allowed.")
+
+
+class ClipboardCategory(BaseModel):
+    """A group a person makes for their own clipboard entries (2026-10-29).
+
+    Personal like the clipboard itself: named, renamed, and deleted by its owner
+    alone. Deleting one keeps its entries — they become uncategorized.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="clipboard_categories")
+    name = models.CharField(max_length=60)
+
+    class Meta:
+        db_table = "authenticate_clipboardcategory"
+        verbose_name = "Clipboard Category"
+        verbose_name_plural = "Clipboard Categories"
+        ordering = ["name"]
+        constraints = [
+            # "Bank" and "bank" are the same group to the person using them.
+            models.UniqueConstraint(Lower("name"), "user", name="uniq_clipboard_category_name_per_user"),
+        ]
+
+    def __str__(self) -> str:
+        return f"clipboard_category<{self.name}>"
+
+
+class ClipboardEntry(BaseModel):
+    """One saved snippet on a person's own clipboard (2026-10-29, frontend updates.md §5).
+
+    Every account has a clipboard — Superadmin included — and nobody can see
+    another's. ``text`` is what gets copied; it may hold an identity number, so
+    it never reaches a log or the audit trail. ``field_key`` optionally ties the
+    entry to a document form field so the form can suggest it there.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="clipboard_entries")
+    label = models.CharField(max_length=120)
+    text = models.TextField()
+    field_key = models.CharField(max_length=100, blank=True)
+    category = models.ForeignKey(
+        ClipboardCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="entries",
+    )
+    usage_count = models.PositiveIntegerField(default=0)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "authenticate_clipboardentry"
+        verbose_name = "Clipboard Entry"
+        verbose_name_plural = "Clipboard Entries"
+        # Most used first, then most recently used; never-used entries last.
+        ordering = ["-usage_count", F("last_used_at").desc(nulls_last=True), "-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-usage_count"], name="clip_user_usage_idx"),
+            models.Index(fields=["user", "field_key"], name="clip_user_field_key_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"clipboard<{self.label}>"

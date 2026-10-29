@@ -18,6 +18,7 @@ from notifications.views import (
     NotificationDetailView,
     NotificationDismissView,
     NotificationListView,
+    NotificationPreferenceView,
     NotificationReadAllView,
     NotificationReadView,
     NotificationSummaryView,
@@ -31,6 +32,7 @@ urlpatterns = [
     path("", NotificationListView.as_view(), name="notification-list"),
     path("summary/", NotificationSummaryView.as_view(), name="notification-summary"),
     path("read-all/", NotificationReadAllView.as_view(), name="notification-read-all"),
+    path("preferences/", NotificationPreferenceView.as_view(), name="notification-preferences"),
     # One notification.
     path("<uuid:notification_id>/", NotificationDetailView.as_view(), name="notification-detail"),
     path("<uuid:notification_id>/read/", NotificationReadView.as_view(), name="notification-read"),

@@ -5,7 +5,16 @@ See ``leads/docs/DATA_CONTRACT.md`` for the authoritative contract.
 
 from __future__ import annotations
 
-from core.constants import ContactNumberLabel, LanguageTestStatus, StudyLevel
+from core.constants import (
+    AcademicScoreType,
+    CalendarSystem,
+    ContactNumberLabel,
+    HighestQualification,
+    LanguageTestStatus,
+    LanguageTestType,
+    NoteCategory,
+    StudyLevel,
+)
 from core.models import BaseModel
 from core.validators import validate_contact_number
 from django.contrib.postgres.indexes import GinIndex
@@ -164,6 +173,21 @@ class Lead(BaseModel):
         related_name="leads_converted",
     )
 
+    # --- Soft delete (cleared on restore) ----------------------------------
+    # A deleted lead is hidden from every list, search, and dashboard figure,
+    # visible only to an Admin by id or ``?deleted=true``, and frozen until
+    # restored. The row, its notes, and its history are kept — "lead history
+    # should not be silently removed" (``concepts/leads.txt``). Admin-only.
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        "authenticate.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="leads_deleted",
+    )
+    delete_reason = models.CharField(max_length=500, blank=True)
+
     class Meta:
         db_table = "leads_lead"
         verbose_name = "Lead"
@@ -198,6 +222,10 @@ class Lead(BaseModel):
     def is_terminal(self) -> bool:
         """True when the lead must be reopened before its stage can move again."""
         return self.is_lost or self.is_converted
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
 
 
 class LeadContactNumber(BaseModel):
@@ -273,7 +301,18 @@ class LeadStudyInterest(BaseModel):
     budget_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     budget_currency = models.CharField(max_length=3, blank=True, help_text="ISO 4217 code, e.g. NPR.")
     scholarship_interest = models.BooleanField(default=False)
+    # Free text: the programme or stream, e.g. "BBS", "Science". Its level is
+    # the enum below; the two together become the applicant's first education
+    # record at conversion.
     highest_qualification = models.CharField(max_length=150, blank=True)
+    highest_qualification_level = models.CharField(max_length=20, choices=HighestQualification.choices, blank=True)
+    # GPA or percentage, always with its type; and the pass year, always with
+    # its calendar (a BS year spans two AD years). Pairing and ranges are
+    # checked in ``services._assert_study_interest_valid``.
+    academic_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    academic_score_type = models.CharField(max_length=20, choices=AcademicScoreType.choices, blank=True)
+    pass_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    pass_year_calendar = models.CharField(max_length=2, choices=CalendarSystem.choices, blank=True)
     language_test_status = models.CharField(max_length=20, choices=LanguageTestStatus.choices, blank=True)
     interest_notes = models.TextField(blank=True)
 
@@ -287,26 +326,88 @@ class LeadStudyInterest(BaseModel):
 
 
 class LeadNote(BaseModel):
-    """A free-text note explaining where a lead stands.
+    """A note on where a lead stands — general, or a record of an office visit.
 
-    Append-only: notes are created and read, never edited or deleted, because a
-    Lead Manager "may not delete lead history" (``concepts/leads.txt`` —
-    "Permissions"). No update or delete endpoint exists.
+    ``noted_at`` is set by the user, so a note can be backdated (a visit
+    written up the next morning); ``created_at`` is when it was saved.
+
+    Editable and deletable by its author or an Admin, but **never erased**:
+    every edit and delete appends an audit event, and a delete is soft — the
+    row keeps its body and is only hidden from the notes list. That is how
+    "a Lead Manager may not delete lead history" (``concepts/leads.txt``)
+    survives notes becoming correctable (2026-10-29). Once the lead is
+    converted its notes are read-only here; they are copied to the applicant,
+    where work continues.
     """
 
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="notes")
+    category = models.CharField(max_length=20, choices=NoteCategory.choices, default=NoteCategory.GENERAL)
     body = models.TextField()
+    noted_at = models.DateTimeField(db_index=True)
     author = models.ForeignKey(
         "authenticate.User",
         on_delete=models.PROTECT,
         related_name="lead_notes_authored",
+    )
+    updated_by = models.ForeignKey(
+        "authenticate.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="lead_notes_updated",
+    )
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        "authenticate.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="lead_notes_deleted",
     )
 
     class Meta:
         db_table = "leads_leadnote"
         verbose_name = "Lead Note"
         verbose_name_plural = "Lead Notes"
-        ordering = ["-created_at"]
+        ordering = ["-noted_at", "-created_at"]
+        indexes = [
+            # The notes panel: one lead's notes, most recent event first.
+            models.Index(fields=["lead", "-noted_at"], name="leadnote_lead_noted_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"note<{self.lead_id}:{self.created_at:%Y-%m-%d}>"
+
+
+class LeadLanguageCertificate(BaseModel):
+    """A language-test result the enquirer reports — IELTS, PTE, TOEFL, Duolingo.
+
+    Replaced wholesale with the lead's ``language_certificates`` list, like its
+    contact numbers, and capped at ten. Validated by the same rule as an
+    applicant's language tests (``core.validators.language_test_errors``),
+    because conversion copies each certificate onto the applicant 1:1.
+    """
+
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="language_certificates")
+    test_type = models.CharField(max_length=20, choices=LanguageTestType.choices)
+    overall_score = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    listening_score = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    reading_score = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    writing_score = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    speaking_score = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    test_date = models.DateField(null=True, blank=True)
+    certificate_number = models.CharField(max_length=100, blank=True)
+    expiry_date = models.DateField(null=True, blank=True)
+
+    class Meta:
+        db_table = "leads_leadlanguagecertificate"
+        verbose_name = "Lead Language Certificate"
+        verbose_name_plural = "Lead Language Certificates"
+        ordering = ["-test_date", "created_at"]
+        indexes = [
+            # The ?language_test_type= list filter: "leads holding an IELTS result".
+            models.Index(fields=["test_type", "lead"], name="leadcert_type_lead_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_test_type_display()} {self.overall_score or ''}".strip()

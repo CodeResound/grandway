@@ -1,7 +1,7 @@
 # Security — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.3.0
+**Version:** 1.5.0
 **Status:** Active
 **Created:** 2026-07-22
 
@@ -15,6 +15,8 @@
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — TOTP section (§9), placement/secret/mandatory/recovery |
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — inline authority-hierarchy authorization (§10), enumeration-safe targeting, session-invalidating admin actions |
 | 1.3.0 | 2026-08-17 | AI (Claude Fable 5) | §11: /admin/ OTP-gated via OTPAdminSite + OTPMiddleware; password hash excluded from the user form (was readonly-rendered). Security audit S3. Old §11 renumbered §12 |
+| 1.4.0 | 2026-10-28 | AI (Claude Opus 5.5) | §2: reuse grace window, persistent cookie, configurable SameSite/Domain, rejected refreshes audited. §8: per-token refresh throttle; per-IP refresh rate raised and env-configurable |
+| 1.5.0 | 2026-10-29 | AI (Claude Opus 5.5) | New §12 Personal clipboard — owner-only for every authority, 404 not 403, text/label/category name kept out of the audit log and logs, deliberately not in Django admin, no `must_change_password`/MFA gate, PII at rest. Old §12 renumbered §13 |
 
 ---
 
@@ -41,6 +43,33 @@ presented token's row is retired. Presenting a **retired** token (reuse) revokes
 entire `family_id` — the standard mitigation for a stolen/copied refresh token.
 Transport: HttpOnly + Secure + SameSite cookie in production (never readable by JS,
 never in local storage); response body in development only.
+
+**Reuse grace window.** Reuse detection alone signed users out every time two tabs,
+or a burst of requests answered 401 by one expired access token, refreshed with the
+same cookie: the row lock serializes them, the loser finds its token already rotated,
+and the family died. A token rotated less than `AUTH_REFRESH_REUSE_GRACE_SECONDS`
+(default 30) ago is therefore answered with an access token for the family's current
+session — no rotation, no new refresh token, no cookie — provided that session is
+live and its user active. Outside the window, or once the successor is revoked, the
+reuse path runs unchanged. The trade-off is the standard one: a thief replaying a
+copied token within 30 s of the victim's own refresh obtains one access token (15 min,
+still session-bound, so revocable); they never obtain a refresh token, and any later
+replay kills the family. Set the window to 0 to disable it.
+
+**Cookie attributes.** `SameSite` comes from `AUTH_REFRESH_COOKIE_SAMESITE` (default
+`Lax`, correct for a frontend and API on one site; `None` only for a cross-site
+deployment, which browsers accept only with `Secure` — always set here) and `Domain`
+from `AUTH_REFRESH_COOKIE_DOMAIN` (default host-only). The cookie expires with the
+session's absolute lifetime (7 days) so a browser restart does not end the session;
+the server still enforces the 12-hour idle timeout on every refresh, so a persistent
+cookie never outlives the server-side session. Refresh needs no CSRF token: with
+`SameSite=Lax` a cross-site POST carries no cookie, and the response is unreadable
+cross-origin under CORS, so a forged refresh at most rotates the victim's own token.
+
+**Audit.** Every rejected refresh that carries a token writes a `refresh_rejected`
+`AuthEvent` with the reason; a grace answer writes `session_refreshed` with reason
+`grace_window`. `python manage.py auth_session_report --username <u>` summarises both
+for one account.
 
 ## §3 Brute-force lockout — django-axes
 
@@ -93,7 +122,15 @@ generic error.
 
 Beyond axes' stateful lockout, DRF scoped throttles cap burst rate before credentials
 are checked: `auth_login_ip` (per-IP), `auth_login_user` (per submitted username), and
-`auth_refresh` (per-IP). These return `RATE_LIMIT_EXCEEDED` (429).
+`auth_refresh` (per-IP, `AUTH_REFRESH_RATE`, default 300/min) plus `auth_refresh_token`
+(per presented refresh token, 10/min). These return `RATE_LIMIT_EXCEEDED` (429).
+
+The refresh limit was per IP only at 60/min. An office behind one public IP shares
+that bucket, and so does every user if `NUM_PROXIES` is wrong behind the reverse
+proxy, so a busy office could throttle everyone out of refreshing. The per-IP rate is
+now a ceiling and the per-token scope is the working limit. The per-IP scope cannot
+be dropped: a client presenting a fresh random token each time gets a fresh per-token
+bucket, but refresh tokens are 48 random bytes, so guessing is not a practical attack.
 
 ## §9 MFA (TOTP)
 
@@ -160,7 +197,47 @@ still Django sessions, not `AuthSession` rows — they remain outside the API's 
 revocation model, which is why the OTP gate and the read-only surface both matter.
 Tested in `core/tests/test_admin_otp.py` and `tests/test_admin_hardening.py`.
 
-## §12 Deferred (later phases)
+## §12 Personal clipboard — owner-only, PII-bearing
+
+Every account — Superadmin, Admin, Lead Manager — has a personal clipboard of saved
+snippets (`ClipboardEntry`, `ClipboardCategory`, `/api/v1/auth/me/clipboard/*`). It is the
+one feature outside account self-service a Superadmin can use; it holds no consultancy
+record, which is why it lives here and not in an operational app. Its `text` routinely
+holds personal data (names, addresses, citizenship numbers), so:
+
+- **Owner-only by construction.** There is no authority hierarchy here: every selector
+  filters on `user=request.user` first (`get_own_clipboard*`), and every service takes the
+  owning user. No endpoint accepts a user id, and no authority — Superadmin included — can
+  read or change another account's clipboard through the API.
+- **404, not 403.** Another account's entry or category id returns the same
+  `AUTH_CLIPBOARD_ENTRY_NOT_FOUND` / `AUTH_CLIPBOARD_CATEGORY_NOT_FOUND` (404, identical
+  message) as a made-up id, so ids cannot be probed. An entry write naming someone else's
+  category is `AUTH_CLIPBOARD_CATEGORY_INVALID` (400) — also indistinguishable from a
+  non-existent category. A list filter on someone else's category id returns an empty page.
+- **Kept out of the audit trail and logs.** Writes are recorded in the central `audit` log
+  only (`app_label="authenticate"`, entity types `authenticate.clipboard_entry` /
+  `authenticate.clipboard_category`), carrying ids, `field_key`, the names of changed fields,
+  and `entries_uncategorized` — **never the label, text, or category name**. They are not
+  `AuthEvent` rows (the clipboard is a personal tool, not account security). `use` is not
+  audited. No clipboard code path logs request data (CLAUDE.md §17). Tested in
+  `tests/test_clipboard.py` (`test_audit_never_holds_the_text_or_label`,
+  `test_category_audit_never_holds_the_name`).
+- **Deliberately not registered in Django admin.** Admin would display every account's
+  personal text to any staff user who can open `/admin/`, bypassing the owner-only rule.
+  Inspecting a clipboard requires database access.
+- **No `must_change_password` or MFA-enrollment gate**, consistent with every other
+  authenticated endpoint in this app: the gate is client-side routing on the login/`me`
+  flags. A session issued before a forced password change can therefore use its own
+  clipboard; it cannot reach anyone else's.
+- **Bounded per account:** 200 entries × 2000 characters and 50 categories, with the cap
+  checked under a `select_for_update` lock on the owner's `User` row so concurrent saves
+  cannot exceed it. Default authenticated throttle (1000/hour).
+- **At rest:** plain database columns, protected by database access control only — no
+  per-entry encryption (an accepted gap, listed in `INTEGRATION.md` §9). Entries and
+  categories CASCADE-delete with the account; users are blocked, not deleted, in normal
+  operation.
+
+## §13 Deferred (later phases)
 
 The permission-key request-path engine (a `permissions` app + `RequiresPermission` DRF
 class) is not built — authorization is the inline hierarchy above. A standalone central

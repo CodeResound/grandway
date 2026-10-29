@@ -11,7 +11,8 @@ Two rules here are load-bearing and easy to break by accident:
    tax rows, and amount-in-words are all frontend concerns
    (``concepts/documents.txt`` — "Document input data"). Unknown keys are
    preserved because a template the backend has never heard of may depend on
-   them.
+   them. ``student-certificate`` bodies are *checked* on write
+   (``validators.validate_template_content``) but never altered.
 2. **``content`` never reaches the audit log.** It is arbitrarily large and
    routinely holds bank balances, account numbers, and transaction histories.
    §17 forbids logging that. The history records that the body changed and who
@@ -25,6 +26,7 @@ from typing import Any
 
 from audit.constants import ActorType
 from audit.services import record_event
+from core.events import emit
 from core.nepal.text import normalize_unicode
 from django.db import transaction
 from django.utils import timezone
@@ -33,6 +35,7 @@ from documents.constants import (
     AUDIT_APP_LABEL,
     AUDIT_ENTITY_DOCUMENT,
     CONTENT_CHANGE_MARKER,
+    DEFAULT_RESTORE_STATUS,
     FAMILY_SLUG_PREFIX,
     FAMILY_SLUG_SUFFIX,
     MAX_CONTENT_BYTES,
@@ -52,6 +55,7 @@ from documents.exceptions import (
     TemplateKeyInvalidError,
 )
 from documents.models import Document
+from documents.validators import validate_template_content
 
 _ACTOR_TYPES = {ActorType.SUPERADMIN, ActorType.ADMIN, ActorType.LEAD_MANAGER}
 
@@ -163,11 +167,13 @@ def assert_template_key_matches_family(family: str, template_key: str) -> None:
 def assert_content_storable(content: Any) -> None:
     """The body must be a JSON object within the size cap.
 
-    These are the only two things the backend checks about ``content``. It does
-    **not** validate the shape against the template: there are 53 of them, every
-    one is an open shape required to preserve unknown keys, and the authoritative
-    per-template contract lives with the frontend that renders it. Enforcing a
-    guessed shape here would reject valid documents.
+    The only checks every template gets. The shape is **not** validated against
+    the template: there are 53 of them, every one is an open shape required to
+    preserve unknown keys, and the authoritative per-template contract lives with
+    the frontend that renders it. Enforcing a guessed shape here would reject
+    valid documents. The single exception is ``student-certificate``, whose keys
+    the frontend specified and asked to have checked —
+    ``validators.validate_template_content``, run after this.
     """
     if not isinstance(content, dict):
         raise ContentInvalidError("Document content must be a JSON object.")
@@ -208,6 +214,11 @@ def create_document(
     assert_owner_declared(applicant, standalone_purpose)
     assert_template_key_matches_family(data["family"], data["template_key"])
     assert_content_storable(data.get("content", {}))
+    validate_template_content(
+        template_key=data["template_key"],
+        content=data.get("content", {}),
+        applicant_id=applicant.id if applicant else None,
+    )
 
     document = Document.objects.create(
         applicant=applicant,
@@ -238,17 +249,29 @@ def update_document(
     document: Document,
     fields: dict[str, Any],
     ip_address: str | None = None,
+    check_template_content: bool = True,
 ) -> Document:
-    """Save the workspace — the label, the body, the notes.
+    """Save the workspace — the label, the body, the notes, the layout version.
 
     Ownership, family, template key, and status are all out of reach here.
     The first three are what the document *is*; status moves through its own
     actions, which record who acted and why.
+
+    ``check_template_content=False`` is for ``document_history``'s snapshot
+    recovery only: it puts back a body exactly as it was printed, which may
+    predate the template's current rules (or name a photo archived since). The
+    next ordinary save of ``content`` is checked again.
     """
     assert_editable(document)
 
     if "content" in fields:
         assert_content_storable(fields["content"])
+        if check_template_content:
+            validate_template_content(
+                template_key=document.template_key,
+                content=fields["content"],
+                applicant_id=document.applicant_id,
+            )
     if "standalone_purpose" in fields:
         assert_owner_declared(document.applicant, fields["standalone_purpose"])
 
@@ -302,6 +325,8 @@ def change_status(
         changes={"status": {"from": previous, "to": status}},
         ip_address=ip_address,
     )
+    if status == DocumentStatus.READY:
+        emit("document.ready", actor=actor, entity_type="document", entity_id=document.id)
     return document
 
 
@@ -326,10 +351,20 @@ def archive_document(
 
     previous = document.status
     document.status = DocumentStatus.ARCHIVED
+    document.status_before_archive = previous
     document.archive_reason = normalize_unicode(reason)
     document.archived_at = timezone.now()
     document.archived_by = actor
-    document.save(update_fields=["status", "archive_reason", "archived_at", "archived_by", "updated_at"])
+    document.save(
+        update_fields=[
+            "status",
+            "status_before_archive",
+            "archive_reason",
+            "archived_at",
+            "archived_by",
+            "updated_at",
+        ]
+    )
 
     _record(
         action=DocumentAuditAction.DOCUMENT_ARCHIVED,
@@ -348,30 +383,47 @@ def restore_document(
     *,
     actor: Any,
     document: Document,
+    reason: str = "",
     ip_address: str | None = None,
 ) -> Document:
-    """Return an archived document to active work.
+    """Return an archived document to the status it held before archiving.
 
-    Always to ``draft``, never to ``ready`` — whoever archived it may have done
-    so precisely because it was not ready, and a restore should not re-assert a
-    judgement nobody made. Clears the archive state; the archiving itself stays
-    in the audit log.
+    Staff archive to *remove* a document, so restoring is undoing a removal: a
+    document that was ``ready`` comes back ``ready``. (This used to always
+    return ``draft``, on the theory that the archiver might have judged it not
+    ready — but archive records no such judgement, and the demotion read to
+    users as the restore not working.) A document archived before the prior
+    status was stored returns to ``DEFAULT_RESTORE_STATUS``. ``reason`` is
+    optional and recorded on the audit event. Clears the archive state; the
+    archiving itself stays in the audit log.
     """
     if not document.is_archived:
         raise DocumentNotArchivedError("Only an archived document can be restored.")
 
-    document.status = DocumentStatus.DRAFT
+    target = document.status_before_archive or DEFAULT_RESTORE_STATUS
+    document.status = target
+    document.status_before_archive = ""
     document.archive_reason = ""
     document.archived_at = None
     document.archived_by = None
-    document.save(update_fields=["status", "archive_reason", "archived_at", "archived_by", "updated_at"])
+    document.save(
+        update_fields=[
+            "status",
+            "status_before_archive",
+            "archive_reason",
+            "archived_at",
+            "archived_by",
+            "updated_at",
+        ]
+    )
 
     _record(
         action=DocumentAuditAction.DOCUMENT_RESTORED,
         actor=actor,
         document=document,
-        summary=f"Document '{document.label}' restored to draft.",
-        changes={"status": {"from": DocumentStatus.ARCHIVED, "to": DocumentStatus.DRAFT}},
+        summary=f"Document '{document.label}' restored to {target}.",
+        reason=normalize_unicode(reason) if reason else "",
+        changes={"status": {"from": DocumentStatus.ARCHIVED, "to": target}},
         ip_address=ip_address,
     )
     return document

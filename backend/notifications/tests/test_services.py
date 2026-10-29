@@ -112,13 +112,23 @@ class DispatchTests(TestCase):
         for value in NotificationType.values:
             self.assertIn(value, TYPE_PRIORITY, f"{value} has no priority mapping")
 
-    def test_the_ungenerated_gap_is_exactly_three_types(self) -> None:
-        """A new type nobody generates is a bug, not a feature (`constants.py`)."""
+    def test_the_ungenerated_gap_is_exactly_two_types(self) -> None:
+        """A new type nobody generates is a bug, not a feature (`constants.py`).
+
+        Two since 2026-10-29: ``test_score_expiring`` left the gap when the sweep
+        began raising it from applicants' language tests.
+        """
         from notifications.constants import SIGNAL_TYPES, SWEEP_TYPES
 
         covered = set(SWEEP_TYPES) | set(SIGNAL_TYPES) | set(UNGENERATED_TYPES)
         self.assertEqual(covered, set(NotificationType.values))
-        self.assertEqual(len(UNGENERATED_TYPES), 3)
+        self.assertEqual(len(UNGENERATED_TYPES), 2)
+
+    def test_every_type_has_exactly_one_category(self) -> None:
+        from notifications.constants import TYPE_CATEGORY, NotificationCategory
+
+        self.assertEqual(set(TYPE_CATEGORY), set(NotificationType.values))
+        self.assertTrue(set(TYPE_CATEGORY.values()) <= set(NotificationCategory.values))
 
 
 class RoutingTests(TestCase):

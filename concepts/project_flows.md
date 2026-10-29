@@ -1,7 +1,7 @@
 # FLOWS — Project (end-to-end, multi-app)
 
 **Owner:** project-level — no single app
-**Updated:** 2026-07-24
+**Updated:** 2026-10-29
 **Purpose:** End-to-end journeys that cross more than one app. Each step here **delegates to a named
 per-app flow** rather than re-listing its endpoint calls (CLAUDE.md §36.1). If you are looking for the
 detail of any single step, follow the reference to that app's flow file.
@@ -28,6 +28,7 @@ authoritative study plan.
 
 3. **Convert** → `concepts/leads_flows.md` → *"Convert a lead into a client"*
    - The single hinge of this journey. One Admin-only call creates the applicant and the initial journey together, atomically, and can never run twice for the same lead.
+   - **The lead's owner becomes the applicant's assignee** (since 2026-10-29) — the Lead Manager who sourced the enquiry keeps hearing about the person (status changes, visit notes, journey moves, expiring documents) without gaining or losing any access. They and the other Admins are notified of the conversion. See `concepts/applicants_flows.md` → *"Assign, take, or release an applicant"* to hand the file to someone else.
    - **Visibility changes here.** Before conversion the record was one Lead Manager's private lead; after it, the applicant and journey are visible to every Admin and Lead Manager. This is the intended transition from "someone's prospect" to "the consultancy's client" — but it will surprise a Lead Manager who expected their work to stay private, and the UI should make the change legible.
 
 4. **Complete the person's file** → `concepts/applicants_flows.md` → *"Complete a file that arrived from conversion"*
@@ -47,7 +48,7 @@ authoritative study plan.
 8. **Run the objective to an outcome** → `concepts/applicant_journeys_flows.md` → *"End an objective"*
    - The journey closes with a recorded outcome. The applicant's status is untouched, and so is every offer on it — closing a journey does not resolve its outstanding offers, and an offer can still be recorded against a closed journey.
 
-**What survives the whole journey:** the lead record, its notes, and its full history; the originating Lead Manager's attribution via `Lead.created_by`; and the link in both directions between lead, applicant, and journey.
+**What survives the whole journey:** the lead record, its notes, and its full history — and since 2026-10-29 the notes are also **copied onto the applicant** at conversion (`source_lead_id` set), so the applicant's Notes panel shows the enquiry → applicant story in one feed; the originating Lead Manager's attribution via `Lead.created_by`; and the link in both directions between lead, applicant, and journey.
 
 ---
 
@@ -108,7 +109,7 @@ journeys accumulate.
 Assembled from each app's flow file. Read it as integration order — an app's dependencies must work before it does.
 
 - `leads` → `applicants` (conversion creates one), `applicant_journeys` (conversion creates one), `audit`, `authenticate`
-- `applicants` → `authenticate`, `audit`. **Not** `leads` — an applicant works with no lead in the system.
+- `applicants` → `authenticate` (including the assignee lookup for the optional assignment), `audit`. **Not** `leads` — an applicant works with no lead in the system.
 - `applicant_journeys` → `applicants` (every journey needs one), `authenticate`, `audit`. **Not** `leads`, and **not** `offers`.
 - `institutions` → `authenticate`, `audit`. Depends on no business app; the catalogue is reference data.
 - `offers` → `applicant_journeys` (every offer needs one), `institutions` (optional — the catalogue entry it was based on), `authenticate`, `audit`.
@@ -117,7 +118,7 @@ Assembled from each app's flow file. Read it as integration order — an app's d
 - `document_history` → `documents` (every snapshot and print event needs one, and a recovery **writes** back through that app's update service), `authenticate`, `audit`. **Not** `applicants`: a snapshot reaches the person only through its document. The arrow is one-way — `documents` needs nothing from it.
 - `document_templates` → `authenticate`, `audit`, `documents` **at the Python level only** (it imports that app's family enum, slug validator, and key/family rule so the two cannot disagree), and **`uploaded_files` at the database level** — `Signatory.signature_file` is its one relation to a business app, and the file ledger points back at it as an owner type, making the pair the project's only two-way edge. Both libraries it publishes — the template catalogue and the signatory list — remain advisory: nothing validates what a document names.
 
-- `notifications` → `authenticate` (the recipient — its only database relation to anything), `audit`, and **read-only reaches into** `checklists`, `offers`, `applicants`, `uploaded_files`, and `applicant_journeys`. Every one of those five is referenced by app name and a bare id string rather than a foreign key, so an alert can outlive, or precede, the module it points at. **Nothing depends on `notifications` in return** — which is the property that keeps a failure to alert from ever becoming a failure to save the thing being alerted about.
+- `notifications` → `authenticate` (the recipient — its only database relation to anything), `audit`, and **read-only reaches into** `checklists`, `offers`, `applicants`, `uploaded_files`, `applicant_journeys`, `reminders`, and — since 2026-10-29, through the `core.events` domain-event receiver — `leads` and `documents`. Every one of those modules is referenced by app name and a bare id string rather than a foreign key, so an alert can outlive, or precede, the module it points at. **Nothing depends on `notifications` in return** — which is the property that keeps a failure to alert from ever becoming a failure to save the thing being alerted about.
 
 The one-directional arrangement is deliberate: `leads` owns both links to the applicant cycle, so the applicant cycle never needs to know leads exist. `offers` does the same at the other end — it reaches into both the journey and the catalogue, and neither reaches back.
 
@@ -126,7 +127,7 @@ The one-directional arrangement is deliberate: `leads` owns both links to the ap
 ## Open questions
 
 - **No reporting or dashboard journey.** `project_overview.txt` names a `dashboards` domain covering lead funnels, conversion rates, and journey stages. Nothing is built, and the filters that exist today (lead stage, applicant status, journey stage) are the raw material rather than the feature.
-- **A notification journey now exists, but it is a parallel track rather than a stage of any journey above.** `notifications` shipped on 2026-07-24 (`concepts/notifications_flows.md`): passport expiry, checklist deadlines, offer response deadlines, uncollected documents, assignment, file rejection, and journey lifecycle all raise real alerts, and the passport `expiry_date` stored in anticipation is now read by a nightly sweep. What keeps it out of the journeys above is its shape — **it is downstream of every stage and part of none.** An alert is raised *because* a journey reached a stage or a deadline passed, and acting on it means leaving this module for the one that owns the work. It also cannot become a journey step in the ordinary way: **the feed is scoped to the calling user**, so "the applicant's alerts" is not a thing any screen can show — only "my alerts about this applicant".
+- **A notification journey now exists, but it is a parallel track rather than a stage of any journey above.** `notifications` shipped on 2026-07-24 (`concepts/notifications_flows.md`): passport expiry, checklist deadlines, offer response deadlines, uncollected documents, assignment, file rejection, and journey lifecycle all raise real alerts — and since 2026-10-29 so do lead creation/conversion/deletion/restore, applicant status and assignment changes, visit notes, documents marked ready, and language-test expiry, and the passport `expiry_date` stored in anticipation is now read by a nightly sweep. What keeps it out of the journeys above is its shape — **it is downstream of every stage and part of none.** An alert is raised *because* a journey reached a stage or a deadline passed, and acting on it means leaving this module for the one that owns the work. It also cannot become a journey step in the ordinary way: **the feed is scoped to the calling user**, so "the applicant's alerts" is not a thing any screen can show — only "my alerts about this applicant".
 - **No checklist journey.** `checklists` is a named domain in `project_overview.txt` and is not built.
 - **A file journey now exists, and one module has bound to it.** `uploaded_files` shipped on
   2026-07-24 (`concepts/uploaded_files_flows.md`) and a passport, transcript, offer letter, or
@@ -150,5 +151,5 @@ The one-directional arrangement is deliberate: `leads` owns both links to the ap
 - **An offer letter has a home, but the offer does not know about it.** Since 2026-07-24 the PDF can be stored — `POST /api/v1/files/` with `offer=<id>`, `category=offer_letter` — but an offer payload carries no file reference, so the Offer Detail supporting-files section is a second call keyed on the offer id. Giving `offers` a first-class letter reference is the change that would fold this into the journey proper.
 - **Offer conditions and `checklists` overlap and nothing reconciles them.** `offers` owns its own condition sub-records because `checklists` is unbuilt. Whether the two should merge when it ships is an open question in `concepts/offers.txt`.
 - **Deadline and expiry alerting exists now, and one thing about it is worth stating plainly: it does not change any status.** Since 2026-07-24 a nightly sweep raises alerts for a lapsed offer deadline, an overdue checklist item, and an expiring passport, so none of them depends on somebody looking at a list. But `notifications` owns no business state: an offer whose deadline passed is still `issued`, not `expired` — the alert tells a person to act, and only a person's decision moves the offer. Anyone reading a status field should not expect the sweep to have touched it.
-- **The education and test-score gap is visible mid-journey.** At conversion, `highest_qualification` and `language_test_status` are carried into journey notes as prose because their modules do not exist. When `education` and `test_scores` ship, this journey's step 4 gains a real destination for them and the conversion mapping should be revisited.
+- **Education and language tests now carry across conversion (2026-10-29).** A lead's qualification (when it has a level) becomes the applicant's first education record, and each language certificate an applicant language test — both kept on the applicant itself rather than separate modules. Only `language_test_status` and a level-less qualification still land in journey notes as prose.
 - **Whether a converted lead should remain visible to its originating Lead Manager in the lead list** is undecided. Today it does, at `stage: converted`, which means a Lead Manager's list accumulates terminal records they can no longer act on.

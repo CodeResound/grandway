@@ -14,6 +14,7 @@
 | 1.0.0 | 2026-08-19 | AI (Claude Opus 5) | Initial operator README, created during v1.0.0 production preparation |
 | 1.1.0 | 2026-09-10 | AI (Claude Fable 5.1) | Adopt the main/dev PR-based git cycle; `GUIDE.txt` becomes `deploy.md`; endpoint count 180 |
 | 1.1.1 | 2026-09-13 | AI (Claude Opus 5) | Releases are cut by one command end to end; §6 rewritten |
+| 2.0.0 | 2026-10-29 | AI (Claude Opus 5.5) | Status refreshed for v2.0.0: version, endpoint count 202, test count 1800 |
 
 ---
 
@@ -27,14 +28,14 @@ It is an API-only Django service. There is no server-rendered UI beyond the Djan
 
 | | |
 |---|---|
-| Version | 1.0.0 |
+| Version | 2.0.0 |
 | Runtime | Python 3.12 |
 | Framework | Django 5.2 LTS · Django REST Framework 3.17 |
 | Database | PostgreSQL 16 (required — see `deploy.md` §4 (Runtime requirements)) |
 | Auth | JWT (SimpleJWT), Argon2id hashing, django-axes lockout, TOTP-gated admin |
 | Apps | 18 business apps + `core` |
-| Endpoints | 180, all registered in the policy engine |
-| Tests | 1521 |
+| Endpoints | 202, all registered in the policy engine |
+| Tests | 1800 |
 
 ## 3. Where to go next
 

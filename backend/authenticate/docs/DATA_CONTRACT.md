@@ -1,10 +1,10 @@
 # Data Contract — Authenticate
 
 **Owner app:** `authenticate`
-**Version:** 1.3.0
+**Version:** 1.5.0
 **Status:** Active
 **Created:** 2026-07-22
-**Purpose:** Owns platform identity: the login account (`User`), its non-identity security state (`UserSecurityState`), revocable device-bound refresh sessions (`AuthSession`), and an append-only authentication audit log (`AuthEvent`). It establishes *who* is calling and *which authority level* applies. It does NOT own authorization decisions (which leads/applicants/documents a user may touch — those stay with operational apps), the failed-login counter (owned by `django-axes`), or MFA device secrets (owned by `django-otp`, MFA phase).
+**Purpose:** Owns platform identity: the login account (`User`), its non-identity security state (`UserSecurityState`), revocable device-bound refresh sessions (`AuthSession`), an append-only authentication audit log (`AuthEvent`), and each account's personal clipboard (`ClipboardCategory`, `ClipboardEntry` — it belongs to the account and holds no consultancy record). It establishes *who* is calling and *which authority level* applies. It does NOT own authorization decisions (which leads/applicants/documents a user may touch — those stay with operational apps), the failed-login counter (owned by `django-axes`), or MFA device secrets (owned by `django-otp`, MFA phase).
 
 ---
 
@@ -16,6 +16,8 @@
 | 1.1.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 2 MFA — external `TOTPDevice`, `mfa_change` revocation reason, 4 MFA event types, derived MFA state |
 | 1.2.0 | 2026-07-22 | AI (Claude Opus 4.8) | Phase 3 — account/session management: 3 new event types, block metadata usage, account create/reset payloads (no new tables) |
 | 1.3.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (User `full_name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
+| 1.4.0 | 2026-10-28 | AI (Claude Opus 5.5) | `AuthSession.revoked_reason` gains `expired` (idle/absolute expiry, previously recorded as `admin_revoked`); `AuthEvent.event_type` gains `refresh_rejected`. Choices-only migration `0006`, no schema change |
+| 1.5.0 | 2026-10-29 | AI (Claude Opus 5.5) | §6 `ClipboardCategory` and §7 `ClipboardEntry` — the personal per-account clipboard (frontend updates.md §5). Additive migration `0007_clipboard` (two new tables); clipboard delete payloads; central-audit-only events. Non-breaking |
 
 ---
 
@@ -127,7 +129,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Purpose:** A server-known, device-bound, revocable refresh session. Its `id` is the `sid` claim carried by every access JWT; the opaque refresh credential is stored only as a hash. Enforces device limits and rotation/reuse detection.
 **Table:** `authenticate_authsession`
-**`revoked_reason` choices:** `logout`, `password_change`, `replaced_same_device`, `rotated`, `rotated_reuse`, `device_limit`, `blocked`, `admin_revoked`, `mfa_change`
+**`revoked_reason` choices:** `logout`, `password_change`, `replaced_same_device`, `rotated`, `rotated_reuse`, `device_limit`, `blocked`, `admin_revoked`, `mfa_change`, `expired`. A session found expired at refresh is revoked with `expired` (rows before 2026-10-28 recorded `admin_revoked`, or were left active by a rollback); one whose user is inactive at refresh is revoked with `blocked`.
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
@@ -176,7 +178,7 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Purpose:** Immutable, append-only authentication audit trail. One row per security-relevant event, carrying actor, subject, outcome, and source — never any secret.
 **Table:** `authenticate_authevent`
-**`event_type` choices:** `superadmin_bootstrap`, `login_success`, `login_failure`, `forced_password_change`, `password_change`, `logout`, `session_refreshed`, `session_revoked`, `account_created`, `account_updated`, `account_blocked`, `account_restored`, `admin_password_reset`, `mfa_enabled`, `mfa_disabled`, `mfa_verification_failure`, `mfa_reset`
+**`event_type` choices:** `superadmin_bootstrap`, `login_success`, `login_failure`, `forced_password_change`, `password_change`, `logout`, `session_refreshed`, `session_revoked`, `account_created`, `account_updated`, `account_blocked`, `account_restored`, `admin_password_reset`, `mfa_enabled`, `mfa_disabled`, `mfa_verification_failure`, `mfa_reset`, `refresh_rejected`. `refresh_rejected` carries the rejection in `reason` (`not_found`, or the stale session's `revoked_reason`) and the stale session's user as `subject` when known. `session_refreshed` with `reason="grace_window"` marks a concurrent refresh answered without rotation.
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
@@ -231,6 +233,104 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 
 **Cross-App Dependencies:** `django-otp` (`otp_totp.TOTPDevice`) — see Cross-App Dependencies below.
 
+## 6. ClipboardCategory
+
+**Purpose:** A group a person makes for their own clipboard entries (2026-10-29, frontend updates.md §5). Personal like the clipboard: created, renamed, and deleted by its owner alone.
+**Table:** `authenticate_clipboardcategory`
+
+| Field | Type | Required | Nullable | Generated | Description |
+|-------|------|----------|----------|-----------|--------------|
+| id | UUID | — | No | Yes | Primary key (public id) |
+| user | FK(User) | Yes | No | No | Owner (`on_delete=CASCADE`, `related_name="clipboard_categories"`); never exposed — always the caller |
+| name | CharField(60) | Yes | No | No | Display name; Unicode-normalized and trimmed on write |
+| entry_count | int | — | No | Yes | Read-only, not stored — `Count("entries")` annotation (counted directly after create/rename) |
+| created_at | DateTime | — | No | Yes | Creation timestamp |
+| updated_at | DateTime | — | No | Yes | Last update timestamp |
+
+**Validation Rules:**
+- `name` required, ≤60, blank (after trim) rejected (`VALIDATION_ERROR`).
+- Unique per account ignoring case — service check → `AUTH_CLIPBOARD_CATEGORY_NAME_TAKEN` (400, `details.name`); DB backstop `UniqueConstraint(Lower("name"), "user", name="uniq_clipboard_category_name_per_user")`.
+- At most `MAX_CLIPBOARD_CATEGORIES` (50) per account → `AUTH_CLIPBOARD_CATEGORY_LIMIT_REACHED` (400); checked under a `select_for_update` lock on the owner row.
+
+**Indexes:** the functional unique constraint above (serves the case-insensitive name check). The list query is `filter(user=…)` over ≤50 rows, ordered by `Lower("name")`.
+
+**Soft Delete:** N/A — hard delete by the owner. Its entries are kept and become uncategorized (`ClipboardEntry.category` is `SET_NULL`); the delete response and the audit event carry `entries_uncategorized`. CASCADE-deleted with its `User` (users are never deleted in normal operation).
+
+**Example:**
+```json
+{ "id": "3c1f7e0a-5d2b-4b8e-9a61-0f2d4c6b8e11", "name": "Ward office", "entry_count": 4, "created_at": "2026-10-29T04:10:00Z", "updated_at": "2026-10-29T04:10:00Z" }
+```
+
+**Security Notes:** the name is personal text and is never written to the audit log (category events carry the id only).
+
+---
+
+## 7. ClipboardEntry
+
+**Purpose:** One saved snippet on a person's own clipboard. Every account has a clipboard — Superadmin included — and nobody can read another's. `text` is what gets copied and may hold an identity number (citizenship number), so it never reaches a log or the audit trail. `field_key` optionally ties the entry to a document form field so the form can suggest it there.
+**Table:** `authenticate_clipboardentry`
+
+| Field | Type | Required | Nullable | Generated | Description |
+|-------|------|----------|----------|-----------|--------------|
+| id | UUID | — | No | Yes | Primary key (public id) |
+| user | FK(User) | Yes | No | No | Owner (`on_delete=CASCADE`, `related_name="clipboard_entries"`); never exposed — always the caller |
+| label | CharField(120) | Yes | No | No | What the user sees in the picker; normalized and trimmed |
+| text | TextField | Yes | No | No | The snippet copied; ≤2000 (`MAX_CLIPBOARD_TEXT`, serializer-enforced); normalized and trimmed |
+| field_key | CharField(100) | No | No | No | Optional opaque dotted key naming a document form field (e.g. `father.name`, `ward.spokesperson.name`); `""` when unset. A client convention — the server validates only its shape |
+| category | FK(ClipboardCategory) | No | Yes | No | Owner's category (`on_delete=SET_NULL`, `related_name="entries"`); read as `{ id, name }` or `null` |
+| usage_count | PositiveInteger | — | No | Yes | Times the owner copied it (`use` action); default 0 |
+| last_used_at | DateTime | No | Yes | Yes | Last `use`; `null` until first used |
+| created_at | DateTime | — | No | Yes | Creation timestamp |
+| updated_at | DateTime | — | No | Yes | Last update (also bumped by `use`) |
+
+**Validation Rules:**
+- `label` required, ≤120; `text` required, ≤2000; both Unicode-normalized (`core.nepal.text.normalize_unicode`, CLAUDE.md §39.2) in the serializer and again in the service; blank after trim rejected.
+- `field_key` optional, ≤100, must match `CLIPBOARD_FIELD_KEY_RE` = `^[a-z0-9_]+(\.[a-z0-9_]+)*$` (ASCII, §39.7).
+- `category` must be one of the owner's own categories → else `AUTH_CLIPBOARD_CATEGORY_INVALID` (400, `details.category`).
+- At most `MAX_CLIPBOARD_ENTRIES` (200) per account → `AUTH_CLIPBOARD_LIMIT_REACHED` (400); counted under a `select_for_update` lock on the owner row inside `atomic()`.
+
+**Indexes:**
+- `clip_user_usage_idx` `(user, -usage_count)` — the list's owner-first ordering.
+- `clip_user_field_key_idx` `(user, field_key)` — the form lookup `?field_key=`.
+
+Default ordering: `-usage_count`, `last_used_at` desc nulls last, `-created_at`.
+
+**Soft Delete:** N/A — the owner hard-deletes an entry (nothing references it); the deletion is recorded as a central audit event carrying only the id and `field_key`. CASCADE-deleted with its `User`.
+
+**Example:**
+```json
+{
+  "id": "9b2d4f6a-1c3e-4a5b-8d7f-2e4c6a8b0d12",
+  "label": "Ward 7 chairman",
+  "text": "Ram Bahadur Thapa",
+  "field_key": "ward.spokesperson.name",
+  "category": { "id": "3c1f7e0a-5d2b-4b8e-9a61-0f2d4c6b8e11", "name": "Ward office" },
+  "usage_count": 5,
+  "last_used_at": "2026-10-29T05:02:11Z",
+  "created_at": "2026-10-29T04:12:40Z",
+  "updated_at": "2026-10-29T05:02:11Z"
+}
+```
+
+**Security Notes:** `label` and `text` may hold PII; neither is ever logged or audited. Not registered in Django admin (see `SECURITY.md` §12). No encryption at rest beyond the database's own protection.
+
+### Clipboard audit events (central `audit` log only)
+
+Written through `audit.services.record_event` with `app_label="authenticate"`, `source="authenticate"`, the owner as actor. **Not** written as `AuthEvent` rows — the clipboard is a personal tool, not account security. `use` is not audited.
+
+| `action` | `entity_type` | `metadata` |
+|----------|---------------|------------|
+| `clipboard_entry_created` | `authenticate.clipboard_entry` | `{ field_key }` |
+| `clipboard_entry_updated` | `authenticate.clipboard_entry` | `{ fields: [changed field names], field_key }` — only when something changed |
+| `clipboard_entry_deleted` | `authenticate.clipboard_entry` | `{ field_key }` |
+| `clipboard_category_created` | `authenticate.clipboard_category` | `{}` |
+| `clipboard_category_updated` | `authenticate.clipboard_category` | `{}` — only when the name changed |
+| `clipboard_category_deleted` | `authenticate.clipboard_category` | `{ entries_uncategorized }` |
+
+Never the label, text, or category name.
+
+---
+
 ## Request/Response Payload Contracts
 
 ### Account create/reset result
@@ -245,14 +345,25 @@ The concept file (`concepts/authenticate.txt`) and the initial session plan are 
 **Produced by:** `authenticate.services.create_managed_account` / `admin_reset_password`.
 **Consumed by:** the creating admin/superadmin UI (display once, deliver out-of-band).
 
+### Clipboard delete results
+
+**Purpose:** the non-model responses of the two clipboard deletes.
+**Shape:**
+```json
+{ "deleted": true, "entries_uncategorized": 3 }
+```
+- `DELETE /me/clipboard/<entry_id>/` returns `{ deleted: true }`; `DELETE /me/clipboard/categories/<category_id>/` returns `{ deleted: true, entries_uncategorized: int }` — how many of the caller's entries lost the category.
+**Produced by:** `authenticate.views.ClipboardDetailView` / `ClipboardCategoryDetailView` (count from `services.delete_clipboard_category`).
+**Consumed by:** the clipboard management UI.
+
 ## Cross-App Dependencies
 
 - **Depends on `django-axes`** (framework): the sole failed-login counter; the login service routes credential checks through `django.contrib.auth.authenticate()` so axes observes them. Axes' own tables (`AccessAttempt`/`AccessLog`/`AccessFailureLog`) are owned by axes, not modeled here.
 - **Depends on `django-otp`** (framework): `otp_totp.TOTPDevice` stores the TOTP secret and verifies codes for the MFA endpoints and the login MFA step. No custom MFA model is defined; MFA state is derived from `TOTPDevice.confirmed`.
-- **Depends on `audit`** (service call): `record_auth_event` also calls `audit.services.record_event` to federate each auth event into the central audit log. Best-effort — a failure is logged, never raised; `AuthEvent` remains this app's authoritative log. No model coupling (actor/subject are passed to audit as UUID values). Documented in `audit/docs/DATA_CONTRACT.md` and `INTEGRATION.md` §2.
-- **Depends on `core`** (framework): `core.models.BaseModel` (UUID+timestamps) for `UserSecurityState`/`AuthSession`/`AuthEvent`; `core.nepal.text` for name normalization.
+- **Depends on `audit`** (service call): `record_auth_event` also calls `audit.services.record_event` to federate each auth event into the central audit log. Best-effort — a failure is logged, never raised; `AuthEvent` remains this app's authoritative log. Clipboard writes (§6/§7) call `audit.services.record_event` **directly** (not best-effort, not via `AuthEvent`): if the audit insert fails the request errors and the clipboard write rolls back with it (each clipboard service is atomic). No model coupling (actor/subject are passed to audit as UUID values). Documented in `audit/docs/DATA_CONTRACT.md` and `INTEGRATION.md` §2.
+- **Depends on `core`** (framework): `core.models.BaseModel` (UUID+timestamps) for `UserSecurityState`/`AuthSession`/`AuthEvent`/`ClipboardCategory`/`ClipboardEntry`; `core.nepal.text` for name and clipboard-text normalization.
 - **Referenced by:** no other app yet. Future apps reference `authenticate.User` by FK for ownership/attribution and call `authenticate.selectors`/`services` (to be documented in both apps' contracts and this app's `INTEGRATION.md` §2 when that coupling is added).
 
 ## Soft Delete
 
-`User` and `UserSecurityState`: N/A (never deleted; blocking via `is_active`). `AuthSession`: revocation (`is_active=False` + `revoked_*`) is the retention-preserving soft delete. `AuthEvent`: N/A — append-only, immutable.
+`User` and `UserSecurityState`: N/A (never deleted; blocking via `is_active`). `AuthSession`: revocation (`is_active=False` + `revoked_*`) is the retention-preserving soft delete. `AuthEvent`: N/A — append-only, immutable. `ClipboardCategory`/`ClipboardEntry`: N/A — hard-deleted by their owner (a category's entries are kept, uncategorized); see §6/§7.

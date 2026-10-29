@@ -1,7 +1,7 @@
 # Data Contract — Leads
 
 **Owner app:** `leads`
-**Version:** 1.3.0
+**Version:** 1.5.0
 **Status:** Active
 **Created:** 2026-07-23
 **Purpose:** Owns the enquiry record and everything that happens to it before conversion — identity, contact numbers, source attribution, preliminary study interest, stage, manual follow-up, notes, and loss/reopen state. It does **not** own the applicant, the applicant journey, or any post-conversion data; those belong to the `applicants` and `applicant_journeys` apps. It owns no history table either — a lead's chronological history is the central `audit` log filtered to that lead.
@@ -16,6 +16,8 @@
 | 1.1.0 | 2026-07-24 | AI (Claude Opus 4.8) | Two search indexes added (no column change): GIN trigram on `Lead.email` and B-tree on `LeadContactNumber.number`, both supporting the widened `search_leads` |
 | 1.2.0 | 2026-07-25 | AI (Claude Opus 4.8) | **Breaking:** English-only names — dropped the `_np`/`_romanized` columns and renamed `_en` fields to bare (`full_name`, source/loss-reason `name`). Taken in place on `/api/v1/`; see the iterations log 20260725_0037 |
 | 1.3.0 | 2026-08-02 | AI (Claude Opus 5) | One search index added (no column change): GIN trigram on `LeadContactNumber.number`. Corrects `1.1.0` — the B-tree it added cannot serve the leading-wildcard `icontains` that `search_leads` issues, so phone search was scanning. Added for the `search` app's lead bucket |
+| 1.4.0 | 2026-10-29 | AI (Claude Opus 5.5) | **Schema change** (migration `0007_notes_categories_and_lead_soft_delete`): `Lead` soft delete (`deleted_at` indexed, `deleted_by`, `delete_reason`); `LeadNote` gains `category`, `noted_at` (backfilled from `created_at`), `updated_by`, `deleted_at`, `deleted_by`, and the `(lead, -noted_at)` index. Notes are no longer append-only; soft delete documented for both models |
+| 1.5.0 | 2026-10-29 | AI (Claude Opus 5.5) | **Schema change** (migration `0008_qualification_and_language_certificates`): study interest gains `highest_qualification_level`, `academic_score`/`_type`, `pass_year`/`_calendar`; new `LeadLanguageCertificate` (§5a). Additive — `highest_qualification` unchanged |
 
 ---
 
@@ -129,6 +131,9 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 | converted_journey | FK → applicant_journeys.ApplicantJourney | No | Yes | Yes | The initial journey created at conversion (`PROTECT`) |
 | converted_at | DateTime | No | Yes | Yes | When conversion occurred |
 | converted_by | FK → authenticate.User | No | Yes | Yes | The Admin who converted (`SET_NULL`) |
+| deleted_at | DateTime | No | Yes | Yes | Set by soft delete, cleared by restore; indexed — every lead list filters on it |
+| deleted_by | FK → authenticate.User | No | Yes | Yes | The Admin who deleted it (`SET_NULL`) |
+| delete_reason | CharField(500) | Conditional | No | No | Required to delete; cleared on restore |
 | created_at | DateTime | — | No | Yes | Set on insert |
 | updated_at | DateTime | — | No | Yes | Set on every save |
 
@@ -143,7 +148,8 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 - While `stage` is `lost` or `converted`, no stage movement or follow-up is permitted until the lead is reopened — otherwise `LEADS_STAGE_NOT_EDITABLE`.
 - Reopening clears all six loss fields but never touches any `converted_*` field, so a reopened converted lead stays permanently linked to its applicant.
 - `converted_applicant` is a **`OneToOneField`**, which puts "never create a second applicant from one lead" in the database rather than in service logic — the strongest available form of the idempotency §15 requires. Two leads cannot point at one applicant, and one lead cannot point at two.
-- Conversion requires **Admin** authority and an **active** stage. A lost or already-converted lead must be reopened first (`LEADS_CONVERSION_NOT_READY`).
+- Conversion requires **Admin** authority and an **active** stage. A lost or already-converted lead must be reopened first (`LEADS_CONVERSION_NOT_READY`). Conversion also copies the lead's live notes to the applicant (`applicants.services.import_lead_notes`).
+- No write is accepted on a soft-deleted lead (`LEADS_LEAD_DELETED`); a converted lead cannot be deleted (`LEADS_LEAD_ALREADY_CONVERTED`); `delete_reason` must be non-blank after normalization.
 - `leads` owns both conversion links, so `applicants` and `applicant_journeys` carry no dependency on this app. The reverse direction is available as `applicant.originating_lead`.
 
 **Indexes:**
@@ -153,7 +159,7 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 - `lead_email_trgm_idx` — GIN trigram on `email`, supporting the same leading-wildcard `icontains` now that `search_leads` matches the email as well (migration `0004_search_indexes`).
 - `stage` additionally carries `db_index=True` for single-column stage lookups.
 
-**Soft Delete:** N/A — leads are never deleted or archived in V1. A lead's availability is expressed entirely through its stage: active stages are still being tracked, `converted` entered the applicant lifecycle, `lost` did not proceed. There is no delete endpoint and no archive flag, deliberately, so the consultancy's enquiry history stays complete.
+**Soft Delete:** Yes, since 2026-10-29 (frontend `updates.md` §3.1). `deleted_at` / `deleted_by` / `delete_reason`, set by `DELETE /api/v1/leads/<id>/` (Admin, reason required) and cleared by `POST /restore/` (Admin). A deleted lead is excluded from every lead queryset by `get_leads_for_actor` — lists, global search, dashboard figures — is visible to an Admin only (by id or `?deleted=true`), and rejects every write with `LEADS_LEAD_DELETED`. Nothing is erased: the row, its notes, contact numbers, interest, and history stay, and the Django admin cannot hard-delete a lead. A **converted** lead cannot be deleted — it is an applicant's origin record. Deletion is distinct from `lost`: lost is an outcome that stays reportable; deleted means the lead should never have counted.
 
 **Example:**
 ```json
@@ -233,6 +239,8 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 **Table:** `leads_leadstudyinterest`
 **`study_level` choices:** `school`, `certificate`, `diploma`, `bachelors`, `postgraduate_diploma`, `masters`, `phd`, `other`
 **`language_test_status` choices:** `not_taken`, `preparing`, `booked`, `taken`, `not_required`
+**`highest_qualification_level` choices:** `see`, `plus_two`, `diploma`, `bachelor`, `master`, `phd`, `other` — `core.constants.HighestQualification`, shared with `applicants.ApplicantEducation.level`
+**`academic_score_type` choices:** `gpa`, `percentage` · **`pass_year_calendar` choices:** `bs`, `ad`
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
@@ -245,7 +253,12 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 | budget_amount | Decimal(12,2) | No | Yes | No | Approximate budget. `DecimalField`, never a float |
 | budget_currency | CharField(3) | No | No | No | ISO 4217 code, uppercased on write |
 | scholarship_interest | Boolean | No | No | No | Whether scholarships are of interest |
-| highest_qualification | CharField(150) | No | No | No | Current or highest qualification |
+| highest_qualification | CharField(150) | No | No | No | Free text: the programme or stream, e.g. "BBS", "Science" |
+| highest_qualification_level | CharField(20) | No | No | No | Its level on the Nepali ladder (2026-10-29) |
+| academic_score | Decimal(5,2) | Conditional | Yes | No | With `academic_score_type`; gpa 0–4, percentage 0–100 |
+| academic_score_type | CharField(20) | Conditional | No | No | With `academic_score` |
+| pass_year | PositiveSmallInteger | Conditional | Yes | No | With `pass_year_calendar`; BS 2000…this BS year+1, AD 1950…this year+1 |
+| pass_year_calendar | CharField(2) | Conditional | No | No | With `pass_year` |
 | language_test_status | CharField(20) | No | No | No | Where they stand on a language test |
 | interest_notes | TextField | No | No | No | Anything else relevant |
 | created_at | DateTime | — | No | Yes | Set on insert |
@@ -256,6 +269,7 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 - The whole record is optional too: a lead may have no `study_interest` row at all.
 - Text fields (`field_of_study`, `highest_qualification`, `interest_notes`) are Unicode-normalized on write.
 - `budget_amount` must be ≥ 0.
+- `academic_score` ⇔ `academic_score_type`, `pass_year` ⇔ `pass_year_calendar`, judged on the record **after** a partial update (`services._assert_study_interest_valid`) → `LEADS_STUDY_INTEREST_INVALID` with `details.fields`.
 - Managed nested inside the lead payload; supplying `study_interest` upserts the row (`update_or_create`), so a lead never accumulates more than one.
 
 **Soft Delete:** N/A — the row is upserted in place and cascade-deleted with its lead. Superseded interest values are not versioned; the `lead_interest_changed` audit event records that a change occurred.
@@ -271,6 +285,11 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
   "budget_currency": "NPR",
   "scholarship_interest": true,
   "highest_qualification": "BSc CSIT",
+  "highest_qualification_level": "bachelor",
+  "academic_score": "3.45",
+  "academic_score_type": "gpa",
+  "pass_year": 2080,
+  "pass_year_calendar": "bs",
   "language_test_status": "preparing",
   "interest_notes": "Prefers Melbourne."
 }
@@ -278,38 +297,95 @@ Field table, validation rules, indexes, and soft-delete contract are **identical
 
 ---
 
-## 6. LeadNote
+## 5a. LeadLanguageCertificate
 
-**Purpose:** A free-text note explaining where a lead stands, attributed to its author.
-**Table:** `leads_leadnote`
+**Purpose:** A language-test result the enquirer reports. Becomes an `applicants.ApplicantLanguageTest` at conversion, field for field.
+**Table:** `leads_leadlanguagecertificate`
+**`test_type` choices:** `ielts`, `pte`, `toefl`, `duolingo`, `other` — `core.constants.LanguageTestType`, shared with `applicants`
 
 | Field | Type | Required | Nullable | Generated | Description |
 |-------|------|----------|----------|-----------|--------------|
 | id | UUID | — | No | Yes | Primary key |
-| lead | FK → Lead | Yes | No | No | Owning lead (`CASCADE`) |
-| body | TextField | Yes | No | No | Note content, Unicode-normalized |
+| lead | FK → Lead | Yes | No | No | `CASCADE` (moot — a lead is never hard-deleted) |
+| test_type | CharField(20) | Yes | No | No | |
+| overall_score / listening_score / reading_score / writing_score / speaking_score | Decimal(5,1) | No | Yes | No | IELTS 0–9 (0.5 steps), PTE 10–90, TOEFL 0–120, Duolingo 10–160, other ≥0 |
+| test_date | Date | No | Yes | No | Not in the future |
+| certificate_number | CharField(100) | No | No | No | Normalized |
+| expiry_date | Date | No | Yes | No | After `test_date` |
+| created_at / updated_at | DateTime | — | No | Yes | Base-model timestamps |
+
+**Validation Rules:** `core.validators.language_test_errors` (shared with `applicants`, so conversion never copies a value one side rejects) → `LEADS_CERTIFICATE_INVALID` with `language_certificates[i].field`; at most 10 per lead → `LEADS_CERTIFICATE_LIMIT`. Managed nested: supplying `language_certificates` replaces the whole set.
+
+**Indexes:** `leadcert_type_lead_idx` — `(test_type, lead)`, serving the `?language_test_type=` `Exists` filter.
+
+**Soft Delete:** N/A — replaced wholesale with the lead's list; the audit event records the count, never scores.
+
+**Example:**
+```json
+{
+  "id": "2c3d4e5f-6071-4829-a3b4-c5d6e7f8091a",
+  "test_type": "ielts", "overall_score": "7.0", "listening_score": null, "reading_score": null,
+  "writing_score": null, "speaking_score": null, "test_date": "2025-03-01",
+  "test_date_bs": { "year": 2081, "month": 11, "day": 17, "month_name": "Falgun", "display": "2081 Falgun 17" },
+  "certificate_number": "", "expiry_date": null, "expiry_date_bs": null,
+  "created_at": "2026-10-29T04:00:00Z", "updated_at": "2026-10-29T04:00:00Z"
+}
+```
+
+**Cross-App Dependencies:** `core` (shared enum and validator). Copied to `applicants` at conversion through `applicants.services.import_lead_certificates`.
+
+---
+
+## 6. LeadNote
+
+**Purpose:** A note on where a lead stands — general, or a record of an office visit — attributed to its author and dated to when it happened.
+**Table:** `leads_leadnote`
+**`category` choices:** `general`, `visit` — `core.constants.NoteCategory`, shared with `applicants.ApplicantNote` (§4: one enum, two apps, because notes cross at conversion)
+
+| Field | Type | Required | Nullable | Generated | Description |
+|-------|------|----------|----------|-----------|--------------|
+| id | UUID | — | No | Yes | Primary key |
+| lead | FK → Lead | Yes | No | No | Owning lead (`CASCADE` — moot, a lead is never hard-deleted) |
+| category | CharField(20) | No | No | No | Defaults to `general` |
+| body | TextField | Yes | No | No | Note content, Unicode-normalized; ≤10 000 characters (API) |
+| noted_at | DateTime | No | No | No | When it happened, user-set and backdatable; defaults to now; indexed. Existing notes were backfilled with `created_at` (migration `0007`) |
 | author | FK → authenticate.User | Yes | No | No | Who wrote it (`PROTECT`) |
-| created_at | DateTime | — | No | Yes | Set on insert |
-| updated_at | DateTime | — | No | Yes | Present via the base model; never changes in practice |
+| updated_by | FK → authenticate.User | No | Yes | Yes | Last editor (`SET_NULL`) |
+| deleted_at | DateTime | No | Yes | Yes | Soft delete |
+| deleted_by | FK → authenticate.User | No | Yes | Yes | Who deleted it (`SET_NULL`) |
+| created_at | DateTime | — | No | Yes | When it was saved |
+| updated_at | DateTime | — | No | Yes | Last save |
+
+**Derived, read-only:** `noted_at_bs` (§39.4) and `is_backdated` — `created_at − noted_at > 15 min` (`core.validators.note_is_backdated`).
 
 **Validation Rules:**
-- `body` is required and Unicode-normalized.
-- Notes are **append-only**: there is no update or delete endpoint, and the Django admin registration blocks deletion. This follows from "a Lead Manager may not delete lead history."
-- Ordered newest first.
+- `body` is required, Unicode-normalized, and non-blank after normalization.
+- `noted_at` may not be later than now + 5 minutes (`core.validators.noted_at_is_in_future`) → `LEADS_NOTE_FUTURE_DATE`. No lower bound. A value without a UTC offset is read as Asia/Kathmandu.
+- Only the **author or an Admin** may edit or delete a note → `LEADS_NOTE_FORBIDDEN`.
+- No write while the lead is deleted (`LEADS_LEAD_DELETED`) or once it is converted (`LEADS_LEAD_ALREADY_CONVERTED`) — a converted lead's notes are copied to the applicant at conversion.
+- Ordered by `-noted_at`, then `-created_at`.
 
-**Soft Delete:** N/A — notes are never deleted. Deletion is blocked in the admin and no API route exists; the only cascade is with the parent lead, which is itself never deleted.
+**Indexes:** `leadnote_lead_noted_idx` — `(lead, -noted_at)`, the notes panel's default order. `noted_at` also carries `db_index=True`.
+
+**Soft Delete:** Yes, since 2026-10-29 (previously append-only). `DELETE …/notes/<id>/` sets `deleted_at`/`deleted_by`; the note leaves every list and 404s, but the row and its body remain and the audit log records the deletion. There is no restore endpoint for a note. The Django admin is read-only for notes and blocks deletion. This is how "a Lead Manager may not delete lead history" (`concepts/leads.txt`) survives notes becoming correctable: nothing a user does erases a note.
 
 **Example:**
 ```json
 {
   "id": "e1e2e3e4-9999-8888-7777-666655554444",
-  "body": "Wants Australia, needs IELTS.",
+  "category": "visit",
+  "body": "Visited the office with her father. Wants Australia, needs IELTS.",
+  "noted_at": "2026-07-22T09:30:00Z",
+  "noted_at_bs": { "year": 2083, "month": 4, "day": 6, "month_name": "Shrawan", "display": "2083 Shrawan 6" },
+  "is_backdated": true,
   "author": { "id": "aaaa1111-2222-3333-4444-555566667777", "username": "leadmgr", "display_name": "Leadmgr" },
-  "created_at": "2026-07-23T04:05:00Z"
+  "updated_by": null,
+  "created_at": "2026-07-23T04:05:00Z",
+  "updated_at": "2026-07-23T04:05:00Z"
 }
 ```
 
-**Cross-App Dependencies:** `authenticate.User` via `author` (FK reference only).
+**Cross-App Dependencies:** `authenticate.User` via `author`, `updated_by`, `deleted_by` (FK references only). `core.constants.NoteCategory` and the note helpers in `core.validators` (shared with `applicants`). At conversion the live notes are handed to `applicants.services.import_lead_notes` as plain values (`selectors.get_lead_note_exports`) — `applicants` never receives a `LeadNote`.
 
 ---
 

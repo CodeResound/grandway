@@ -9,8 +9,10 @@ in ``services.py``.
 the 53 template shapes are open (`Record<string, unknown> &`) and every one of
 them may carry keys this backend has never heard of. A serializer that named
 fields would silently drop them. Shape validation belongs to the frontend that
-renders the template; the backend checks only that the body is an object and
-fits (``services.assert_content_storable``).
+renders the template; the backend checks that the body is an object and fits
+(``services.assert_content_storable``), plus — for ``student-certificate``
+alone — the keys that template's frontend asked to have checked
+(``validators.validate_template_content``). Both run in the service layer.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from core.nepal.calendar import to_bs
 from core.nepal.text import normalize_unicode
 from rest_framework import serializers
 
-from documents.constants import DocumentFamily, DocumentStatus
+from documents.constants import TEMPLATE_VERSION_PATTERN, DocumentFamily, DocumentStatus
 from documents.models import Document
 from documents.validators import validate_template_key
 
@@ -111,6 +113,7 @@ class DocumentDetailSerializer(DocumentListSerializer):
         fields = (
             *DocumentListSerializer.Meta.fields,
             "content",
+            "template_version",
             "standalone_purpose",
             "notes",
             "is_editable",
@@ -136,6 +139,7 @@ class WorkspaceSummarySerializer(serializers.Serializer):
     applicant_id = serializers.UUIDField(read_only=True)
     applicant_name = serializers.SerializerMethodField()
     document_count = serializers.IntegerField(read_only=True)
+    archived_count = serializers.IntegerField(read_only=True)
     last_updated = serializers.DateTimeField(read_only=True)
 
     def get_applicant_name(self, obj: dict[str, Any]) -> str:
@@ -174,6 +178,7 @@ class DocumentCreateSerializer(_NormalizedTextMixin, serializers.Serializer):
     label = serializers.CharField(max_length=255)
 
     content = serializers.JSONField(required=False)
+    template_version = serializers.RegexField(TEMPLATE_VERSION_PATTERN, required=False)
     notes = serializers.CharField(max_length=5000, required=False, allow_blank=True)
 
 
@@ -189,6 +194,7 @@ class DocumentUpdateSerializer(_NormalizedTextMixin, serializers.Serializer):
 
     label = serializers.CharField(max_length=255, required=False)
     content = serializers.JSONField(required=False)
+    template_version = serializers.RegexField(TEMPLATE_VERSION_PATTERN, required=False)
     standalone_purpose = serializers.CharField(max_length=2000, required=False, allow_blank=True)
     notes = serializers.CharField(max_length=5000, required=False, allow_blank=True)
 
@@ -207,6 +213,14 @@ class ArchiveSerializer(_NormalizedTextMixin, serializers.Serializer):
     reason = serializers.CharField(max_length=2000)
 
 
+class RestoreSerializer(_NormalizedTextMixin, serializers.Serializer):
+    """The restore action's optional payload — why the document is back."""
+
+    text_fields = ("reason",)
+
+    reason = serializers.CharField(max_length=2000, required=False, allow_blank=True)
+
+
 # ---------------------------------------------------------------------------
 # Query strings
 # ---------------------------------------------------------------------------
@@ -223,7 +237,154 @@ class DocumentSearchSerializer(serializers.Serializer):
     applicant = serializers.UUIDField(required=False)
     standalone = serializers.BooleanField(required=False, allow_null=True, default=None)
     status = serializers.ChoiceField(choices=DocumentStatus.choices, required=False)
+    #: Archived documents are hidden unless this is true or ``status=archived``.
+    include_archived = serializers.BooleanField(required=False, default=False)
     family = serializers.ChoiceField(choices=DocumentFamily.choices, required=False)
     template_key = serializers.CharField(max_length=100, required=False)
     search = serializers.CharField(max_length=255, required=False)
     fiscal_year = serializers.RegexField(r"^\d{4}/\d{2}$", required=False)
+
+
+# ---------------------------------------------------------------------------
+# Document prefill — GET /documents/prefill/<applicant_id>/
+#
+# Shaped here with plain serializers rather than applicants' own: §4 lets this
+# app read applicants through its selectors, not import its serializers or
+# models. The shape is the contract the Woda and certificate forms fill from.
+# ---------------------------------------------------------------------------
+
+#: Relationships the prefill names, newest member wins when several exist.
+PREFILL_RELATIVES = ("father", "mother", "grandfather", "grandmother")
+
+
+def split_full_name(full_name: str) -> tuple[str, str, str]:
+    """(first, middle, last) from a single English name (§39.1 stores only one).
+
+    First word, last word, and whatever lies between. A heuristic — compound
+    surnames split wrongly — which is why the form fields stay editable.
+    """
+    words = (full_name or "").split()
+    if not words:
+        return "", "", ""
+    if len(words) == 1:
+        return words[0], "", ""
+    return words[0], " ".join(words[1:-1]), words[-1]
+
+
+def _address(addresses: list[Any], address_type: str) -> dict[str, Any] | None:
+    entry = next((a for a in addresses if a.address_type == address_type), None)
+    if entry is None:
+        return None
+    place = f"{entry.municipality}-{entry.ward}" if entry.municipality and entry.ward else entry.municipality
+    formatted = ", ".join(part for part in (entry.street_address, place, entry.district, entry.province) if part)
+    return {
+        "province": entry.province,
+        "district": entry.district,
+        "municipality": entry.municipality,
+        "ward_no": entry.ward,
+        "tole": entry.street_address,
+        "formatted": formatted,
+    }
+
+
+class PrefillEducationSerializer(serializers.Serializer):
+    level = serializers.CharField()
+    qualification = serializers.CharField()
+    institution = serializers.CharField()
+    country = serializers.CharField()
+    completion_status = serializers.CharField()
+    score = serializers.DecimalField(max_digits=5, decimal_places=2, allow_null=True)
+    score_type = serializers.CharField()
+    grading_system = serializers.CharField()
+    start_year = serializers.IntegerField(allow_null=True)
+    completion_year = serializers.IntegerField(allow_null=True)
+    year_calendar = serializers.CharField()
+
+
+class PrefillLanguageTestSerializer(serializers.Serializer):
+    test_type = serializers.CharField()
+    overall_score = serializers.DecimalField(max_digits=5, decimal_places=1, allow_null=True)
+    listening_score = serializers.DecimalField(max_digits=5, decimal_places=1, allow_null=True)
+    reading_score = serializers.DecimalField(max_digits=5, decimal_places=1, allow_null=True)
+    writing_score = serializers.DecimalField(max_digits=5, decimal_places=1, allow_null=True)
+    speaking_score = serializers.DecimalField(max_digits=5, decimal_places=1, allow_null=True)
+    test_date = serializers.DateField(allow_null=True)
+    test_date_bs = serializers.SerializerMethodField()
+    certificate_number = serializers.CharField()
+    expiry_date = serializers.DateField(allow_null=True)
+    expiry_date_bs = serializers.SerializerMethodField()
+
+    def get_test_date_bs(self, obj: Any) -> dict[str, Any] | None:
+        return _bs(obj.test_date)
+
+    def get_expiry_date_bs(self, obj: Any) -> dict[str, Any] | None:
+        return _bs(obj.expiry_date)
+
+
+class DocumentPrefillSerializer(serializers.Serializer):
+    """Everything a document form can fill from the applicant's file. Read-only.
+
+    Pass the applicant from ``selectors.get_prefill_applicant`` and
+    ``context={"photo_media_id": ...}``.
+    """
+
+    applicant = serializers.SerializerMethodField()
+    father = serializers.SerializerMethodField()
+    mother = serializers.SerializerMethodField()
+    grandfather = serializers.SerializerMethodField()
+    grandmother = serializers.SerializerMethodField()
+    educations = serializers.SerializerMethodField()
+    language_tests = serializers.SerializerMethodField()
+    photo_media_id = serializers.SerializerMethodField()
+
+    def get_applicant(self, obj: Any) -> dict[str, Any]:
+        first, middle, last = split_full_name(obj.full_name)
+        addresses = list(obj.addresses.all())
+        phone = next(iter(obj.contact_numbers.all()), None)
+        passport = getattr(obj, "passport", None)
+        return {
+            "first_name": first,
+            "middle_name": middle,
+            "last_name": last,
+            "full_name": obj.full_name,
+            "gender": obj.gender,
+            "date_of_birth": obj.date_of_birth.isoformat() if obj.date_of_birth else None,
+            "date_of_birth_bs": _bs(obj.date_of_birth),
+            "nationality": obj.nationality,
+            "citizenship_no": obj.citizenship_no,
+            "citizenship_issue_district": obj.citizenship_issue_district,
+            "national_id_no": obj.national_id_no,
+            "passport_no": passport.passport_number if passport else "",
+            "permanent_address": _address(addresses, "permanent"),
+            "current_address": _address(addresses, "current"),
+            "primary_email": obj.email,
+            "primary_phone": phone.number if phone else "",
+        }
+
+    def _relative(self, obj: Any, relationship: str) -> dict[str, Any] | None:
+        matches = [m for m in obj.family_members.all() if m.relationship == relationship]
+        if not matches:
+            return None
+        newest = max(matches, key=lambda m: m.created_at)
+        return {"name": newest.full_name, "citizenship_no": newest.citizenship_no, "occupation": newest.occupation}
+
+    def get_father(self, obj: Any) -> dict[str, Any] | None:
+        return self._relative(obj, "father")
+
+    def get_mother(self, obj: Any) -> dict[str, Any] | None:
+        return self._relative(obj, "mother")
+
+    def get_grandfather(self, obj: Any) -> dict[str, Any] | None:
+        return self._relative(obj, "grandfather")
+
+    def get_grandmother(self, obj: Any) -> dict[str, Any] | None:
+        return self._relative(obj, "grandmother")
+
+    def get_educations(self, obj: Any) -> list[dict[str, Any]]:
+        return PrefillEducationSerializer(obj.educations.all(), many=True).data
+
+    def get_language_tests(self, obj: Any) -> list[dict[str, Any]]:
+        return PrefillLanguageTestSerializer(obj.language_tests.all(), many=True).data
+
+    def get_photo_media_id(self, obj: Any) -> str | None:
+        return self.context.get("photo_media_id")

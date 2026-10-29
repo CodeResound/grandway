@@ -1,9 +1,32 @@
 # TEST SCORES — Grandway
 
-> **Status: concept only.** This module is not built. The concept is written now
-> so the boundary between it, the applicant record, and education is settled
-> before any of them is implemented. Building it requires its own session and the
-> §25/§26 gates.
+> **Status: folded into `applicants` (2026-10-29), language tests only.** There
+> is no separate test-scores module. Language-test results were built as an
+> applicant sub-record (`ApplicantLanguageTest`), written inline in the applicant
+> payload and replaced wholesale — see `backend/applicants/docs/INTEGRATION.md`.
+> The decisions below settle this concept's defining questions for V1.
+
+## Settled 2026-10-29 (frontend updates.md §1)
+
+* **Scope:** language tests only — IELTS, PTE, TOEFL, Duolingo, and Other. SAT,
+  GRE, and other standardized tests are out of scope.
+* **Test types:** a fixed enum, shared with lead certificates — not a
+  configurable reference table. Adding a test is a code change.
+* **Section scores:** every test has an overall score plus listening, reading,
+  writing, and speaking, each optional. Ranges are per test type and apply to
+  sections too: IELTS 0–9 in half-bands, PTE 10–90, TOEFL 0–120, Duolingo
+  10–160; Other is unchecked beyond non-negative.
+* **Dates:** a test date may not be in the future; an expiry date, when given,
+  must follow it. Expiry is a stored date, indexed, ready for expiry alerts.
+* **Current attempt:** no flag. Every recorded sitting is kept; which one is
+  submitted is a human decision.
+* **From a lead:** each language certificate on a converted lead becomes an
+  applicant language test, field for field.
+
+Deferred (not built): configurable test types with per-type section
+definitions, PTE enabling skills, non-language tests, a current-attempt flag,
+and what happens to an application when its score expires (alerts are planned
+with notifications).
 
 ## Purpose
 

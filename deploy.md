@@ -1,4 +1,4 @@
-# Grandway — Deployment Guide (v1.1.1, 2026-09-14)
+# Grandway — Deployment Guide (v2.0.0, 2026-10-29)
 
 This is the deployer contract for Grandway, written for an autonomous deployer agent — or an engineer — who has **no access to the source** and must deploy the application and then operate it. The target is a **single Ubuntu 24.04 LTS VPS**: bare metal or a VM, systemd, no containers, no cloud services. It is refreshed at every release; a release whose `deploy.md` does not match the tagged code is incomplete. Companion files, all under `deploy/` in the release: `env.production.example` (every variable, annotated), `gunicorn.conf.py` (application server config), `nginx.sample.conf` (reverse proxy), `grandway.service` (application unit), `grandway-sweep.service` + `grandway-sweep.timer` (nightly notification sweep), `grandway-backup.service` + `grandway-backup.timer` (nightly backup), `backup.sh` (snapshot script), `manage.sh` (runs `manage.py` with the production environment, as the right user), and `crontab.sample` (cron fallback for the sweep). Conventions: commands are in fenced `bash` blocks and run **as root** from a fresh shell unless a `sudo -u grandway` prefix says otherwise; the shell variables exported once at the end of §1 (Deployer inputs) are reused by every later command, so re-export them in any new shell before continuing.
 
@@ -99,7 +99,7 @@ Exceeding one returns `RATE_LIMIT_EXCEEDED` (429). `/health/` and `/ready/` are 
 | Working directory | The Django project lives under `backend/`; `core` is importable only from there, so the server must `--chdir backend` (`deploy/gunicorn.conf.py` lines 3–7). |
 | Invocation | `gunicorn --chdir backend --config deploy/gunicorn.conf.py core.wsgi:application` |
 | Runtime | Python 3.12 (`ruff.toml` `target-version = "py312"`; the project's own virtualenv runs 3.12.3). |
-| Framework | `Django==5.2.17`, `djangorestframework==3.17.2`, `psycopg[binary]==3.2.13` (`requirements/base.txt`); `gunicorn==23.0.0` (`requirements/production.txt`). |
+| Framework | `Django==5.2.18`, `djangorestframework==3.17.2`, `psycopg[binary]==3.2.13` (`requirements/base.txt`); `gunicorn==23.0.0` (`requirements/production.txt`). |
 | API prefix | `/api/v1/` |
 | Version at runtime | `GET /health/` returns `{"status":"ok","version":"1.0.0"}` (`backend/core/views.py` line 20). The value is read from the repo-root `VERSION` file (`backend/core/__init__.py` lines 13–16) and always equals the release tag without its `v`. |
 
@@ -272,6 +272,10 @@ This deployment ships **no** `.env.production`, so that guard never fires here; 
 | `AUTH_SESSION_ABSOLUTE_DAYS` | no | `7` | `base.py` line 354 | `config()` | — |
 | `AUTH_MAX_ACTIVE_DEVICES` | no | `3` | `base.py` line 355 | `config()` | — |
 | `AUTH_SESSION_LAST_USED_MINUTES` | no | `5` | `base.py` line 363 | `config()` | — |
+| `AUTH_REFRESH_REUSE_GRACE_SECONDS` | no | `30` | `base.py` line 413 | `config()` | seconds a just-rotated refresh token is still answered (concurrent tabs) instead of revoking the session; `0` disables and brings back sign-outs on concurrent refresh |
+| `AUTH_REFRESH_RATE` | no | `300/minute` | `base.py` line 370 | `config()` | per-IP refresh ceiling; a fixed 10/minute per-token limit sits beneath it. Lowering it throttles a whole office behind one IP |
+| `AUTH_REFRESH_COOKIE_SAMESITE` | no | `Lax` | `base.py` line 435 | `config()` | `Lax`, `Strict`, or `None`; anything else is `ImproperlyConfigured` at start-up. `Lax` when the frontend and API share a registrable domain; `None` only for a cross-site frontend |
+| `AUTH_REFRESH_COOKIE_DOMAIN` | no | empty (host-only) | `base.py` line 436 | `config()` | set (e.g. `.example.com`) only if the refresh cookie must be visible to sibling subdomains |
 | `AXES_FAILURE_LIMIT` | no | `5` | `base.py` line 207 | `config()` | — |
 | `AXES_COOLOFF_MINUTES` | no | `15` | `base.py` line 208 | `config()` | — |
 | `JWT_ISSUER` | no | `grandway` | `base.py` line 342 | `config()` | — |
@@ -735,9 +739,15 @@ grep -c '^SUPERADMIN_' /etc/grandway/grandway.env   # expected: 0
 
 One job. It runs from a **systemd timer** (`deploy/grandway-sweep.timer` → `deploy/grandway-sweep.service`), installed and enabled in §11 step 6. Cron is a fallback only.
 
-**`sweep_notifications`** — nightly at 02:15 Asia/Kathmandu (20:30 UTC). Raises alerts (checklist items due or overdue, missing documents, offer response deadlines passed or approaching, passport expiry, staff-set custom reminders) fanned out to every active Admin, and resolves alerts whose source condition has since cleared. Idempotent: every write is a `get_or_create` against a `(recipient, dedupe_key)` unique constraint, so it is safe to re-run and safe to run concurrently. It needs the full production environment — the unit loads the same `EnvironmentFile=` as the application, sets `ENVIRONMENT=production`, and runs as `grandway` so it can never leave a root-owned `app.log` (§8). If it never runs, no deadline notifications are raised or resolved; nothing else degrades, and the failure is silent from the API's perspective.
+**`sweep_notifications`** — nightly at 02:15 Asia/Kathmandu (20:30 UTC). Three passes, in order:
 
-Flags (`sweep_notifications.py` lines 66–106): `--type {checklist_item_due,checklist_item_overdue,missing_documents,offer_response_due,offer_expired,passport_expiring,custom_reminder}` (one generator; the resolve pass is narrowed to match), `--due-within-days N` (default 7), `--passport-horizon-days N` (default 180), `--limit N` (stop each generator after N rows; **implies `--no-resolve`**), `--dry-run`, `--no-resolve`.
+1. **Raise** alerts — checklist items due or overdue, missing documents, offer response deadlines passed or approaching, passport expiry, expiring language-test results (since v2.0.0), and staff-set custom reminders. Applicant-related alerts (passports, language tests, applicant reminders) go to every active Admin plus the applicant's assignee when one is set; the rest go to every active Admin.
+2. **Resolve** alerts whose source condition has since cleared.
+3. **Purge** (since v2.0.0) — **deletes** notifications older than `--retention-days` (default 90) that are event alerts (any status) or resolved deadline alerts. Dismissed and still-active deadline alerts are never purged: their row is what stops the same condition being raised again. The purge runs only on a full writing run — it is skipped under `--dry-run` and `--limit`. These rows are not recoverable except from a backup (§17); set `--retention-days 0` in the unit's `ExecStart=` to disable it.
+
+The last line of output reads `Sweep complete: X raised, Y resolved, Z purged.` Idempotent: every write is a `get_or_create` against a `(recipient, dedupe_key)` unique constraint, so it is safe to re-run and safe to run concurrently. It needs the full production environment — the unit loads the same `EnvironmentFile=` as the application, sets `ENVIRONMENT=production`, and runs as `grandway` so it can never leave a root-owned `app.log` (§8). If it never runs, no deadline notifications are raised or resolved; nothing else degrades, and the failure is silent from the API's perspective.
+
+Flags (`sweep_notifications.py` lines 68–128): `--type {checklist_item_due,checklist_item_overdue,missing_documents,offer_response_due,offer_expired,passport_expiring,custom_reminder,test_score_expiring}` (one generator; the resolve pass is narrowed to match), `--due-within-days N` (default 7), `--passport-horizon-days N` (default 180), `--test-score-horizon-days N` (default 90; already-expired results are always included), `--retention-days N` (default 90; `0` disables the purge), `--limit N` (stop each generator after N rows; **implies `--no-resolve`**), `--dry-run`, `--no-resolve`.
 
 ```bash
 systemctl list-timers 'grandway-*' --no-pager          # both timers listed with NEXT in the future
@@ -901,6 +911,8 @@ chmod -R a+rX /var/www/grandway/static
 sudo -u www-data test -r /var/www/grandway/static/admin/css/base.css && echo "static readable by nginx"   # expected: static readable by nginx
 ```
 
+**Upgrading to `v2.0.0`.** MAJOR because four API behaviours changed in place on `/api/v1/` (archived documents hidden from the default document list, un-archiving an applicant moved to the Admin-only restore, writes to a converted lead's notes rejected, refresh cookie persisting for the 7-day session lifetime) — not because of the schema. Escalate per step 1 so a human confirms the matching frontend build ships with it. The nine migrations (`applicants` 0006–0008, `authenticate` 0006–0007, `documents` 0002, `leads` 0007–0008, `notifications` 0003) are all additive: no column is dropped or retyped and no row is deleted; `leads` 0007 backfills `noted_at` from `created_at`, and the only new CHECK constraint is on the new clipboard table, so none needs an off-peak window. The four new environment variables (§7: `AUTH_REFRESH_REUSE_GRACE_SECONDS`, `AUTH_REFRESH_RATE`, `AUTH_REFRESH_COOKIE_SAMESITE`, `AUTH_REFRESH_COOKIE_DOMAIN`) are optional with safe defaults. From the first nightly run after the upgrade, `sweep_notifications` deletes event and resolved alerts older than 90 days (§13). The Django pin moved to `5.2.18`, so step 5 is a restart.
+
 **5. Reload or restart** (§10): code only → `systemctl reload grandway` (zero downtime); env file, `requirements/`, or a unit changed → `systemctl restart grandway`. Then poll:
 
 ```bash
@@ -1035,6 +1047,7 @@ certbot certificates                             # expiry of the live certificat
 | `Invalid HTTP_HOST header: 'grandway'. You may need to add 'grandway' to ALLOWED_HOSTS.` / 400 `DisallowedHost` | `journalctl -u grandway`; probes through nginx return 400 | nginx not forwarding `Host` (old probe blocks), or `ALLOWED_HOSTS` ≠ `$DOMAIN` | reinstall `deploy/nginx.sample.conf` (§9); fix `ALLOWED_HOSTS`; probes on the loopback need `-H "Host: $DOMAIN"` |
 | Browser `ERR_TOO_MANY_REDIRECTS`; `curl` loops on 301 to the same URL | any HTTPS page | nginx not sending `X-Forwarded-Proto https` | restore `proxy_set_header X-Forwarded-Proto $scheme;` in `location /` (§9) |
 | Every user gets 429 `RATE_LIMIT_EXCEEDED`, or one user's failures lock everyone out | API | `NUM_PROXIES=0` behind nginx, so every client is 127.0.0.1 | `NUM_PROXIES=1` (2 behind a CDN); restart (§7, §9) |
+| Users report being signed out repeatedly during the day | browser | depends — run `/opt/grandway/deploy/manage.sh auth_session_report --username <user>` for an affected account | `rotated_reuse` revocations → raise `AUTH_REFRESH_REUSE_GRACE_SECONDS` or fix the client's refresh; `refresh_rejected / replaced_same_device` → the account is logging in again on the same `device_id` (shared account); `refresh_rejected / expired` → idle/absolute lifetime (§7); many `AuthEvent` rows from one internal IP → `NUM_PROXIES` wrong (§9) |
 | `/admin/` renders with no CSS | browser; nginx `error.log` shows `Permission denied` on a `/static/` path | `collectstatic` not run; nginx `/static/` alias ≠ `STATIC_ROOT`; or the tree is not world-readable (host first deployed before v1.1.1) | `manage.sh collectstatic --noinput`; check `alias /var/www/grandway/static/;` (§8, §9); `chmod -R a+rX /var/www/grandway/static`, then `sudo -u www-data test -r /var/www/grandway/static/admin/css/base.css` |
 | `/admin/` refuses a correct password ("Please enter the correct username and password") | admin login page | the account has no confirmed TOTP device — the admin is OTP-gated | enrol MFA via the API (§12); the admin form needs the OTP token too |
 | `role "grandway" already exists` / `database "grandway" already exists` / `Superadmin 'superadmin' already exists; no changes made (idempotent).` | provisioning / bootstrap | re-run of an idempotent step | benign; continue |

@@ -7,7 +7,7 @@ class NotificationsConfig(AppConfig):
     verbose_name = "Notifications"
 
     def ready(self) -> None:
-        """Connect the five lifecycle-alert receivers (§11).
+        """Connect the lifecycle-alert receivers and the domain-event receiver (§11).
 
         Registered here rather than at module import time or in ``models.py``,
         so each receiver is connected exactly once and only after the app

@@ -101,11 +101,12 @@ def get_due_reminders() -> QuerySet[Reminder]:
     idempotent) across successive sweeps.
 
     ``select_related`` carries the owner rows so the alert composer can name
-    the applicant or client without one query per reminder.
+    the applicant or client — and route to its assignee — without one query
+    per reminder.
     """
     return (
         Reminder.objects.filter(status=ReminderStatus.ACTIVE, due_date__lte=nepal_today())
-        .select_related("applicant", "client")
+        .select_related("applicant__assigned_to", "client")
         .order_by("due_date", "created_at")
     )
 
