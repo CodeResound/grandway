@@ -6,7 +6,7 @@
 |-------|-------|
 | **Name** | Django |
 | **Purpose** | Web framework |
-| **Package** | `Django==5.2.17` |
+| **Package** | `Django==5.2.18` |
 | **Docs** | https://docs.djangoproject.com/en/5.2/ |
 | **Files used** | All |
 | **Alternatives considered** | FastAPI (rejected: less mature ORM + admin ecosystem for this use case) |
